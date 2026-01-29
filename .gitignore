@@ -1,0 +1,45 @@
+/kiosk-ai-app
+node_modules/
+venv/
+env/
+.env
+__pycache__/
+dist/
+# Dependencies (The big folders causing the 10k error)
+node_modules/
+jspm_packages/
+venv/
+env/
+.env
+bin/
+lib/
+share/
+
+# Build and Output
+dist/
+build/
+out/
+*.exe
+*.dll
+*.so
+
+# Python specific
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Logs and databases
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+*.sqlite
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
