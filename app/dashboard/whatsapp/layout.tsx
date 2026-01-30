@@ -9,9 +9,19 @@ import {
     Send,
     BarChart3,
     ArrowLeft,
-    MessageSquare
+    MessageSquare,
+    Mail,
+    Mic,
+    ChevronDown,
+    MessageCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const whatsappSidebarItems = [
     {
@@ -65,6 +75,45 @@ export default function WhatsappLayout({
                     </div>
                 </div>
 
+                <div className="px-4 pb-2">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant="outline"
+                                className="w-full justify-between bg-white border-slate-200 text-slate-700 hover:bg-slate-50 h-10 shadow-sm"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <LayoutDashboard className="h-4 w-4 text-green-600" />
+                                    <span>Switch Dashboard</span>
+                                </span>
+                                <ChevronDown className="h-4 w-4 opacity-50" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[220px]" side="top">
+                            <DropdownMenuItem asChild>
+                                <Link href="/dashboard" className="cursor-pointer w-full flex items-center">
+                                    <LayoutDashboard className="mr-2 h-4 w-4" /> Master Overview
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link href="/dashboard/email" className="cursor-pointer w-full flex items-center">
+                                    <Mail className="mr-2 h-4 w-4" /> Email Marketing
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link href="/dashboard/whatsapp" className="cursor-pointer w-full flex items-center">
+                                    <MessageCircle className="mr-2 h-4 w-4" /> WhatsApp CRM
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link href="/dashboard/voice" className="cursor-pointer w-full flex items-center">
+                                    <Mic className="mr-2 h-4 w-4" /> Voice Agent
+                                </Link>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+
                 <div className="px-4 py-2">
                     <div className="h-[1px] w-full bg-zinc-100"></div>
                 </div>
@@ -89,12 +138,7 @@ export default function WhatsappLayout({
                 </nav>
 
                 <div className="mt-auto p-4 mb-4">
-                    <Button variant="ghost" className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 hover:bg-zinc-100" asChild>
-                        <Link href="/dashboard">
-                            <ArrowLeft className="h-4 w-4" />
-                            Master Dashboard
-                        </Link>
-                    </Button>
+                    {/* Switcher moved to top */}
                 </div>
             </aside>
 
