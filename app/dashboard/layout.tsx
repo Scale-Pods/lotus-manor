@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Mail, MessageCircle, Mic, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Mail, MessageCircle, Mic, Settings, LogOut, ChevronDown, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const sidebarItems = [
@@ -79,7 +79,24 @@ export default function DashboardLayout({
                         );
                     })}
                 </nav>
-                <div className="mt-auto p-4 mb-4">
+                <div className="mt-auto p-4 mb-4 space-y-4">
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl p-4 text-white shadow-lg relative overflow-hidden group hover:shadow-xl transition-all duration-300">
+                        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                            <Wallet className="h-12 w-12" />
+                        </div>
+                        <div className="flex items-center gap-2 mb-2 relative z-10">
+                            <div className="p-1.5 bg-white/10 rounded-lg backdrop-blur-sm">
+                                <Wallet className="h-4 w-4 text-emerald-400" />
+                            </div>
+                            <span className="text-xs font-medium text-slate-300">Voice Credits</span>
+                        </div>
+                        <div className="flex items-baseline gap-1 relative z-10">
+                            <span className="text-2xl font-bold tracking-tight">$12.50</span>
+                            <span className="text-xs text-slate-400">USD</span>
+                        </div>
+                    
+                    </div>
+
                     <Button variant="ghost" className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 hover:bg-zinc-100" asChild>
                         <Link href="/">
                             <LogOut className="h-4 w-4" />
