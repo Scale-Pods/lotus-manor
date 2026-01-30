@@ -7,7 +7,6 @@ import {
     Bell,
     RefreshCw,
     Database,
-    Calendar as CalendarIcon,
     Send,
     CheckCircle2,
     Eye,
@@ -30,13 +29,7 @@ import {
     Line,
     Legend
 } from "recharts";
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { cn } from "@/lib/utils";
 
 // Empty data for initial state as requested
@@ -64,43 +57,11 @@ export default function EmailAnalyticsPage() {
             {/* Section Header & Filters */}
             <div className="space-y-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="flex items-center gap-2">
-                        <TimeFilterButton
-                            label="Last 24 Hours"
-                            active={activeRange === "24h"}
-                            onClick={() => setActiveRange("24h")}
-                        />
-                        <TimeFilterButton
-                            label="Last 7 Days"
-                            active={activeRange === "7d"}
-                            onClick={() => setActiveRange("7d")}
-                        />
-                        <TimeFilterButton
-                            label="Last 30 Days"
-                            active={activeRange === "30d"}
-                            onClick={() => setActiveRange("30d")}
-                        />
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Button variant="outline" className={cn("bg-white border-slate-200 text-slate-700 hover:bg-slate-50 gap-2", activeRange === "custom" && "border-blue-500 text-blue-600 bg-blue-50")}>
-                                    <CalendarIcon className="h-4 w-4" /> Custom Range
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="end">
-                                <Calendar
-                                    mode="single"
-                                    initialFocus
-                                    onSelect={() => setActiveRange("custom")}
-                                />
-                            </PopoverContent>
-                        </Popover>
-                    </div>
+                    
                     <Button variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 gap-2">
                         <RefreshCw className="h-4 w-4" /> Refresh
-                    </Button>
+                    </Button><DateRangePicker />
                 </div>
-
-
             </div>
 
             {/* Metrics Grid */}
@@ -205,22 +166,7 @@ export default function EmailAnalyticsPage() {
     );
 }
 
-function TimeFilterButton({ label, active, onClick }: { label: string, active: boolean, onClick: () => void }) {
-    return (
-        <Button
-            variant={active ? "default" : "secondary"}
-            className={cn(
-                "transition-all",
-                active
-                    ? "bg-blue-600 hover:bg-blue-700 text-white"
-                    : "bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800"
-            )}
-            onClick={onClick}
-        >
-            {label}
-        </Button>
-    );
-}
+
 
 function MetricCard({ label, value, icon: Icon, color, iconBg, iconColor }: any) {
     return (

@@ -26,6 +26,7 @@ import {
     DropdownMenuTrigger,
     DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 const leads = [
     { id: 1, name: "Akshitha O", company: "rugr", position: "Director, Sales", email: "akshitha@rugr.com", phone: "919035076409", status: "Unknown", scanned: "1/29/2026, 3:17:35 PM" },
@@ -62,7 +63,7 @@ export default function WhatsappLeadsPage() {
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Leads</h1>
                     <p className="text-slate-500">Click on any column header to analyze that field</p>
                 </div>
-                
+                <DateRangePicker />
             </div>
 
             {/* Status Filter Section */}
@@ -207,7 +208,7 @@ function StatusCard({ title, value, borderColor, accentColor }: any) {
             <CardContent className="p-4">
                 <p className={`text-xs font-bold uppercase tracking-wider ${accentColor} mb-1`}>{title}</p>
                 <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
-                
+
             </CardContent>
         </Card>
     );

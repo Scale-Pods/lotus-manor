@@ -3,10 +3,8 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Phone, Clock, DollarSign, TrendingUp, Calendar as CalendarIcon, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { format } from "date-fns";
 import React from "react";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
     BarChart,
     Bar,
@@ -36,7 +34,6 @@ const hourlyCallDistributionData = [
 ];
 
 export default function VoiceDashboardPage() {
-    const [date, setDate] = React.useState<Date | undefined>(new Date());
 
     return (
         <div className="space-y-8 pb-10">
@@ -47,29 +44,11 @@ export default function VoiceDashboardPage() {
                     <p className="text-slate-500">Monitor your AI voice agent performance.</p>
                 </div>
                 <div className="flex items-center gap-4">
-                    
+                    <DateRangePicker />
                 </div>
             </div>
 
-            {/* Filters Section */}
-            <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm w-fit">
-                <Popover>
-                    <PopoverTrigger asChild>
-                        <Button variant="ghost" className="justify-start text-left font-normal bg-slate-50 border-input hover:bg-slate-100 gap-2 px-3">
-                            <CalendarIcon className="mr-2 h-4 w-4 text-slate-500" />
-                            <span className="text-slate-700">22 Jan 26 - 29 Jan 26</span>
-                        </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                            mode="single"
-                            selected={date}
-                            onSelect={setDate}
-                            initialFocus
-                        />
-                    </PopoverContent>
-                </Popover>
-            </div>
+
 
             {/* Metrics Overview */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

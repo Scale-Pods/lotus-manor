@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { RefreshCw, Play, ChevronLeft, ChevronRight, User } from "lucide-react";
 import React, { useState } from "react";
 import { CallDetailsModal } from "@/components/voice/call-details-modal";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 const calls = [
     { id: '2175e2ff...be89ce', status: 'Completed', duration: '1m 58s', cost: '$0.16', date: 'Jan 28, 2026, 12:32 PM' },
@@ -39,10 +40,10 @@ export default function VoiceLogsPage() {
                     <p className="text-slate-500">History of all voice agent interactions.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <DateRangePicker />
                     <Button variant="outline" size="sm" className="gap-2">
                         <RefreshCw className="h-4 w-4" /> Refresh
                     </Button>
-                    
                 </div>
             </div>
 

@@ -25,6 +25,7 @@ import {
     CartesianGrid,
     Tooltip
 } from "recharts";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 const donutData = [
     { name: 'Total Leads', value: 35, color: '#8b5cf6' }, // Purple
@@ -48,7 +49,7 @@ export default function WhatsappDashboardPage() {
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Overview</h1>
                     <p className="text-slate-500">Real-time insights and campaign management</p>
                 </div>
-                
+                <DateRangePicker />
             </div>
 
             {/* Overview Metric Cards */}
@@ -224,7 +225,7 @@ function StatusCard({ title, value, borderColor, accentColor }: any) {
             <CardContent className="p-4">
                 <p className={`text-xs font-bold uppercase tracking-wider ${accentColor} mb-1`}>{title}</p>
                 <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
-                
+
             </CardContent>
         </Card>
     );

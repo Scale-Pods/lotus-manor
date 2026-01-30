@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Send, CheckCheck, Clock, XCircle, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 const messages = [
     { id: 1, recipient: "+971 50 123 4567", message: "Hello! Welcome to Lotus Manor. How can we help you today?", status: "Read", time: "10:30 AM" },
@@ -20,6 +21,7 @@ export default function WhatsappSentPage() {
                     <h1 className="text-2xl font-bold">Total Sent Messages</h1>
                     <p className="text-slate-500">History of all outbound WhatsApp communications</p>
                 </div>
+                <DateRangePicker />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -47,8 +49,8 @@ export default function WhatsappSentPage() {
                                     <div className="flex items-center gap-3 mt-2">
                                         <span className="text-[10px] text-slate-400 uppercase font-bold">{msg.time}</span>
                                         <span className={`flex items-center gap-1 text-[10px] font-bold uppercase ${msg.status === 'Read' ? 'text-blue-500' :
-                                                msg.status === 'Delivered' ? 'text-emerald-500' :
-                                                    msg.status === 'Failed' ? 'text-rose-500' : 'text-slate-400'
+                                            msg.status === 'Delivered' ? 'text-emerald-500' :
+                                                msg.status === 'Failed' ? 'text-rose-500' : 'text-slate-400'
                                             }`}>
                                             {msg.status === 'Read' && <CheckCheck className="h-3 w-3" />}
                                             {msg.status === 'Delivered' && <CheckCheck className="h-3 w-3" />}
