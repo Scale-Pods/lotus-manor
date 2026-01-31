@@ -49,7 +49,7 @@ export default function WhatsappDashboardPage() {
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Overview</h1>
                     <p className="text-slate-500">Real-time insights and campaign management</p>
                 </div>
-                <DateRangePicker />
+                <DateRangePicker onUpdate={(range) => console.log("WhatsApp Dashboard Date Update:", range)} />
             </div>
 
             {/* Overview Metric Cards */}

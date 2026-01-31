@@ -40,7 +40,7 @@ export default function VoiceLogsPage() {
                     <p className="text-slate-500">History of all voice agent interactions.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <DateRangePicker />
+                    <DateRangePicker onUpdate={(range) => console.log("Voice Logs Date Update:", range)} />
                     <Button variant="outline" size="sm" className="gap-2">
                         <RefreshCw className="h-4 w-4" /> Refresh
                     </Button>

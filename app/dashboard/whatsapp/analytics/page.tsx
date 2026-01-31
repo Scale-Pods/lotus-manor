@@ -33,7 +33,7 @@ export default function WhatsappAnalyticsPage() {
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Analytics</h1>
                     <p className="text-slate-500 text-sm">Detailed performance metrics for your WhatsApp channel</p>
                 </div>
-                <DateRangePicker />
+                <DateRangePicker onUpdate={(range) => console.log("WhatsApp Analytics Date Update:", range)} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

@@ -57,10 +57,11 @@ export default function EmailAnalyticsPage() {
             {/* Section Header & Filters */}
             <div className="space-y-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    
+
                     <Button variant="ghost" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 gap-2">
                         <RefreshCw className="h-4 w-4" /> Refresh
-                    </Button><DateRangePicker />
+                    </Button>
+                    <DateRangePicker onUpdate={(range) => console.log("Analytics Date Update:", range)} />
                 </div>
             </div>
 
@@ -105,7 +106,7 @@ export default function EmailAnalyticsPage() {
                     iconColor="text-rose-600"
                 />
                 <MetricCard
-                    label="Total Complaints"
+                    label="Total Unsubscribed"
                     value="0"
                     icon={AlertTriangle}
                     iconBg="bg-orange-50"

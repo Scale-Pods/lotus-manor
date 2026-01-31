@@ -51,11 +51,7 @@ const emailSidebarItems = [
         href: "/dashboard/email/analytics",
         icon: BarChart3,
     },
-    {
-        title: "Credentials",
-        href: "/dashboard/email/credentials",
-        icon: Key,
-    },
+
 ];
 
 export default function EmailLayout({

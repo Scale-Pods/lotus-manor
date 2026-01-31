@@ -18,6 +18,7 @@ import {
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useState } from "react";
 
 const volumeData = [
     { name: '1', value: 4 },
@@ -60,6 +61,8 @@ const heatmapData = [
 ];
 
 export default function VoiceAnalyticsPage() {
+    const [statusFilter, setStatusFilter] = useState("all");
+
     return (
         <div className="space-y-8 pb-10">
             {/* Header */}
@@ -69,9 +72,12 @@ export default function VoiceAnalyticsPage() {
                     <p className="text-slate-500">Comprehensive insights into voice agent performance.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                    <DateRangePicker />
-                    
-                    <Select defaultValue="all">
+                    <DateRangePicker onUpdate={(range) => console.log("Voice Analytics Date Update:", range)} />
+
+                    <Select value={statusFilter} onValueChange={(val) => {
+                        setStatusFilter(val);
+                        console.log("Voice Analytics Status Filter:", val);
+                    }}>
                         <SelectTrigger className="w-[150px] bg-white">
                             <SelectValue placeholder="Status" />
                         </SelectTrigger>

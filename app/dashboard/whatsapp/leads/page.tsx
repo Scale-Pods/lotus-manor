@@ -63,7 +63,7 @@ export default function WhatsappLeadsPage() {
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Leads</h1>
                     <p className="text-slate-500">Click on any column header to analyze that field</p>
                 </div>
-                <DateRangePicker />
+                <DateRangePicker onUpdate={(range) => console.log("WhatsApp Leads Date Update:", range)} />
             </div>
 
             {/* Status Filter Section */}

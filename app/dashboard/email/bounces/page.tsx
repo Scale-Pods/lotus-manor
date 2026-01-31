@@ -36,6 +36,20 @@ import {
 } from "lucide-react";
 import React, { useState } from "react";
 import Link from "next/link";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 const bounces = [
     {
@@ -77,73 +91,139 @@ const bounces = [
 ];
 
 export default function BouncedEmailsPage() {
+    const [filters, setFilters] = useState({
+        campaign: "all",
+        type: "all",
+        sender: "all"
+    });
+
+    const handleFilterChange = (key: string, value: string) => {
+        setFilters(prev => ({ ...prev, [key]: value }));
+        console.log(`Bounce Filter ${key} changed to:`, value);
+    };
+
     return (
-        <div className="space-y-6 pb-10">
-            {/* Page Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Bounced Emails</h1>
-                    <p className="text-slate-500">View all emails that bounced</p>
-                </div>
-
-            </div>
-
-            {/* Stats Summary */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard title="Total Bounces" value="8" />
-                <StatCard title="Hard Bounces" value="5" color="text-rose-600" />
-                <StatCard title="Soft Bounces" value="3" color="text-orange-600" />
-                <StatCard title="Bounce Rate" value="0.3%" color="text-slate-600" />
-            </div>
-
-            {/* Filters & Search */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                <div className="flex flex-col md:flex-row gap-4">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                        <Input className="pl-10" placeholder="Search by recipient email or sender..." />
-                    </div>
-                    <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0">
-                        <div className="flex items-center justify-center px-3 py-2 border rounded-md text-sm text-slate-600 bg-white">
-                            All Campaigns <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
-                        </div>
-                        <div className="flex items-center justify-center px-3 py-2 border rounded-md text-sm text-slate-600 bg-white">
-                            Bounce Type <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
-                        </div>
-                        <div className="flex items-center justify-center px-3 py-2 border rounded-md text-sm text-slate-600 bg-white">
-                            All Senders <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
-                        </div>
-                        <DateFilter />
+        <TooltipProvider>
+            <div className="space-y-6 pb-10">
+                {/* Page Header */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-900">Bounced Emails</h1>
+                        <p className="text-slate-500">View all emails that bounced</p>
                     </div>
 
                 </div>
-            </div>
 
-            {/* Bounced Email List */}
-            <div className="space-y-4">
-                {bounces.map((bounce) => (
-                    <BounceCard key={bounce.id} bounce={bounce} />
-                ))}
-            </div>
 
-            {/* Pagination */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-200">
-                <p className="text-sm text-slate-500">Showing 1-10 of 8 bounced emails</p>
-                <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" disabled>Previous</Button>
-                    <span className="text-sm font-medium text-slate-600">Page 1 of 1</span>
-                    <Button variant="outline" size="sm" disabled>Next</Button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <StatCard title="Total Bounces" value="8" />
+                    <StatCard
+                        title="Hard Bounces"
+                        value="5"
+                        color="text-rose-600"
+                        tooltip="Permanent failures (e.g., invalid email address). These contacts should be removed immediately."
+                    />
+                    <StatCard
+                        title="Soft Bounces"
+                        value="3"
+                        color="text-orange-600"
+                        tooltip="Temporary failures (e.g., mailbox full). Consistently soft-bouncing emails should eventually be removed."
+                    />
+                    <StatCard
+                        title="Technical Bounces"
+                        value="0"
+                        color="text-yellow-600"
+                        tooltip="Failures due to technical issues (e.g., server timeout). Worth retrying later."
+                    />
+                </div>
+
+                {/* Filters & Search */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex flex-col md:flex-row gap-4">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                            <Input className="pl-10" placeholder="Search by recipient email or sender..." />
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0">
+                            <Select value={filters.campaign} onValueChange={(val) => handleFilterChange("campaign", val)}>
+                                <SelectTrigger className="w-[160px] bg-white text-slate-600">
+                                    <SelectValue placeholder="All Campaigns" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Campaigns</SelectItem>
+                                    <SelectItem value="q1">Q1 Outreach</SelectItem>
+                                    <SelectItem value="newsletter">Newsletter</SelectItem>
+                                </SelectContent>
+                            </Select>
+
+                            <Select value={filters.type} onValueChange={(val) => handleFilterChange("type", val)}>
+                                <SelectTrigger className="w-[160px] bg-white text-slate-600">
+                                    <SelectValue placeholder="Bounce Type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Types</SelectItem>
+                                    <SelectItem value="hard">Hard Bounce</SelectItem>
+                                    <SelectItem value="soft">Soft Bounce</SelectItem>
+                                    <SelectItem value="technical">Technical Bounce</SelectItem>
+                                </SelectContent>
+                            </Select>
+
+                            <Select value={filters.sender} onValueChange={(val) => handleFilterChange("sender", val)}>
+                                <SelectTrigger className="w-[160px] bg-white text-slate-600">
+                                    <SelectValue placeholder="All Senders" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Senders</SelectItem>
+                                    <SelectItem value="adnan">Adnan Shaikh</SelectItem>
+                                    <SelectItem value="support">Support Team</SelectItem>
+                                </SelectContent>
+                            </Select>
+
+                            <DateRangePicker onUpdate={(range) => console.log("Bounced Emails Date Update:", range)} />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Bounced Email List */}
+                <div className="space-y-4">
+                    {bounces.map((bounce) => (
+                        <BounceCard key={bounce.id} bounce={bounce} />
+                    ))}
+                </div>
+
+                {/* Pagination */}
+                <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                    <p className="text-sm text-slate-500">Showing 1-10 of 8 bounced emails</p>
+                    <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" disabled>Previous</Button>
+                        <span className="text-sm font-medium text-slate-600">Page 1 of 1</span>
+                        <Button variant="outline" size="sm" disabled>Next</Button>
+                    </div>
                 </div>
             </div>
-        </div>
+        </TooltipProvider>
     );
 }
 
-function StatCard({ title, value, color }: any) {
+function StatCard({ title, value, color, tooltip }: any) {
     return (
         <Card className="border-slate-200 shadow-sm bg-white">
             <CardContent className="p-4 flex flex-col items-center justify-center text-center">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">{title}</span>
+                <div className="flex items-center gap-1 mb-1">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{title}</span>
+                    {tooltip && (
+                        <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                                <span className="cursor-pointer">
+                                    <Info className="h-3 w-3 text-slate-400 hover:text-slate-600" />
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p className="max-w-[200px] text-xs">{tooltip}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
+                </div>
                 <span className={`text-2xl font-bold ${color || 'text-slate-900'}`}>{value}</span>
             </CardContent>
         </Card>
@@ -247,39 +327,4 @@ function DetailRow({ label, value, valueClass }: any) {
         </div>
     );
 }
-function DateFilter() {
-    const [date, setDate] = useState<Date>();
-    const [isMounted, setIsMounted] = useState(false);
 
-    React.useEffect(() => {
-        setIsMounted(true);
-    }, []);
-
-    if (!isMounted) {
-        return (
-            <div className={cn("flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-600 animate-pulse")}>
-                <Calendar className="h-4 w-4 opacity-70" />
-                <span className="w-24 h-4 bg-slate-100 rounded"></span>
-            </div>
-        );
-    }
-
-    return (
-        <Popover>
-            <PopoverTrigger asChild>
-                <div className={cn("flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm text-slate-600 cursor-pointer hover:border-slate-300 transition-colors", !date && "text-muted-foreground")}>
-                    <Calendar className="h-4 w-4 opacity-70" />
-                    {date ? format(date, "PPP") : <span>Select dates</span>}
-                </div>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-                <CalendarComponent
-                    mode="single"
-                    selected={date}
-                    onSelect={setDate}
-                    initialFocus
-                />
-            </PopoverContent>
-        </Popover>
-    );
-}

@@ -44,7 +44,7 @@ export default function VoiceDashboardPage() {
                     <p className="text-slate-500">Monitor your AI voice agent performance.</p>
                 </div>
                 <div className="flex items-center gap-4">
-                    <DateRangePicker />
+                    <DateRangePicker onUpdate={(range) => console.log("Voice Dashboard Date Update:", range)} />
                 </div>
             </div>
 

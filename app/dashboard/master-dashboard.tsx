@@ -12,7 +12,10 @@ import {
     PieChart as PieChartIcon,
     ArrowUpRight,
     ArrowDownRight,
-    Activity
+    Activity,
+    Maximize2,
+    Minimize2,
+    X
 } from "lucide-react";
 import {
     AreaChart,
@@ -30,6 +33,10 @@ import {
     Legend
 } from 'recharts';
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
 
 const acquisitionData = [
     { name: 'Mon', leads: 400, conv: 240 },
@@ -55,6 +62,18 @@ const weeklyPerformance = [
 ];
 
 export default function MasterDashboard() {
+    const [isRepliesModalOpen, setIsRepliesModalOpen] = useState(false);
+    const [isRepliesExpanded, setIsRepliesExpanded] = useState(false);
+    const [dateLabel, setDateLabel] = useState("Last 7 days");
+
+    const handleDateUpdate = ({ range, label }: { range: any, label?: string }) => {
+        if (label) {
+            setDateLabel(label);
+        }
+        // Here we would fetch real data using 'range'
+        console.log("Date range updated:", range);
+    };
+
     return (
         <div className="space-y-8 pb-10">
             {/* Header Section */}
@@ -63,13 +82,14 @@ export default function MasterDashboard() {
                     <h1 className="text-2xl font-bold text-slate-900">Master Overview</h1>
                     <p className="text-slate-500">Holistic view of all your marketing channels performance.</p>
                 </div>
-                <DateRangePicker />
+                <DateRangePicker onUpdate={handleDateUpdate} />
             </div>
 
             {/* Top Metric Cards */}
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
                 <MetricCard
-                    title="Total Leads"
+                    title="Total Reachouts"
+                    subtitle={dateLabel}
                     value="13,331"
                     change="+12.5%"
                     isUp={true}
@@ -79,7 +99,8 @@ export default function MasterDashboard() {
                     border="border-blue-100"
                 />
                 <MetricCard
-                    title="Emails Sent"
+                    title=" Total Emails Sent"
+                    subtitle={dateLabel}
                     value="42,881"
                     change="+18.2%"
                     isUp={true}
@@ -89,7 +110,8 @@ export default function MasterDashboard() {
                     border="border-emerald-100"
                 />
                 <MetricCard
-                    title="WhatsApp Active"
+                    title="Total WhatsApp Chats"
+                    subtitle={dateLabel}
                     value="1,076"
                     change="+5.4%"
                     isUp={true}
@@ -99,7 +121,8 @@ export default function MasterDashboard() {
                     border="border-purple-100"
                 />
                 <MetricCard
-                    title="Voice Minutes"
+                    title="Total Voice Minutes"
+                    subtitle={dateLabel}
                     value="452m"
                     change="-2.1%"
                     isUp={false}
@@ -108,7 +131,61 @@ export default function MasterDashboard() {
                     bg="bg-orange-50"
                     border="border-orange-100"
                 />
+                <MetricCard
+                    title="Total Replies"
+                    subtitle={dateLabel}
+                    value="142m"
+                    change="+2.1%"
+                    isUp={true}
+                    icon={<MessageCircle className="h-6 w-6" />}
+                    color="text-orange-600"
+                    bg="bg-orange-50"
+                    border="border-orange-100"
+                    onClick={() => setIsRepliesModalOpen(true)}
+                    action={
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-slate-400 hover:text-slate-600"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsRepliesExpanded(!isRepliesExpanded);
+                            }}
+                        >
+                            {isRepliesExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                        </Button>
+                    }
+                />
             </div>
+
+            {/* Expanded View Section */}
+            {isRepliesExpanded && (
+                <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div className="flex items-center justify-between mb-6">
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-900">Total Replies Details</h2>
+                            <p className="text-sm text-slate-500">Detailed view of all replies across channels</p>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => setIsRepliesExpanded(false)}>
+                            <X className="h-4 w-4 mr-2" />
+                            Close
+                        </Button>
+                    </div>
+                    <TotalRepliesView />
+                </div>
+            )}
+
+            {/* Replies Modal */}
+            <Dialog open={isRepliesModalOpen} onOpenChange={setIsRepliesModalOpen}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Total Replies - Detailed View</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <TotalRepliesView />
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Charts Row 1: Lead Acquisition & Service Distribution */}
             <div className="grid gap-6 lg:grid-cols-3">
@@ -152,7 +229,7 @@ export default function MasterDashboard() {
                             <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
                                 <PieChartIcon className="h-5 w-5" />
                             </div>
-                            <CardTitle className="text-lg">Channel Share</CardTitle>
+                            <CardTitle className="text-lg">Response Performance</CardTitle>
                         </div>
                     </CardHeader>
                     <CardContent className="pt-4 flex flex-col items-center justify-center">
@@ -184,7 +261,7 @@ export default function MasterDashboard() {
     );
 }
 
-function MetricCard({ title, value, change, isUp, icon, color, bg, border }: {
+function MetricCard({ title, value, change, isUp, icon, color, bg, border, onClick, action, subtitle }: {
     title: string,
     value: string,
     change: string,
@@ -192,14 +269,24 @@ function MetricCard({ title, value, change, isUp, icon, color, bg, border }: {
     icon: React.ReactNode,
     color: string,
     bg: string,
-    border: string
+    border: string,
+    onClick?: () => void,
+    action?: React.ReactNode,
+    subtitle?: string
 }) {
     return (
-        <Card className={`bg-white border ${border} shadow-sm overflow-hidden relative group hover:shadow-md transition-all duration-300`}>
+        <Card
+            className={`bg-white border ${border} shadow-sm overflow-hidden relative group hover:shadow-md transition-all duration-300 ${onClick ? 'cursor-pointer' : ''}`}
+            onClick={onClick}
+        >
             <CardContent className="p-6">
                 <div className="flex items-start justify-between relative z-10">
-                    <div>
-                        <p className="text-sm font-semibold text-slate-500 mb-1">{title}</p>
+                    <div className="flex-1">
+                        <div className="flex items-center justify-between mr-2">
+                            <p className="text-sm font-semibold text-slate-500 mb-1">{title}</p>
+                            {subtitle && <p className="text-xs text-slate-400 mb-2">{subtitle}</p>}
+                            {action && <div className="z-20">{action}</div>}
+                        </div>
                         <h3 className="text-3xl font-bold text-slate-900">{value}</h3>
                         <div className={`flex items-center gap-1 mt-2 text-xs font-bold ${isUp ? 'text-emerald-600' : 'text-rose-600'}`}>
                             {change}

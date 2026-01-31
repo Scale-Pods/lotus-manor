@@ -59,6 +59,16 @@ const ITEMS_PER_PAGE = 10;
 export default function SentEmailsPage() {
     const [page, setPage] = useState(1);
     const [date, setDate] = useState<Date>();
+    const [filters, setFilters] = useState({
+        campaign: "all",
+        sender: "all",
+        type: "all"
+    });
+
+    const handleFilterChange = (key: string, value: string) => {
+        setFilters(prev => ({ ...prev, [key]: value }));
+        console.log(`Filter ${key} changed to:`, value);
+    };
 
     const totalPages = Math.ceil(sentEmails.length / ITEMS_PER_PAGE);
     const paginatedEmails = sentEmails.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
@@ -71,7 +81,7 @@ export default function SentEmailsPage() {
                     <h1 className="text-2xl font-bold text-slate-900">Sent Emails</h1>
                     <p className="text-slate-500">View all sent emails from your campaigns</p>
                 </div>
-                
+
             </div>
 
             {/* Search & Filters Section */}
@@ -85,7 +95,7 @@ export default function SentEmailsPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <Select>
+                    <Select value={filters.campaign} onValueChange={(val) => handleFilterChange("campaign", val)}>
                         <SelectTrigger className="bg-white border-slate-200">
                             <SelectValue placeholder="All Campaigns" />
                         </SelectTrigger>
@@ -96,7 +106,7 @@ export default function SentEmailsPage() {
                         </SelectContent>
                     </Select>
 
-                    <Select>
+                    <Select value={filters.sender} onValueChange={(val) => handleFilterChange("sender", val)}>
                         <SelectTrigger className="bg-white border-slate-200">
                             <SelectValue placeholder="All Senders" />
                         </SelectTrigger>
@@ -107,7 +117,7 @@ export default function SentEmailsPage() {
                         </SelectContent>
                     </Select>
 
-                    <Select>
+                    <Select value={filters.type} onValueChange={(val) => handleFilterChange("type", val)}>
                         <SelectTrigger className="bg-white border-slate-200">
                             <SelectValue placeholder="All Mail Types" />
                         </SelectTrigger>

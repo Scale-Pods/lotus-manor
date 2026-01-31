@@ -15,18 +15,34 @@ import {
 } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+export interface DateRangePickerProps extends React.HTMLAttributes<HTMLDivElement> {
+    onUpdate?: (values: { range: DateRange | undefined, label?: string }) => void;
+}
+
 export function DateRangePicker({
     className,
-}: React.HTMLAttributes<HTMLDivElement>) {
+    onUpdate,
+    ...props
+}: DateRangePickerProps) {
     const [date, setDate] = React.useState<DateRange | undefined>({
         from: subDays(new Date(), 7),
         to: new Date(),
     })
+
+    const [tempDate, setTempDate] = React.useState<DateRange | undefined>(date)
+    const [tempLabel, setTempLabel] = React.useState<string | undefined>("Last 7 days")
+    const [open, setOpen] = React.useState(false)
     const [isMounted, setIsMounted] = React.useState(false)
 
     React.useEffect(() => {
         setIsMounted(true)
     }, [])
+
+    React.useEffect(() => {
+        if (open) {
+            setTempDate(date)
+        }
+    }, [open, date])
 
     if (!isMounted) {
         return <div className={cn("grid gap-2 h-10 w-[260px] bg-slate-100 rounded-xl animate-pulse", className)}></div>
@@ -87,13 +103,26 @@ export function DateRangePicker({
     const handlePresetChange = (value: string) => {
         const preset = presets.find(p => p.label === value);
         if (preset) {
-            setDate(preset.getValue());
+            setTempDate(preset.getValue());
+            setTempLabel(value);
         }
+    };
+
+    const handleApply = () => {
+        setDate(tempDate);
+        setOpen(false);
+        if (onUpdate) {
+            onUpdate({ range: tempDate, label: tempLabel });
+        }
+    };
+
+    const handleCancel = () => {
+        setOpen(false);
     };
 
     return (
         <div className={cn("grid gap-2", className)}>
-            <Popover>
+            <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
                     <Button
                         id="date"
@@ -136,6 +165,7 @@ export function DateRangePicker({
                                     <Button
                                         variant="ghost"
                                         className="w-full justify-start font-normal text-sm h-8 text-slate-500 hover:text-slate-900"
+                                        onClick={() => setTempLabel("Custom Range")}
                                     >
                                         Custom Range
                                     </Button>
@@ -146,12 +176,23 @@ export function DateRangePicker({
                             <Calendar
                                 initialFocus
                                 mode="range"
-                                defaultMonth={date?.from}
-                                selected={date}
-                                onSelect={setDate}
+                                defaultMonth={tempDate?.from}
+                                selected={tempDate}
+                                onSelect={(val) => {
+                                    setTempDate(val);
+                                    setTempLabel("Custom Range");
+                                }}
                                 numberOfMonths={2}
                             />
                         </div>
+                    </div>
+                    <div className="p-3 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
+                        <Button variant="ghost" size="sm" onClick={handleCancel} className="h-8 px-4 text-slate-500 hover:text-slate-900">
+                            Cancel
+                        </Button>
+                        <Button size="sm" onClick={handleApply} className="h-8 px-4 bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                            Apply
+                        </Button>
                     </div>
                 </PopoverContent>
             </Popover>
