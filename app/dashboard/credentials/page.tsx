@@ -28,10 +28,10 @@ export default function CredentialsPage() {
                     iconBg="bg-rose-50"
                 >
                     <div className="grid gap-6 md:grid-cols-2">
-                        <ReadOnlyField label="Connected Email" value="aditya@lotusmanor.com" />
-                        <ReadOnlyField label="App Password" value="abcdefgh" isPassword />
+                        <ReadOnlyField label="Connected Email" value="abcd@scalepods.org" />
+                        
                         <ReadOnlyField label="SMTP Host" value="smtp.gmail.com" />
-                        <ReadOnlyField label="SMTP Port" value="587" />
+                        
                     </div>
                 </CredentialSection>
 
@@ -44,11 +44,9 @@ export default function CredentialsPage() {
                     iconBg="bg-emerald-50"
                 >
                     <div className="grid gap-6 md:grid-cols-2">
-                        <ReadOnlyField label="Phone Number ID" value="10xxxxx" />
-                        <ReadOnlyField label="WhatsApp Business Account ID" value="1xxxxxxxx" />
-                        <div className="md:col-span-2">
-                            <ReadOnlyField label="Permanent Access Token" value="EAAG..." isPassword />
-                        </div>
+                        <ReadOnlyField label="Phone Number ID" value="10XXXXXXXXXXXXX" />
+                        <ReadOnlyField label="WhatsApp Business Account ID" value="19XXXXXXXXXXXXX" />
+                        
                     </div>
                 </CredentialSection>
 
@@ -67,10 +65,7 @@ export default function CredentialsPage() {
                     }
                 >
                     <div className="space-y-6">
-                        <div className="grid gap-6 md:grid-cols-2">
-                            <ReadOnlyField label="Public Key" value="8f92-xxxx-xxxx-xxxx" />
-                            <ReadOnlyField label="Private API Key" value="sk-vapi-..." isPassword />
-                        </div>
+                       
 
                         {/* Wallet Status Preview */}
                         <div className="bg-slate-50 rounded-lg p-4 border border-slate-100 flex items-center justify-between">

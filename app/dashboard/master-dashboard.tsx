@@ -15,7 +15,8 @@ import {
     Activity,
     Maximize2,
     Minimize2,
-    X
+    X,
+    Expand
 } from "lucide-react";
 import {
     AreaChart,
@@ -133,29 +134,26 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title="Total Replies"
-                    
+
                     value="142m"
                     change="+2.1%"
                     isUp={true}
-                    icon={<MessageCircle className="h-6 w-6" />}
+                    icon={<Expand className="h-6 w-6" />}
                     color="text-orange-600"
-                    bg="bg-orange-50"
+
                     border="border-orange-100"
                     onClick={() => setIsRepliesModalOpen(true)}
-                    action={
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-slate-400 hover:text-slate-600"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setIsRepliesExpanded(!isRepliesExpanded);
-                            }}
-                        >
-                            {isRepliesExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                        </Button>
-                    }
-                />
+                    action={<Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-white hover:text-white"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setIsRepliesExpanded(!isRepliesExpanded);
+                        } }
+                    >
+                        {isRepliesExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                    </Button>} bg={""}                />
             </div>
 
             {/* Expanded View Section */}
