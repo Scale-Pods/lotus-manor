@@ -195,10 +195,7 @@ export default function DashboardLayout({
                     <h1 className="text-lg font-semibold text-slate-900">
                         {pathname === "/dashboard" ? "Master Overview" : activeConfig.items.find((item: any) => item.href === pathname)?.title || activeConfig.label}
                     </h1>
-                    <div className="ml-auto flex items-center gap-4">
-                        {/* Add user menu or notifications here */}
-                        <div className="h-8 w-8 rounded-full bg-blue-100 border border-blue-200"></div>
-                    </div>
+                    
                 </header>
                 <main className="flex-1 overflow-auto bg-zinc-50 p-6">
                     {children}
