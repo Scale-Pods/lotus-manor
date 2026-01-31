@@ -89,7 +89,7 @@ export default function MasterDashboard() {
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
                 <MetricCard
                     title="Total Reachouts"
-                    subtitle={dateLabel}
+                    
                     value="13,331"
                     change="+12.5%"
                     isUp={true}
@@ -100,7 +100,7 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title=" Total Emails Sent"
-                    subtitle={dateLabel}
+                    
                     value="42,881"
                     change="+18.2%"
                     isUp={true}
@@ -111,7 +111,7 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title="Total WhatsApp Chats"
-                    subtitle={dateLabel}
+                    
                     value="1,076"
                     change="+5.4%"
                     isUp={true}
@@ -122,7 +122,7 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title="Total Voice Minutes"
-                    subtitle={dateLabel}
+                    
                     value="452m"
                     change="-2.1%"
                     isUp={false}
@@ -133,7 +133,7 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title="Total Replies"
-                    subtitle={dateLabel}
+                    
                     value="142m"
                     change="+2.1%"
                     isUp={true}
