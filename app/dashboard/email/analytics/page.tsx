@@ -49,7 +49,7 @@ export default function EmailAnalyticsPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Analytics Dashboard</h1>
-                    <p className="text-slate-500">Detailed insights into your campaign performance</p>
+                    <p className="text-slate-500">Detailed insights into your campaign performance yash</p>
                 </div>
 
             </div>
