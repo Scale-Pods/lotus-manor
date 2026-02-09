@@ -12,6 +12,7 @@ import { Play, SkipBack, SkipForward, Volume2, MoreVertical, X, Phone, Clock, Do
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useState, useEffect } from "react";
 
 interface CallDetailsModalProps {
     open: boolean;
@@ -20,7 +21,37 @@ interface CallDetailsModalProps {
 }
 
 export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalProps) {
+    const [fullCall, setFullCall] = useState<any>(null);
+    const [localLoading, setLocalLoading] = useState(false);
+
+    useEffect(() => {
+        if (open && call?.id) {
+            setFullCall(call); // Set initial data
+            setLocalLoading(true);
+            // Fetch fresh details to get messages/transcript if not present
+            fetch(`/api/calls/${call.id}`)
+                .then(res => res.ok ? res.json() : null)
+                .then(data => {
+                    if (data) setFullCall(data);
+                })
+                .catch(err => console.error("Error fetching details", err))
+                .finally(() => setLocalLoading(false));
+        }
+    }, [open, call]);
+
     if (!call) return null;
+
+    const displayCall = fullCall || call;
+    const messages = displayCall.messages || displayCall.transcript || [];
+    const recordingUrl = displayCall.recordingUrl || displayCall.recording_url;
+
+    // Helper to format duration if it's seconds
+    const durationDisplay = displayCall.durationSeconds
+        ? `${Math.floor(displayCall.durationSeconds / 60)}m ${Math.round(displayCall.durationSeconds % 60)}s`
+        : (displayCall.duration || '0s');
+
+    const costDisplay = typeof displayCall.cost === 'number' ? `$${displayCall.cost.toFixed(2)}` : (displayCall.cost || '$0.00');
+    const startedAtDisplay = displayCall.startedAt ? new Date(displayCall.startedAt).toLocaleString() : (displayCall.date || 'N/A');
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -35,12 +66,12 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                         <div className="space-y-4">
                             <div>
                                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Execution ID</p>
-                                <p className="font-mono text-sm text-slate-700 bg-white px-2 py-1 rounded border border-slate-200 w-fit">{call.id}</p>
+                                <p className="font-mono text-sm text-slate-700 bg-white px-2 py-1 rounded border border-slate-200 w-fit">{displayCall.id}</p>
                             </div>
                             <div>
                                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Status</p>
                                 <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-none shadow-none uppercase text-[10px] px-2.5 py-0.5">
-                                    {call.status}
+                                    {displayCall.status}
                                 </Badge>
                             </div>
                         </div>
@@ -50,14 +81,14 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                                     <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Duration</p>
                                     <div className="flex items-center gap-2">
                                         <Clock className="h-4 w-4 text-slate-400" />
-                                        <span className="font-bold text-slate-900">{call.duration}</span>
+                                        <span className="font-bold text-slate-900">{durationDisplay}</span>
                                     </div>
                                 </div>
                                 <div>
                                     <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Cost</p>
                                     <div className="flex items-center gap-2">
                                         <DollarSign className="h-4 w-4 text-slate-400" />
-                                        <span className="font-bold text-slate-900">{call.cost}</span>
+                                        <span className="font-bold text-slate-900">{costDisplay}</span>
                                     </div>
                                 </div>
                             </div>
@@ -65,7 +96,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Date & Time</p>
                                 <div className="flex items-center gap-2">
                                     <Calendar className="h-4 w-4 text-slate-400" />
-                                    <span className="text-sm text-slate-700">{call.date}</span>
+                                    <span className="text-sm text-slate-700">{startedAtDisplay}</span>
                                 </div>
                             </div>
                         </div>
@@ -82,19 +113,19 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                                     </div>
                                     <div>
                                         <p className="text-xs text-slate-500 font-medium">From</p>
-                                        <p className="font-bold text-slate-900 font-mono">+918035735856</p>
+                                        <p className="font-bold text-slate-900 font-mono">{displayCall.customer?.number || displayCall.customer?.name || 'Unknown'}</p>
                                     </div>
                                 </div>
                                 <div className="h-px w-12 bg-slate-300"></div>
                                 <div className="flex items-center gap-4 text-right">
                                     <div>
                                         <p className="text-xs text-slate-500 font-medium">To</p>
-                                        <p className="font-bold text-slate-900 font-mono">+919313197357</p>
+                                        <p className="font-bold text-slate-900 font-mono">{displayCall.phoneNumber?.number || 'Assistant'}</p>
                                     </div>
                                     <div className="h-10 w-10 bg-purple-50 rounded-full flex items-center justify-center">
                                         <Avatar className="h-10 w-10">
-                                            <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${call.id}`} />
-                                            <AvatarFallback>U</AvatarFallback>
+                                            <AvatarImage src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${displayCall.id}`} />
+                                            <AvatarFallback>AI</AvatarFallback>
                                         </Avatar>
                                     </div>
                                 </div>
@@ -106,15 +137,16 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                             <h3 className="text-sm font-bold text-slate-900 mb-3 uppercase tracking-wide">Transcript</h3>
                             <ScrollArea className="h-[250px] w-full rounded-lg border border-slate-200 bg-slate-50 p-4">
                                 <div className="space-y-4">
-                                    <TranscriptMessage role="assistant" text="Hi" />
-                                    <TranscriptMessage role="user" text="hello" />
-                                    <TranscriptMessage role="assistant" text="नमस्ते, सिटीफोर्स हॉस्पिटल में आपका स्वागत है। मैं आपकी क्या मदद कर सकती हूं?" />
-                                    <TranscriptMessage role="user" text="हां जी मुझे एक appointment book कराना था" />
-                                    <TranscriptMessage role="assistant" text="क्या आप अपॉइंटमेंट बुक करना चाहते हैं, या आपका कोई सामान्य सवाल है?" />
-                                    <TranscriptMessage role="user" text="जी appointment book कराना है" />
-                                    <TranscriptMessage role="assistant" text="कृपया मरीज़ का पूरा नाम बताइए।" />
-                                    <TranscriptMessage role="user" text="yes please" />
-                                    <TranscriptMessage role="assistant" text="मुझे खेद है, मुझे समझ नहीं आया। कृपया दोबारा साफ हिंदी में बोलें।" />
+                                    {Array.isArray(messages) && messages.map((msg: any, idx: number) => (
+                                        <TranscriptMessage
+                                            key={idx}
+                                            role={msg.role}
+                                            text={msg.message || msg.content || msg.text || ''}
+                                        />
+                                    ))}
+                                    {(!messages || messages.length === 0) && (
+                                        <p className="text-sm text-slate-500 text-center italic">No transcript available.</p>
+                                    )}
                                 </div>
                             </ScrollArea>
                         </div>
@@ -122,37 +154,43 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                 </div>
 
                 {/* Recording Player Footer */}
-                <div className="p-4 bg-slate-900 text-white border-t border-slate-800">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-slate-400 uppercase">Recording</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <Button size="icon" variant="ghost" className="text-white hover:text-white hover:bg-white/10 h-8 w-8 rounded-full">
-                            <Play className="h-4 w-4 fill-white" />
-                        </Button>
-                        <span className="text-xs font-mono text-slate-300">0:00 / {call.duration}</span>
-                        <div className="flex-1 h-1 bg-slate-700 rounded-full overflow-hidden relative group cursor-pointer">
-                            <div className="absolute left-0 top-0 bottom-0 w-1/3 bg-emerald-500 rounded-full"></div>
+                {recordingUrl && (
+                    <div className="p-4 bg-slate-900 text-white border-t border-slate-800">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold text-slate-400 uppercase">Recording</span>
                         </div>
-                        <Volume2 className="h-4 w-4 text-slate-400" />
-                        <MoreVertical className="h-4 w-4 text-slate-400" />
+                        <audio controls src={recordingUrl} className="w-full h-8" />
                     </div>
-                </div>
+                )}
             </DialogContent>
         </Dialog>
     );
 }
 
-function TranscriptMessage({ role, text }: { role: 'user' | 'assistant'; text: string }) {
-    const isAssistant = role === 'assistant';
+function TranscriptMessage({ role, text }: { role: string; text: string }) {
+    const isAssistant = role === 'assistant' || role === 'model' || role === 'system';
+    const isUser = role === 'user';
+    const isTool = role === 'tool' || role === 'function';
+
+    if (isTool) {
+        // Optional: Render tools differently or skip
+        return (
+            <div className="flex gap-3 justify-center">
+                <div className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                    Tool Use: {text}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className={`flex gap-3 ${isAssistant ? '' : 'flex-row-reverse'}`}>
             <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${isAssistant ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
                 {isAssistant ? <span className="text-xs font-bold">AI</span> : <span className="text-xs font-bold">U</span>}
             </div>
             <div className={`max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed ${isAssistant
-                    ? 'bg-white border border-slate-200 text-slate-700 rounded-tl-none'
-                    : 'bg-blue-600 text-white rounded-tr-none'
+                ? 'bg-white border border-slate-200 text-slate-700 rounded-tl-none'
+                : 'bg-blue-600 text-white rounded-tr-none'
                 }`}>
                 {text}
             </div>

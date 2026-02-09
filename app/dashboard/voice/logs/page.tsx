@@ -4,32 +4,73 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { RefreshCw, Play, ChevronLeft, ChevronRight, User } from "lucide-react";
-import React, { useState } from "react";
+import { RefreshCw, Play, ChevronLeft, ChevronRight, User, Loader2, Download, ExternalLink } from "lucide-react";
+import React, { useState, useEffect } from "react";
 import { CallDetailsModal } from "@/components/voice/call-details-modal";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { format, parseISO } from "date-fns";
 
-const calls = [
-    { id: '2175e2ff...be89ce', status: 'Completed', duration: '1m 58s', cost: '$0.16', date: 'Jan 28, 2026, 12:32 PM' },
-    { id: '182b3847...731f91', status: 'Completed', duration: '2m 28s', cost: '$0.21', date: 'Jan 27, 2026, 1:32 PM' },
-    { id: 'cec8c812...829e18', status: 'Completed', duration: '1m 44s', cost: '$0.16', date: 'Jan 27, 2026, 9:09 AM' },
-    { id: 'a7a88b08...b716a4', status: 'Completed', duration: '1m 48s', cost: '$0.15', date: 'Dec 29, 2025, 8:22 AM' },
-    { id: '48a89a6e...978231', status: 'Completed', duration: '1m 47s', cost: '$0.14', date: 'Dec 29, 2025, 8:17 AM' },
-    { id: 'f373746e...653fa8', status: 'Completed', duration: '36s', cost: '$0.05', date: 'Dec 29, 2025, 8:16 AM' },
-    { id: '2f1ba45f...e261ce', status: 'Completed', duration: '1m 22s', cost: '$0.10', date: 'Dec 29, 2025, 8:13 AM' },
-    { id: 'c4bd46b5...579ae4', status: 'Completed', duration: '17s', cost: '$0.04', date: 'Dec 29, 2025, 8:11 AM' },
-    { id: '75718089...41b6ca', status: 'Completed', duration: '5s', cost: '$0.02', date: 'Dec 29, 2025, 8:11 AM' },
-    { id: 'd372d794...d71b9e', status: 'Completed', duration: '26s', cost: '$0.05', date: 'Dec 29, 2025, 8:03 AM' },
-];
+// Helper function to format duration
+const formatDuration = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.round(seconds % 60);
+    return `${minutes}m ${remainingSeconds}s`;
+};
 
 export default function VoiceLogsPage() {
+    const [calls, setCalls] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
     const [selectedCall, setSelectedCall] = useState<any>(null);
     const [modalOpen, setModalOpen] = useState(false);
 
+    // Pagination
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 5;
+
+    const fetchCalls = async () => {
+        setLoading(true);
+        try {
+            const res = await fetch('/api/calls');
+            if (!res.ok) throw new Error("Failed");
+            const data = await res.json();
+
+            // Map Vapi data to our table structure
+            const mappedCalls = data.map((call: any) => ({
+                id: call.id,
+                status: call.status,
+                startedAt: call.startedAt,
+                endedAt: call.endedAt,
+                duration: formatDuration(call.durationSeconds || 0),
+                cost: call.cost ? `$${call.cost.toFixed(2)}` : '$0.00',
+                date: call.startedAt ? new Date(call.startedAt).toLocaleString() : 'N/A',
+                raw: call
+            }));
+
+            // Sort by date desc
+            setCalls(mappedCalls.sort((a: any, b: any) => new Date(b.raw.startedAt).getTime() - new Date(a.raw.startedAt).getTime()));
+
+        } catch (error) {
+            console.error("Error fetching logs:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchCalls();
+    }, []);
+
+    const handleRefresh = () => {
+        fetchCalls();
+    };
+
     const handleRowClick = (call: any) => {
-        setSelectedCall(call);
+        setSelectedCall(call.raw); // Pass raw Vapi object to modal if compatible, or map it
         setModalOpen(true);
     };
+
+    // Calculate paginated calls
+    const paginatedCalls = calls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     return (
         <div className="space-y-6 pb-10">
@@ -37,18 +78,23 @@ export default function VoiceLogsPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Call Logs</h1>
-                    <p className="text-slate-500">History of all voice agent interactions.</p>
+                    <p className="text-slate-500">View and manage your voice agent call history.</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                     <DateRangePicker onUpdate={(range) => console.log("Voice Logs Date Update:", range)} />
-                    <Button variant="outline" size="sm" className="gap-2">
-                        <RefreshCw className="h-4 w-4" /> Refresh
+                    <Button variant="outline" onClick={handleRefresh} disabled={loading}>
+                        <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </Button>
+                    <Button className="bg-blue-600 hover:bg-blue-700">
+                        <Download className="h-4 w-4 mr-2" />
+                        Export CSV
                     </Button>
                 </div>
             </div>
 
             {/* Table */}
-            <Card className="border-slate-200 overflow-hidden shadow-sm">
+            <Card className="border-slate-200 overflow-hidden shadow-sm bg-white">
                 <div className="overflow-x-auto">
                     <Table>
                         <TableHeader>
@@ -58,55 +104,92 @@ export default function VoiceLogsPage() {
                                 <TableHead className="font-bold text-slate-700">Duration</TableHead>
                                 <TableHead className="font-bold text-slate-700">Cost</TableHead>
                                 <TableHead className="font-bold text-slate-700 w-[200px]">Date & Time</TableHead>
-                                <TableHead className="font-bold text-slate-700 text-right">Recording</TableHead>
+                                <TableHead className="font-bold text-slate-700 text-right">Action</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {calls.map((call) => (
-                                <TableRow
-                                    key={call.id}
-                                    className="cursor-pointer hover:bg-slate-50 transition-colors group"
-                                    onClick={() => handleRowClick(call)}
-                                >
-                                    <TableCell className="font-mono text-xs text-slate-500">{call.id}</TableCell>
-                                    <TableCell>
-                                        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-none shadow-none uppercase text-[10px] px-2.5 py-0.5">
-                                            {call.status}
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell className="font-medium text-slate-700">{call.duration}</TableCell>
-                                    <TableCell className="font-medium text-slate-700">{call.cost}</TableCell>
-                                    <TableCell className="text-slate-500 text-sm whitespace-nowrap">{call.date}</TableCell>
-                                    <TableCell className="text-right">
-                                        <Button
-                                            size="icon"
-                                            variant="ghost"
-                                            className="h-8 w-8 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-full"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleRowClick(call);
-                                            }}
-                                        >
-                                            <Play className="h-4 w-4 fill-current" />
-                                        </Button>
+                            {loading ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="h-24 text-center">
+                                        <div className="flex justify-center items-center gap-2 text-slate-500">
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                            <span>Loading calls...</span>
+                                        </div>
                                     </TableCell>
                                 </TableRow>
-                            ))}
+                            ) : paginatedCalls.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="h-24 text-center text-slate-500">
+                                        No calls found.
+                                    </TableCell>
+                                </TableRow>
+                            ) : (
+                                paginatedCalls.map((call) => (
+                                    <TableRow
+                                        key={call.id}
+                                        className="cursor-pointer hover:bg-slate-50 transition-colors group"
+                                        onClick={() => handleRowClick(call)}
+                                    >
+                                        <TableCell className="font-mono text-xs text-slate-500">{call.id?.substring(0, 8)}...</TableCell>
+                                        <TableCell>
+                                            <Badge
+                                                variant="secondary"
+                                                className={`font-medium ${call.status === 'ended' || call.status === 'completed'
+                                                    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
+                                                    : 'bg-slate-100 text-slate-700 hover:bg-slate-100'
+                                                    } uppercase text-[10px] px-2.5 py-0.5`}
+                                            >
+                                                {call.status}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="font-medium text-slate-700">{call.duration}</TableCell>
+                                        <TableCell className="font-medium text-slate-700">{call.cost}</TableCell>
+                                        <TableCell className="text-slate-500 text-sm whitespace-nowrap">{call.date}</TableCell>
+                                        <TableCell className="text-right">
+                                            <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                className="h-8 w-8 text-slate-400 hover:text-blue-600"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRowClick(call);
+                                                }}
+                                            >
+                                                <ExternalLink className="h-4 w-4" />
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            )}
                         </TableBody>
                     </Table>
                 </div>
 
                 {/* Footer */}
                 <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                    <p className="text-sm text-slate-500">Showing <span className="font-bold text-slate-900">1-10</span> of 90 calls</p>
+                    <p className="text-sm text-slate-500">
+                        Showing <span className="font-bold text-slate-900">{calls.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}-{Math.min(currentPage * itemsPerPage, calls.length)}</span> of {calls.length} calls
+                    </p>
                     <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                        >
                             <ChevronLeft className="h-4 w-4" />
                         </Button>
                         <span className="text-sm font-medium text-slate-700 bg-white border border-slate-200 px-3 py-1 rounded-md shadow-sm">
-                            Page 1 of 9
+                            Page {currentPage}
                         </span>
-                        <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => setCurrentPage(p => Math.min(Math.ceil(calls.length / itemsPerPage), p + 1))}
+                            disabled={currentPage >= Math.ceil(calls.length / itemsPerPage)}
+                        >
                             <ChevronRight className="h-4 w-4" />
                         </Button>
                     </div>

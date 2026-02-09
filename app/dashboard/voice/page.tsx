@@ -1,9 +1,9 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { Phone, Clock, DollarSign, TrendingUp, Calendar as CalendarIcon, Timer } from "lucide-react";
+import { Phone, Clock, DollarSign, TrendingUp, Calendar as CalendarIcon, Timer, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
     BarChart,
@@ -16,24 +16,114 @@ import {
     AreaChart,
     Area
 } from "recharts";
-
-const dailyCallVolumeData = [
-    { name: 'Jan 27', calls: 2 },
-    { name: 'Jan 28', calls: 1 },
-];
-
-const hourlyCallDistributionData = [
-    { name: '00:00', calls: 0 },
-    { name: '03:00', calls: 0 },
-    { name: '06:00', calls: 1 },
-    { name: '09:00', calls: 3 },
-    { name: '12:00', calls: 2 },
-    { name: '15:00', calls: 1 },
-    { name: '18:00', calls: 0 },
-    { name: '21:00', calls: 0 },
-];
+import { format, parseISO, startOfDay, getHours } from "date-fns";
 
 export default function VoiceDashboardPage() {
+    const [stats, setStats] = useState({
+        totalCalls: 0,
+        totalDuration: 0,
+        avgDuration: 0,
+        totalCost: 0,
+        avgCost: 0,
+        successRate: 0,
+        completedCalls: 0
+    });
+    const [dailyVolume, setDailyVolume] = useState<any[]>([]);
+    const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/calls');
+                if (!res.ok) throw new Error("Failed to fetch calls");
+                const calls = await res.json();
+
+                let totalDuration = 0;
+                let totalCost = 0;
+                let completed = 0;
+                let successCount = 0;
+
+                const dayMap = new Map();
+                const hourMap = new Array(24).fill(0);
+
+                calls.forEach((call: any) => {
+                    // Metrics
+                    if (call.status === 'ended' || call.status === 'completed') {
+                        completed++;
+                        // Assume success if no error reported or status is completed with normal end reason
+                        if (call.endedReason !== 'error') successCount++;
+                    }
+
+                    const duration = call.durationSeconds || (call.duration || 0); // Vapi might calculate duration
+                    const cost = call.cost || 0;
+
+                    totalDuration += duration;
+                    totalCost += cost;
+
+                    // Charts processing
+                    if (call.startedAt) {
+                        const date = parseISO(call.startedAt);
+                        const dayKey = format(date, 'MMM dd');
+                        const hour = getHours(date);
+
+                        dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
+                        hourMap[hour]++;
+                    }
+                });
+
+                const totalCalls = calls.length;
+                const avgDuration = totalCalls > 0 ? totalDuration / totalCalls : 0;
+                const avgCost = totalCalls > 0 ? totalCost / totalCalls : 0;
+                const successRate = totalCalls > 0 ? (successCount / totalCalls) * 100 : 0;
+
+                setStats({
+                    totalCalls,
+                    totalDuration,
+                    avgDuration,
+                    totalCost,
+                    avgCost,
+                    successRate,
+                    completedCalls: completed
+                });
+
+                // Format Daily Volume
+                const dailyData = Array.from(dayMap.entries()).map(([name, calls]) => ({ name, calls }));
+                // Sort by date roughly (if needed, simplified here)
+                setDailyVolume(dailyData.reverse().slice(0, 7).reverse()); // Show last 7 days
+
+                // Format Hourly Distribution
+                const hourlyData = hourMap.map((calls, hour) => ({
+                    name: `${hour.toString().padStart(2, '0')}:00`,
+                    calls
+                })).filter((_, i) => i % 3 === 0); // Sample every 3 hours for cleaner chart
+
+                setHourlyDistribution(hourlyData);
+
+            } catch (error) {
+                console.error("Error fetching voice data:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, []);
+
+    const formatDuration = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.round(seconds % 60);
+        return `${mins}m ${secs}s`;
+    };
+
+    if (loading) {
+        return (
+            <div className="flex h-[50vh] w-full items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-8 pb-10">
@@ -48,16 +138,39 @@ export default function VoiceDashboardPage() {
                 </div>
             </div>
 
-
-
             {/* Metrics Overview */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <MetricCard title="Total Executions" value="3 calls" badge="3 completed" icon={<Phone className="h-5 w-5 text-white" />} />
-                <MetricCard title="Total Duration" value="6:17 min" icon={<Clock className="h-5 w-5 text-white" />} />
-                <MetricCard title="Average Duration" value="123.33s" icon={<Timer className="h-5 w-5 text-white" />} />
-                <MetricCard title="Total Cost" value="$0.53" icon={<DollarSign className="h-5 w-5 text-white" />} />
-                <MetricCard title="Average Cost" value="$0.18" icon={<DollarSign className="h-5 w-5 text-white" />} />
-                <MetricCard title="Success Rate" value="100%" icon={<TrendingUp className="h-5 w-5 text-white" />} />
+                <MetricCard
+                    title="Total Executions"
+                    value={`${stats.totalCalls} calls`}
+                    badge={`${stats.completedCalls} completed`}
+                    icon={<Phone className="h-5 w-5 text-slate-600" />}
+                />
+                <MetricCard
+                    title="Total Duration"
+                    value={formatDuration(stats.totalDuration)}
+                    icon={<Clock className="h-5 w-5 text-slate-600" />}
+                />
+                <MetricCard
+                    title="Average Duration"
+                    value={`${Math.round(stats.avgDuration)}s`}
+                    icon={<Timer className="h-5 w-5 text-slate-600" />}
+                />
+                <MetricCard
+                    title="Total Cost"
+                    value={`$${stats.totalCost.toFixed(2)}`}
+                    icon={<DollarSign className="h-5 w-5 text-slate-600" />}
+                />
+                <MetricCard
+                    title="Average Cost"
+                    value={`$${stats.avgCost.toFixed(2)}`}
+                    icon={<DollarSign className="h-5 w-5 text-slate-600" />}
+                />
+                <MetricCard
+                    title="Success Rate"
+                    value={`${Math.round(stats.successRate)}%`}
+                    icon={<TrendingUp className="h-5 w-5 text-slate-600" />}
+                />
             </div>
 
             {/* Charts Section */}
@@ -67,7 +180,7 @@ export default function VoiceDashboardPage() {
                         <h3 className="text-lg font-semibold text-slate-900 mb-6">Daily Call Volume</h3>
                         <div className="w-full" style={{ height: 300, minHeight: 300 }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={dailyCallVolumeData}>
+                                <BarChart data={dailyVolume.length > 0 ? dailyVolume : [{ name: 'No Data', calls: 0 }]}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
                                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} allowDecimals={false} />
@@ -84,7 +197,7 @@ export default function VoiceDashboardPage() {
                         <h3 className="text-lg font-semibold text-slate-900 mb-6">Hourly Call Distribution</h3>
                         <div className="w-full" style={{ height: 300, minHeight: 300 }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={hourlyCallDistributionData}>
+                                <AreaChart data={hourlyDistribution.length > 0 ? hourlyDistribution : [{ name: '00:00', calls: 0 }]}>
                                     <defs>
                                         <linearGradient id="colorCalls" x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
@@ -121,17 +234,7 @@ function MetricCard({ title, value, badge, icon }: any) {
                         )}
                     </div>
                     <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 group-hover:bg-slate-100 transition-colors">
-                        {/* We need to ensure the icon color is visible on white background. 
-                            Since the icon is passed as a prop, we might need to adjust the prop or handle it here. 
-                            However, looking at the usage: icon={<Phone className="h-5 w-5 text-white" />} 
-                            The parent component passes text-white. We need to override this in the parent usage.
-                        */}
-                        {/* Actually, let's fix the parent usage instead of hacking it here. 
-                            Or better, clone element to change color? No, let's just update the parent call sites.
-                            Wait, I can't update all call sites in one go with this tool easily if they are scattered.
-                            But they are all in the same file for Voice Dashboard.
-                        */}
-                        {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { className: "h-5 w-5 text-slate-600" }) : icon}
+                        {icon}
                     </div>
                 </div>
             </CardContent>
