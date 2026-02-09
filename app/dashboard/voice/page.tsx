@@ -17,6 +17,7 @@ import {
     Area
 } from "recharts";
 import { format, parseISO, startOfDay, getHours } from "date-fns";
+import { calculateDuration, formatDuration } from "@/lib/utils";
 
 export default function VoiceDashboardPage() {
     const [stats, setStats] = useState({
@@ -28,79 +29,20 @@ export default function VoiceDashboardPage() {
         successRate: 0,
         completedCalls: 0
     });
+    const [allCalls, setAllCalls] = useState<any[]>([]);
     const [dailyVolume, setDailyVolume] = useState<any[]>([]);
     const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [dateRange, setDateRange] = useState<any>(undefined);
 
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchAllData = async () => {
             setLoading(true);
             try {
                 const res = await fetch('/api/calls');
                 if (!res.ok) throw new Error("Failed to fetch calls");
                 const calls = await res.json();
-
-                let totalDuration = 0;
-                let totalCost = 0;
-                let completed = 0;
-                let successCount = 0;
-
-                const dayMap = new Map();
-                const hourMap = new Array(24).fill(0);
-
-                calls.forEach((call: any) => {
-                    // Metrics
-                    if (call.status === 'ended' || call.status === 'completed') {
-                        completed++;
-                        // Assume success if no error reported or status is completed with normal end reason
-                        if (call.endedReason !== 'error') successCount++;
-                    }
-
-                    const duration = call.durationSeconds || (call.duration || 0); // Vapi might calculate duration
-                    const cost = call.cost || 0;
-
-                    totalDuration += duration;
-                    totalCost += cost;
-
-                    // Charts processing
-                    if (call.startedAt) {
-                        const date = parseISO(call.startedAt);
-                        const dayKey = format(date, 'MMM dd');
-                        const hour = getHours(date);
-
-                        dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
-                        hourMap[hour]++;
-                    }
-                });
-
-                const totalCalls = calls.length;
-                const avgDuration = totalCalls > 0 ? totalDuration / totalCalls : 0;
-                const avgCost = totalCalls > 0 ? totalCost / totalCalls : 0;
-                const successRate = totalCalls > 0 ? (successCount / totalCalls) * 100 : 0;
-
-                setStats({
-                    totalCalls,
-                    totalDuration,
-                    avgDuration,
-                    totalCost,
-                    avgCost,
-                    successRate,
-                    completedCalls: completed
-                });
-
-                // Format Daily Volume
-                const dailyData = Array.from(dayMap.entries()).map(([name, calls]) => ({ name, calls }));
-                // Sort by date roughly (if needed, simplified here)
-                setDailyVolume(dailyData.reverse().slice(0, 7).reverse()); // Show last 7 days
-
-                // Format Hourly Distribution
-                const hourlyData = hourMap.map((calls, hour) => ({
-                    name: `${hour.toString().padStart(2, '0')}:00`,
-                    calls
-                })).filter((_, i) => i % 3 === 0); // Sample every 3 hours for cleaner chart
-
-                setHourlyDistribution(hourlyData);
-
+                setAllCalls(calls);
             } catch (error) {
                 console.error("Error fetching voice data:", error);
             } finally {
@@ -108,14 +50,86 @@ export default function VoiceDashboardPage() {
             }
         };
 
-        fetchData();
+        fetchAllData();
     }, []);
 
-    const formatDuration = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.round(seconds % 60);
-        return `${mins}m ${secs}s`;
-    };
+    useEffect(() => {
+        if (loading && allCalls.length === 0) return;
+
+        let totalDuration = 0;
+        let totalCost = 0;
+        let completed = 0;
+        let successCount = 0;
+
+        const dayMap = new Map();
+        const hourMap = new Array(24).fill(0);
+
+        // Filter by date range if set
+        const filteredCalls = allCalls.filter((call: any) => {
+            if (!dateRange?.from) return true;
+            if (!call.startedAt) return false;
+            const callDate = new Date(call.startedAt);
+            const from = startOfDay(new Date(dateRange.from));
+            const to = dateRange.to ? startOfDay(new Date(dateRange.to)) : from;
+            // Adjust 'to' to end of day? ensuring inclusive comparison
+            to.setHours(23, 59, 59, 999);
+
+            return callDate >= from && callDate <= to;
+        });
+
+        filteredCalls.forEach((call: any) => {
+            // Metrics
+            if (call.status === 'ended' || call.status === 'completed') {
+                completed++;
+                // Assume success if no error reported or status is completed with normal end reason
+                if (call.endedReason !== 'error') successCount++;
+            }
+
+            const duration = calculateDuration(call);
+            const cost = call.cost || 0;
+
+            totalDuration += duration;
+            totalCost += cost;
+
+            // Charts processing
+            if (call.startedAt) {
+                const date = parseISO(call.startedAt);
+                const dayKey = format(date, 'MMM dd');
+                const hour = getHours(date);
+
+                dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
+                hourMap[hour]++;
+            }
+        });
+
+        const totalCalls = filteredCalls.length;
+        const avgDuration = totalCalls > 0 ? totalDuration / totalCalls : 0;
+        const avgCost = totalCalls > 0 ? totalCost / totalCalls : 0;
+        const successRate = totalCalls > 0 ? (successCount / totalCalls) * 100 : 0;
+
+        setStats({
+            totalCalls,
+            totalDuration,
+            avgDuration,
+            totalCost,
+            avgCost,
+            successRate,
+            completedCalls: completed
+        });
+
+        // Format Daily Volume
+        const dailyData = Array.from(dayMap.entries()).map(([name, calls]) => ({ name, calls }));
+        // Sort by date roughly (if needed, simplified here)
+        setDailyVolume(dailyData.reverse().slice(0, 7).reverse()); // Show last 7 days
+
+        // Format Hourly Distribution
+        const hourlyData = hourMap.map((calls, hour) => ({
+            name: `${hour.toString().padStart(2, '0')}:00`,
+            calls
+        })).filter((_, i) => i % 3 === 0); // Sample every 3 hours for cleaner chart
+
+        setHourlyDistribution(hourlyData);
+    }, [allCalls, dateRange]);
 
     if (loading) {
         return (
@@ -134,7 +148,7 @@ export default function VoiceDashboardPage() {
                     <p className="text-slate-500">Monitor your AI voice agent performance.</p>
                 </div>
                 <div className="flex items-center gap-4">
-                    <DateRangePicker onUpdate={(range) => console.log("Voice Dashboard Date Update:", range)} />
+                    <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
                 </div>
             </div>
 

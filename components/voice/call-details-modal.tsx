@@ -42,15 +42,46 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     if (!call) return null;
 
     const displayCall = fullCall || call;
-    const messages = displayCall.messages || displayCall.transcript || [];
+    // Helper to get messages from various Vapi formats
+    const getMessages = (data: any) => {
+        if (!data) return [];
+        if (Array.isArray(data.messages)) return data.messages;
+        if (data.analysis && Array.isArray(data.analysis.transcript)) return data.analysis.transcript;
+        if (Array.isArray(data.transcript)) return data.transcript;
+        // If transcript is a string, wrap it in a single message
+        if (typeof data.transcript === 'string') return [{ role: 'assistant', message: data.transcript }];
+        return [];
+    };
+
+    const messages = getMessages(displayCall);
     const recordingUrl = displayCall.recordingUrl || displayCall.recording_url;
 
-    // Helper to format duration if it's seconds
-    const durationDisplay = displayCall.durationSeconds
-        ? `${Math.floor(displayCall.durationSeconds / 60)}m ${Math.round(displayCall.durationSeconds % 60)}s`
-        : (displayCall.duration || '0s');
+    // Helper to format duration
+    const getDuration = (data: any) => {
+        let seconds = 0;
+        if (typeof data.durationSeconds === 'number') seconds = data.durationSeconds;
+        else if (typeof data.duration === 'number') seconds = data.duration;
 
-    const costDisplay = typeof displayCall.cost === 'number' ? `$${displayCall.cost.toFixed(2)}` : (displayCall.cost || '$0.00');
+        if (seconds === 0 && data.endedAt && data.startedAt) {
+            const start = new Date(data.startedAt).getTime();
+            const end = new Date(data.endedAt).getTime();
+            seconds = (end - start) / 1000;
+        }
+
+        // If call is active (no endedAt)
+        if (seconds === 0 && data.status === 'active' && data.startedAt) {
+            const start = new Date(data.startedAt).getTime();
+            const now = Date.now();
+            seconds = (now - start) / 1000;
+        }
+
+        const min = Math.floor(seconds / 60);
+        const sec = Math.floor(seconds % 60);
+        return `${min}m ${sec}s`;
+    };
+
+    const durationDisplay = getDuration(displayCall);
+    const costDisplay = typeof displayCall.cost === 'number' ? `$${displayCall.cost.toFixed(2)}` : (displayCall.cost ? `$${parseFloat(displayCall.cost).toFixed(2)}` : '$0.00');
     const startedAtDisplay = displayCall.startedAt ? new Date(displayCall.startedAt).toLocaleString() : (displayCall.date || 'N/A');
 
     return (

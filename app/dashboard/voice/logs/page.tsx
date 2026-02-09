@@ -9,46 +9,40 @@ import React, { useState, useEffect } from "react";
 import { CallDetailsModal } from "@/components/voice/call-details-modal";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { format, parseISO } from "date-fns";
-
-// Helper function to format duration
-const formatDuration = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.round(seconds % 60);
-    return `${minutes}m ${remainingSeconds}s`;
-};
+import { calculateDuration, formatDuration } from "@/lib/utils";
 
 export default function VoiceLogsPage() {
+    const [allCalls, setAllCalls] = useState<any[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedCall, setSelectedCall] = useState<any>(null);
     const [modalOpen, setModalOpen] = useState(false);
+    const [dateRange, setDateRange] = useState<any>(undefined);
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 5;
 
-    const fetchCalls = async () => {
+    const fetchAllCalls = async () => {
         setLoading(true);
         try {
             const res = await fetch('/api/calls');
             if (!res.ok) throw new Error("Failed");
             const data = await res.json();
 
-            // Map Vapi data to our table structure
+            // Map Vapi data to our table structure ONCE
             const mappedCalls = data.map((call: any) => ({
                 id: call.id,
                 status: call.status,
                 startedAt: call.startedAt,
                 endedAt: call.endedAt,
-                duration: formatDuration(call.durationSeconds || 0),
+                duration: formatDuration(calculateDuration(call)),
                 cost: call.cost ? `$${call.cost.toFixed(2)}` : '$0.00',
                 date: call.startedAt ? new Date(call.startedAt).toLocaleString() : 'N/A',
                 raw: call
             }));
 
-            // Sort by date desc
-            setCalls(mappedCalls.sort((a: any, b: any) => new Date(b.raw.startedAt).getTime() - new Date(a.raw.startedAt).getTime()));
-
+            setAllCalls(mappedCalls);
         } catch (error) {
             console.error("Error fetching logs:", error);
         } finally {
@@ -57,11 +51,31 @@ export default function VoiceLogsPage() {
     };
 
     useEffect(() => {
-        fetchCalls();
+        fetchAllCalls();
     }, []);
 
+    useEffect(() => {
+        // Filter locally
+        const filteredCalls = allCalls.filter((call: any) => {
+            if (!dateRange?.from) return true;
+            if (!call.startedAt) return false;
+            const callDate = new Date(call.startedAt);
+            // Simple date comparison - need to ensure we compare correctly (e.g. start of day)
+            const from = new Date(dateRange.from);
+            from.setHours(0, 0, 0, 0);
+            const to = dateRange.to ? new Date(dateRange.to) : from;
+            to.setHours(23, 59, 59, 999);
+
+            return callDate >= from && callDate <= to;
+        });
+
+        // Sort by date desc
+        setCalls(filteredCalls.sort((a: any, b: any) => new Date(b.raw.startedAt).getTime() - new Date(a.raw.startedAt).getTime()));
+        setCurrentPage(1);
+    }, [allCalls, dateRange]);
+
     const handleRefresh = () => {
-        fetchCalls();
+        fetchAllCalls();
     };
 
     const handleRowClick = (call: any) => {
@@ -81,7 +95,7 @@ export default function VoiceLogsPage() {
                     <p className="text-slate-500">View and manage your voice agent call history.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <DateRangePicker onUpdate={(range) => console.log("Voice Logs Date Update:", range)} />
+                    <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
                     <Button variant="outline" onClick={handleRefresh} disabled={loading}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                         Refresh

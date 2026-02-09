@@ -20,11 +20,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
+import { calculateDuration } from "@/lib/utils";
+
+import { startOfDay } from "date-fns";
 
 export default function VoiceAnalyticsPage() {
     const [statusFilter, setStatusFilter] = useState("all");
+    const [allCalls, setAllCalls] = useState<any[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [dateRange, setDateRange] = useState<any>(undefined);
 
     // Processed Data States
     const [volumeData, setVolumeData] = useState<any[]>([]);
@@ -38,27 +43,43 @@ export default function VoiceAnalyticsPage() {
     });
 
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchAllData = async () => {
             setLoading(true);
             try {
                 const res = await fetch('/api/calls');
                 if (!res.ok) throw new Error("Failed");
                 const fetchedCalls = await res.json();
-                setCalls(fetchedCalls);
-                processAnalytics(fetchedCalls);
+                setAllCalls(fetchedCalls);
             } catch (err) {
                 console.error("Fetch error", err);
             } finally {
                 setLoading(false);
             }
         };
-        fetchData();
+        fetchAllData();
     }, []);
+
+    useEffect(() => {
+        // Filter by date range if set
+        const filteredCalls = allCalls.filter((call: any) => {
+            if (!dateRange?.from) return true;
+            if (!call.startedAt) return false;
+            const callDate = new Date(call.startedAt);
+            const from = startOfDay(new Date(dateRange.from));
+            const to = dateRange.to ? startOfDay(new Date(dateRange.to)) : from;
+            to.setHours(23, 59, 59, 999);
+
+            return callDate >= from && callDate <= to;
+        });
+
+        setCalls(filteredCalls);
+        processAnalytics(filteredCalls);
+    }, [allCalls, dateRange]);
 
     const processAnalytics = (data: any[]) => {
         // Quick Stats
         const totalCalls = data.length;
-        const totalDuration = data.reduce((acc: number, c: any) => acc + (c.durationSeconds || 0), 0);
+        const totalDuration = data.reduce((acc: number, c: any) => acc + calculateDuration(c), 0);
         const totalCost = data.reduce((acc: number, c: any) => acc + (c.cost || 0), 0);
         const successCount = data.filter((c: any) => c.status === 'ended' || c.status === 'completed').length;
 
@@ -77,7 +98,7 @@ export default function VoiceAnalyticsPage() {
             const time = call.startedAt ? format(parseISO(call.startedAt), 'MMM dd') : 'N/A';
             dayMap.set(time, (dayMap.get(time) || 0) + 1);
 
-            const dur = call.durationSeconds || 0;
+            const dur = calculateDuration(call);
             if (dur < 30) durationBuckets['0-30s']++;
             else if (dur < 60) durationBuckets['30s-1m']++;
             else if (dur < 120) durationBuckets['1m-2m']++;
@@ -122,7 +143,7 @@ export default function VoiceAnalyticsPage() {
                     <p className="text-slate-500">Comprehensive insights into voice agent performance.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
-                    <DateRangePicker onUpdate={(range) => console.log("Voice Analytics Date Update:", range)} />
+                    <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
 
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="w-[150px] bg-white">
