@@ -16,7 +16,7 @@ import {
     TrendingUp,
     MailCheck
 } from "lucide-react";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     BarChart,
     Bar,
@@ -42,6 +42,47 @@ const emptyData = [
 
 export default function EmailAnalyticsPage() {
     const [activeRange, setActiveRange] = useState("24h");
+    const [stats, setStats] = useState({
+        totalSent: 0,
+        totalReplies: 0
+    });
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/leads');
+                if (!res.ok) throw new Error("Failed");
+                const leads = await res.json();
+
+                let totalEmails = 0;
+                let replyCount = 0;
+
+                leads.forEach((lead: any) => {
+                    const stages = lead.stages_passed || [];
+                    stages.forEach((stage: string) => {
+                        if (stage.toLowerCase().includes("email")) {
+                            totalEmails++;
+                        }
+                    });
+                    if (lead.replied && lead.replied !== "No") {
+                        replyCount++;
+                    }
+                });
+
+                setStats({
+                    totalSent: totalEmails,
+                    totalReplies: replyCount
+                });
+            } catch (e) {
+                console.error("Analytics fetch error", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchStats();
+    }, []);
 
     return (
         <div className="space-y-6 pb-10">
@@ -70,7 +111,7 @@ export default function EmailAnalyticsPage() {
                 {/* Row 1 */}
                 <MetricCard
                     label="Total Sent"
-                    value="0"
+                    value={loading ? "..." : stats.totalSent.toLocaleString()}
                     icon={Send}
                     iconBg="bg-blue-50"
                     iconColor="text-blue-600"
@@ -120,8 +161,8 @@ export default function EmailAnalyticsPage() {
                     iconColor="text-cyan-600"
                 />
                 <MetricCard
-                    label="Delivery Rate"
-                    value="0.00%"
+                    label="Replies"
+                    value={loading ? "..." : stats.totalReplies.toLocaleString()}
                     icon={MailCheck}
                     iconBg="bg-emerald-50"
                     iconColor="text-emerald-600"

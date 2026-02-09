@@ -6,7 +6,7 @@ import Link from "next/link";
 import { PieChart, Pie, Cell, ResponsiveContainer, Label } from "recharts";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function EmailDashboardPage() {
     const [followUpStage, setFollowUpStage] = useState("1");
@@ -14,76 +14,98 @@ export default function EmailDashboardPage() {
 
     // State for dashboard metrics
     const [data, setData] = useState({
-        totalEmails: "12,881",
-        firstEmail: "8,747",
-        openRate: "42%",
-        responseRate: "12%",
-        totalReplies: "1,124",
+        totalEmails: 0,
+        firstEmail: 0,
+        openRate: "N/A", // Not available in API
+        responseRate: "0%",
+        totalReplies: 0,
         followUpBreakdown: [
-            { count: "2,703", percentage: "24%" },
-            { count: "1,431", percentage: "15%" },
-            { count: "915", percentage: "7%" },
-            { count: "398", percentage: "3%" },
-            { count: "145", percentage: "1.5%" },
-            { count: "42", percentage: "0.4%" },
+            { count: 0, percentage: "0%" },
+            { count: 0, percentage: "0%" },
+            { count: 0, percentage: "0%" },
+            { count: 0, percentage: "0%" },
+            { count: 0, percentage: "0%" },
+            { count: 0, percentage: "0%" },
         ]
     });
+    const [loading, setLoading] = useState(true);
 
-    // Mock data generator based on label
-    const getMockData = (label: string) => {
-        // Deterministic mock changes based on label length/char to seems consistent but different
-        const multiplier = label.length % 2 === 0 ? 1.5 : 0.7;
+    useEffect(() => {
+        const calculateStats = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/leads');
+                if (!res.ok) throw new Error("Failed");
+                const leads = await res.json();
 
-        if (label.toLowerCase() === "today") {
-            return {
-                totalEmails: "2,881",
-                firstEmail: "1,747",
-                openRate: "45%",
-                responseRate: "12%",
-                totalReplies: "124",
-                followUpBreakdown: [
-                    { count: "703", percentage: "24%" },
-                    { count: "431", percentage: "15%" },
-                    { count: "215", percentage: "7%" },
-                    { count: "98", percentage: "3%" },
-                    { count: "45", percentage: "1.5%" },
-                    { count: "12", percentage: "0.4%" },
-                ]
-            };
-        } else if (label.toLowerCase().includes("month")) {
-            return {
-                totalEmails: "45,230",
-                firstEmail: "32,100",
-                openRate: "38%",
-                responseRate: "10%",
-                totalReplies: "4,500",
-                followUpBreakdown: [
-                    { count: "12,020", percentage: "26%" },
-                    { count: "8,400", percentage: "18%" },
-                    { count: "4,200", percentage: "9%" },
-                    { count: "1,500", percentage: "3.3%" },
-                    { count: "600", percentage: "1.3%" },
-                    { count: "200", percentage: "0.4%" },
-                ]
-            };
-        }
+                let totalEmails = 0;
+                let firstEmailCount = 0;
+                let replyCount = 0;
+                // Follow up counts
+                const followUpCounts = [0, 0, 0, 0, 0, 0];
 
-        // Default / Randomish for other ranges
-        return {
-            totalEmails: Math.floor(12000 * multiplier).toLocaleString(),
-            firstEmail: Math.floor(8000 * multiplier).toLocaleString(),
-            openRate: Math.floor(40 * multiplier) + "%",
-            responseRate: Math.floor(12 * multiplier) + "%",
-            totalReplies: Math.floor(1100 * multiplier).toLocaleString(),
-            followUpBreakdown: [
-                { count: Math.floor(2700 * multiplier).toLocaleString(), percentage: "24%" },
-                { count: Math.floor(1400 * multiplier).toLocaleString(), percentage: "15%" },
-                { count: Math.floor(900 * multiplier).toLocaleString(), percentage: "7%" },
-                { count: Math.floor(300 * multiplier).toLocaleString(), percentage: "3%" },
-                { count: Math.floor(140 * multiplier).toLocaleString(), percentage: "1.5%" },
-                { count: Math.floor(40 * multiplier).toLocaleString(), percentage: "0.4%" },
-            ]
+                leads.forEach((lead: any) => {
+                    const stages = lead.stages_passed || [];
+
+                    // Check specific stages
+                    // Mapping based on user prompts/conventions:
+                    // "Email 1" = First Email
+                    // "Email 2" = 1st Follow up (Stage 3 in Intro?)
+                    // "Email 3" = 2nd Follow up (Stage 4 in Intro?)
+                    // Actually, let's just count occurrences of "Email" 
+
+                    stages.forEach((stage: string) => {
+                        const s = stage.toLowerCase();
+                        if (s.includes("email")) {
+                            totalEmails++;
+                            if (s.includes("1")) firstEmailCount++;
+                            // Rough mapping for follow ups based on number?
+                            if (s.includes("2")) followUpCounts[0]++;
+                            if (s.includes("3")) followUpCounts[1]++;
+                            if (s.includes("4")) followUpCounts[2]++;
+                            if (s.includes("5")) followUpCounts[3]++;
+                            if (s.includes("6")) followUpCounts[4]++;
+                            // 6th index?
+                        }
+                    });
+
+                    if (lead.replied && lead.replied !== "No") {
+                        replyCount++;
+                    }
+                });
+
+                // Calculate percentages
+                const formatPct = (val: number) => totalEmails > 0 ? ((val / totalEmails) * 100).toFixed(1) + "%" : "0%";
+
+                setData({
+                    totalEmails: totalEmails,
+                    firstEmail: firstEmailCount,
+                    openRate: "N/A",
+                    responseRate: leads.length > 0 ? ((replyCount / leads.length) * 100).toFixed(1) + "%" : "0%",
+                    totalReplies: replyCount,
+                    followUpBreakdown: followUpCounts.map(count => ({
+                        count: count,
+                        percentage: formatPct(count)
+                    }))
+                });
+
+            } catch (e) {
+                console.error("Dashboard fetch error", e);
+            } finally {
+                setLoading(false);
+            }
         };
+
+        calculateStats();
+    }, []);
+
+    const handleDateUpdate = ({ label }: { label?: string }) => {
+        if (label) {
+            setDateSubtitle(label.toLowerCase() === "today" ? "sent today" : `sent ${label.toLowerCase()}`);
+        } else {
+            setDateSubtitle("sent in selected range");
+        }
+        // Date filtering logic would go here if API supported it
     };
 
     // Derived FollowUp Data based on current state `data`
@@ -96,23 +118,7 @@ export default function EmailDashboardPage() {
         "6": { value: data.followUpBreakdown[5].count, subtitle: dateSubtitle, iconColor: "text-rose-600", bgColor: "bg-rose-50" },
     };
 
-    const currentFollowUp = followUpData[followUpStage];
-
-    const handleDateUpdate = ({ label }: { label?: string }) => {
-        if (label) {
-            // Convert label to subtitle format
-            const lowerLabel = label.toLowerCase();
-            if (lowerLabel === "today") setDateSubtitle("sent today");
-            else if (lowerLabel === "this month") setDateSubtitle("sent this month");
-            else setDateSubtitle(`sent ${lowerLabel}`);
-
-            // Update Data
-            setData(getMockData(label));
-        } else {
-            setDateSubtitle("sent in selected range");
-            setData(getMockData("custom"));
-        }
-    };
+    const currentFollowUp = followUpData[followUpStage] || followUpData["1"];
 
     return (
         <div className="space-y-8 pb-10">

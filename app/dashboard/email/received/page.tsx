@@ -20,7 +20,7 @@ import {
     Search,
     Calendar as CalendarIcon
 } from "lucide-react";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     Collapsible,
     CollapsibleContent,
@@ -35,49 +35,60 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
-const replies = [
-    {
-        id: 1,
-        sender: "virajgoswami99@gmail.com",
-        subject: "Thank you and see you soon!",
-        timestamp: "Sat, Nov 1, 2025, 12:43 AM",
-        senderName: "Sujish Jangra",
-        content: "Hi Team,\n\nThat sounds like a great plan. I appreciate the quick turnaround. We'll be ready for the implementation next week.\n\nBest,\nSujish",
-        originalMessage: {
-            sender: "sujish@scalepods.org",
-            timestamp: "Sat, 1 Nov 2025 at 00:42",
-            content: "Looking forward to it too! On Sat, 1 Nov 2025 at 00:42, Virajbharthi Goswami wrote: ..."
-        }
-    },
-    {
-        id: 2,
-        sender: "adnansk7@gmail.com",
-        subject: "Re: Project Update",
-        timestamp: "Fri, Oct 31, 2025, 10:15 AM",
-        senderName: "Adnan Shaikh",
-        content: "Hi I would like to reschedule our meeting to next Tuesday if possible. Let me know if that works for you.",
-        originalMessage: {
-            sender: "support@scalepods.org",
-            timestamp: "Fri, 31 Oct 2025 at 09:00",
-            content: "Dear Adnan, confirming our scheduled call for tomorrow..."
-        }
-    },
-    {
-        id: 3,
-        sender: "sarah.jenkins@designstudio.ae",
-        subject: "Design assets received",
-        timestamp: "Fri, Oct 31, 2025, 08:30 AM",
-        senderName: "Sarah Jenkins",
-        content: "Thanks for sending these over! We will review them today and get back to you with any feedback.",
-        originalMessage: {
-            sender: "design@lotusmanor.ae",
-            timestamp: "Thu, 30 Oct 2025 at 16:45",
-            content: "Hi Sarah, please find attached the latest brand assets for your review..."
-        }
-    },
-];
+// Mock data removed
+
 
 export default function ReceivedEmailsPage() {
+    const [replies, setReplies] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [searchQuery, setSearchQuery] = useState("");
+
+    useEffect(() => {
+        const fetchReplies = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/leads');
+                if (!res.ok) throw new Error("Failed");
+                const leads = await res.json();
+
+                const realReplies: any[] = [];
+                leads.forEach((lead: any, index: number) => {
+                    // Check if lead replied
+                    if (lead.replied && lead.replied !== "No") {
+                        realReplies.push({
+                            id: `${lead.id || index}-reply`,
+                            sender: lead.email || "Unknown Sender",
+                            status: lead.replied, // Store raw status for filtering
+                            subject: "New Reply",
+                            timestamp: "Just now",
+                            senderName: lead.firstName ? `${lead.firstName} ${lead.lastName || ''}` : "Lead",
+                            content: `Lead replied: ${lead.replied}`,
+                            originalMessage: {
+                                sender: "System",
+                                timestamp: "Previously",
+                                content: "Original message content..."
+                            }
+                        });
+                    }
+                });
+                setReplies(realReplies);
+            } catch (e) {
+                console.error("Received emails fetch error", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchReplies();
+    }, []);
+
+    const filteredReplies = replies.filter(reply => {
+        const matchesStatus = statusFilter === "all" || reply.status === statusFilter;
+        const matchesSearch = reply.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            reply.content.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesStatus && matchesSearch;
+    });
+
     return (
         <div className="space-y-6 pb-10 max-w-5xl mx-auto">
             {/* Page Header */}
@@ -93,7 +104,7 @@ export default function ReceivedEmailsPage() {
             <Card className="bg-white border-slate-200 shadow-sm">
                 <CardContent className="p-6 flex items-center justify-between">
                     <div>
-                        <h3 className="text-2xl font-bold text-slate-900">3 replies received</h3>
+                        <h3 className="text-2xl font-bold text-slate-900">{loading ? "..." : filteredReplies.length} replies received</h3>
                         <p className="text-sm font-medium text-slate-500 mt-1">Total Replies</p>
                     </div>
                     <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
@@ -109,29 +120,20 @@ export default function ReceivedEmailsPage() {
                     <Input
                         placeholder="Search by sender or content..."
                         className="pl-10 bg-white border-slate-200"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                     />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <Select>
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="bg-white border-slate-200">
                             <SelectValue placeholder="All Statuses" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Statuses</SelectItem>
-                            <SelectItem value="responded">Responded</SelectItem>
-                            <SelectItem value="pending">Pending</SelectItem>
-                        </SelectContent>
-                    </Select>
-
-                    <Select>
-                        <SelectTrigger className="bg-white border-slate-200">
-                            <SelectValue placeholder="All Senders" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Senders</SelectItem>
-                            <SelectItem value="vip">VIP Clients</SelectItem>
-                            <SelectItem value="new">New Leads</SelectItem>
+                            <SelectItem value="Yes">Yes</SelectItem>
+                            <SelectItem value="Dropped">Dropped</SelectItem>
                         </SelectContent>
                     </Select>
 
@@ -151,9 +153,12 @@ export default function ReceivedEmailsPage() {
 
             {/* Email Reply List */}
             <div className="space-y-4">
-                {replies.map((reply) => (
+                {filteredReplies.map((reply) => (
                     <EmailReplyCard key={reply.id} reply={reply} />
                 ))}
+                {!loading && filteredReplies.length === 0 && (
+                    <div className="p-10 text-center text-slate-500">No replies found.</div>
+                )}
             </div>
         </div>
     );

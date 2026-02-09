@@ -23,7 +23,7 @@ import {
     ArrowLeft,
     ExternalLink
 } from "lucide-react";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     Collapsible,
     CollapsibleContent,
@@ -39,35 +39,61 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
 // Mock Data
-const sentEmails = Array.from({ length: 170 }).map((_, i) => ({
-    id: i + 1,
-    recipient: i % 2 === 0 ? "a.naseri@iconiccore.com" : "sarah.j@designstudio.ae",
-    sender: "N/A",
-    type: "1st Follow-up",
-    sentDate: "Dec 8, 2025, 04:02 AM",
-    subject: i % 2 === 0 ? "Customer Support Omni Channel Chatbot" : "Design assets received",
-    content: "Hi Ali,\n\nI hope this email finds you well.\n\nI wanted to follow up on our previous conversation regarding the Customer Support Omni Channel Chatbot and the Founder's AI Assistant we discussed.\n\nWe have made significant progress and I would love to share the updates with you.\n\nBest regards,\nAdnan Shaikh\nServiots x ScalePods",
-    socials: [
-        { name: "LinkedIn Serviots", url: "#" },
-        { name: "LinkedIn ScalePods", url: "#" },
-        { name: "Instagram ScalePods", url: "#" }
-    ]
-}));
+// Mock data removed.
+
 
 const ITEMS_PER_PAGE = 10;
 
 export default function SentEmailsPage() {
     const [page, setPage] = useState(1);
     const [date, setDate] = useState<Date>();
+    const [sentEmails, setSentEmails] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({
         campaign: "all",
         sender: "all",
         type: "all"
     });
 
+    useEffect(() => {
+        const fetchSentEmails = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/leads');
+                if (!res.ok) throw new Error("Failed");
+                const leads = await res.json();
+
+                const emails: any[] = [];
+                leads.forEach((lead: any) => {
+                    const stages = lead.stages_passed || [];
+                    stages.forEach((stage: string) => {
+                        if (stage.toLowerCase().includes("email")) {
+                            emails.push({
+                                id: lead.id + "-" + stage, // Unique key
+                                recipient: lead.email || `Lead ${lead.id}`,
+                                sender: "System",
+                                type: stage,
+                                sentDate: "Unknown Date", // No timestamp in API
+                                subject: `Outreach: ${stage}`,
+                                content: "Content not available in current data view.",
+                                socials: []
+                            });
+                        }
+                    });
+                });
+                setSentEmails(emails);
+            } catch (e) {
+                console.error("Sent emails fetch error", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchSentEmails();
+    }, []);
+
+
     const handleFilterChange = (key: string, value: string) => {
         setFilters(prev => ({ ...prev, [key]: value }));
-        console.log(`Filter ${key} changed to:`, value);
     };
 
     const totalPages = Math.ceil(sentEmails.length / ITEMS_PER_PAGE);

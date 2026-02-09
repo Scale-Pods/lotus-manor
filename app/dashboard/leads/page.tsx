@@ -49,7 +49,9 @@ const NURTURE_WEEK_STEPS = ["WhatsApp 1", "Email 1", "WhatsApp 2", "Voice 1", "V
 
 export default function LeadsPage() {
     const [leads, setLeads] = useState<Lead[]>([]);
+    const [templates, setTemplates] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [view, setView] = useState<"leads" | "templates">("leads");
     const [error, setError] = useState<string | null>(null);
 
     const fetchLeads = async () => {
@@ -70,9 +72,31 @@ export default function LeadsPage() {
         }
     };
 
+    const fetchTemplates = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await fetch("/api/templates");
+            if (!response.ok) {
+                throw new Error("Failed to fetch templates");
+            }
+            const data = await response.json();
+            setTemplates(data);
+        } catch (err) {
+            console.error(err);
+            setError("Could not load templates. Please try again later.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        fetchLeads();
-    }, []);
+        if (view === "leads") {
+            fetchLeads();
+        } else {
+            fetchTemplates();
+        }
+    }, [view]);
 
     const calculateProgress = (lead: Lead) => {
         const stagesPassed = lead.stages_passed || [];
@@ -174,12 +198,26 @@ export default function LeadsPage() {
                     <p className="text-slate-500">Manage and track your leads across all loops.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={fetchLeads} disabled={loading}>
+                    <Button
+                        variant={view === "leads" ? "outline" : "ghost"}
+                        onClick={() => setView("leads")}
+                        className={view === "leads" ? "bg-slate-50" : ""}
+                    >
+                        Leads
+                    </Button>
+                    <Button
+                        variant={view === "templates" ? "outline" : "ghost"}
+                        onClick={() => setView("templates")}
+                        className={view === "templates" ? "bg-slate-50" : ""}
+                    >
+                        Templates
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => view === "leads" ? fetchLeads() : fetchTemplates()} disabled={loading}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                         Refresh
                     </Button>
                     <div className="bg-white p-2 rounded-md border shadow-sm text-sm font-medium text-slate-600">
-                        Total Leads: {leads.length}
+                        {view === "leads" ? `Total Leads: ${leads.length}` : `Templates: ${templates.length}`}
                     </div>
                 </div>
             </div>
@@ -187,68 +225,115 @@ export default function LeadsPage() {
             <Card className="border-slate-200 shadow-sm">
                 <CardHeader className="pb-4 border-b border-slate-100">
                     <div className="flex items-center gap-2">
-                        <Users className="h-5 w-5 text-blue-600" />
-                        <CardTitle>All Leads</CardTitle>
+                        {view === "leads" ? <Users className="h-5 w-5 text-blue-600" /> : <AlertCircle className="h-5 w-5 text-purple-600" />}
+                        <CardTitle>{view === "leads" ? "All Leads" : "Templates Library"}</CardTitle>
                     </div>
                     <CardDescription>
-                        Real-time data from your Intro and Follow-up loops.
+                        {view === "leads" ? "Real-time data from your Intro and Follow-up loops." : "Manage your messaging templates."}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <Table>
-                        <TableHeader>
-                            <TableRow className="bg-slate-50/50">
-                                <TableHead className="w-[200px]">Name</TableHead>
-                                <TableHead>Phone</TableHead>
-                                <TableHead>Email</TableHead>
-                                <TableHead>Current Loop</TableHead>
-                                <TableHead>Replied</TableHead>
-                                <TableHead className="w-[250px]">Progress</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {leads.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="h-24 text-center text-slate-500">
-                                        No leads found.
-                                    </TableCell>
+                    {view === "leads" ? (
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-slate-50/50">
+                                    <TableHead className="w-[200px]">Name</TableHead>
+                                    <TableHead>Phone</TableHead>
+                                    <TableHead>Email</TableHead>
+                                    <TableHead>Current Loop</TableHead>
+                                    <TableHead>Replied</TableHead>
+                                    <TableHead className="w-[250px]">Progress</TableHead>
                                 </TableRow>
-                            ) : (
-                                leads.map((lead, index) => {
-                                    const progress = calculateProgress(lead);
-                                    const stageLabel = getStageLabel(lead);
+                            </TableHeader>
+                            <TableBody>
+                                {loading && leads.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="h-24 text-center">
+                                            <div className="flex items-center justify-center gap-2 text-slate-500">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                Loading leads...
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ) : leads.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="h-24 text-center text-slate-500">
+                                            No leads found.
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    leads.map((lead, index) => {
+                                        const progress = calculateProgress(lead);
+                                        const stageLabel = getStageLabel(lead);
 
-                                    return (
-                                        <TableRow key={index} className="hover:bg-slate-50/50 transition-colors">
-                                            <TableCell className="font-medium text-slate-900">{lead.name}</TableCell>
-                                            <TableCell className="text-slate-600">{lead.phone}</TableCell>
-                                            <TableCell className="text-slate-600">{lead.email}</TableCell>
-                                            <TableCell>
-                                                <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200">
-                                                    {lead.display_loop || lead.current_loop}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell>
-                                                <Badge variant={lead.replied === "Yes" ? "default" : "secondary"}
-                                                    className={lead.replied === "Yes" ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 shadow-none" : ""}>
-                                                    {lead.replied}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="space-y-1.5 container">
-                                                    <div className="flex justify-between text-xs text-slate-500">
-                                                        <span>{stageLabel}</span>
-                                                        <span>{Math.round(progress)}%</span>
+                                        return (
+                                            <TableRow key={index} className="hover:bg-slate-50/50 transition-colors">
+                                                <TableCell className="font-medium text-slate-900">{lead.name}</TableCell>
+                                                <TableCell className="text-slate-600">{lead.phone}</TableCell>
+                                                <TableCell className="text-slate-600">{lead.email}</TableCell>
+                                                <TableCell>
+                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200">
+                                                        {lead.display_loop || lead.current_loop}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant={lead.replied === "Yes" ? "default" : "secondary"}
+                                                        className={lead.replied === "Yes" ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 shadow-none" : ""}>
+                                                        {lead.replied}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="space-y-1.5 container">
+                                                        <div className="flex justify-between text-xs text-slate-500">
+                                                            <span>{stageLabel}</span>
+                                                            <span>{Math.round(progress)}%</span>
+                                                        </div>
+                                                        <Progress value={progress} className="h-2 bg-slate-100" indicatorClassName="bg-gradient-to-r from-blue-500 to-cyan-500" />
                                                     </div>
-                                                    <Progress value={progress} className="h-2 bg-slate-100" indicatorClassName="bg-gradient-to-r from-blue-500 to-cyan-500" />
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })
+                                )}
+                            </TableBody>
+                        </Table>
+                    ) : (
+                        <div className="p-6 space-y-6">
+                            {loading && templates.length === 0 ? (
+                                <div className="flex items-center justify-center h-24 text-slate-500 gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Loading templates...
+                                </div>
+                            ) : templates.length === 0 ? (
+                                <div className="text-center text-slate-500 py-10">No templates found.</div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-6 max-w-4xl mx-auto">
+                                    {templates.map((template: any, idx) => (
+                                        <Card key={template.id || idx} className="border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                                            <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-3 px-4 flex flex-row items-center justify-between">
+                                                <div className="font-semibold text-slate-700">
+                                                    {template.name || `Template ${idx + 1}`}
                                                 </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                })
+                                                {template.category && (
+                                                    <Badge variant="secondary" className="text-xs bg-white border border-slate-200">
+                                                        {template.category}
+                                                    </Badge>
+                                                )}
+                                            </CardHeader>
+                                            <CardContent className="p-6 bg-white prose prose-slate max-w-none">
+                                                <div className="whitespace-pre-wrap text-slate-700 font-sans leading-relaxed">
+                                                    {/* Attempt to display body content cleanly */}
+                                                    {typeof template.body === 'string' ? template.body :
+                                                        typeof template.components === 'object' ? JSON.stringify(template.components, null, 2) :
+                                                            JSON.stringify(template, null, 2)}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                </div>
                             )}
-                        </TableBody>
-                    </Table>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
         </div>

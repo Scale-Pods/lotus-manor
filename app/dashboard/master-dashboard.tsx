@@ -37,7 +37,7 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const acquisitionData = [
     { name: 'Mon', leads: 400, conv: 240 },
@@ -67,13 +67,76 @@ export default function MasterDashboard() {
     const [isRepliesExpanded, setIsRepliesExpanded] = useState(false);
     const [dateLabel, setDateLabel] = useState("Last 7 days");
 
+    // Real Data State
+    const [stats, setStats] = useState({
+        totalLeads: 0,
+        totalEmails: 0,
+        totalWhatsApp: 0,
+        totalVoice: 0,
+        totalReplies: 0,
+        voiceMinutes: 0
+    });
+    const [loading, setLoading] = useState(true);
+
     const handleDateUpdate = ({ range, label }: { range: any, label?: string }) => {
         if (label) {
             setDateLabel(label);
         }
-        // Here we would fetch real data using 'range'
+        // Here we would fetch real data using 'range' if API supported it
         console.log("Date range updated:", range);
     };
+
+    useEffect(() => {
+        const calculateStats = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/leads');
+                if (!res.ok) throw new Error("Failed");
+                const leads = await res.json();
+
+                let emailCount = 0;
+                let whatsappCount = 0;
+                let voiceCount = 0;
+                let replyCount = 0;
+
+                leads.forEach((lead: any) => {
+                    const stages = lead.stages_passed || [];
+                    stages.forEach((stage: string) => {
+                        if (stage.toLowerCase().includes("email")) emailCount++;
+                        if (stage.toLowerCase().includes("whatsapp")) whatsappCount++;
+                        if (stage.toLowerCase().includes("voice")) voiceCount++;
+                    });
+
+                    if (lead.replied && lead.replied !== "No") {
+                        replyCount++;
+                    }
+                });
+
+                setStats({
+                    totalLeads: leads.length,
+                    totalEmails: emailCount,
+                    totalWhatsApp: whatsappCount,
+                    totalVoice: voiceCount,
+                    voiceMinutes: voiceCount * 2, // Assumption: 2 mins per call
+                    totalReplies: replyCount
+                });
+
+            } catch (e) {
+                console.error("Dashboard fetch error", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        calculateStats();
+    }, []);
+
+    // Derived Pie Chart Data
+    const realServiceDistribution = [
+        { name: 'Email', value: stats.totalEmails, color: '#3b82f6' },
+        { name: 'WhatsApp', value: stats.totalWhatsApp, color: '#10b981' },
+        { name: 'Voice', value: stats.totalVoice, color: '#8b5cf6' },
+    ];
 
     return (
         <div className="space-y-8 pb-10">
@@ -89,10 +152,9 @@ export default function MasterDashboard() {
             {/* Top Metric Cards */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
                 <MetricCard
-                    title="Total Reachouts"
-                    
-                    value="13,331"
-                    change="+12.5%"
+                    title="Total Leads"
+                    value={loading ? "..." : stats.totalLeads.toLocaleString()}
+                    change="Real-time"
                     isUp={true}
                     icon={<Users className="h-6 w-6" />}
                     color="text-blue-600"
@@ -100,10 +162,9 @@ export default function MasterDashboard() {
                     border="border-blue-100"
                 />
                 <MetricCard
-                    title=" Total Emails Sent"
-                    
-                    value="42,881"
-                    change="+18.2%"
+                    title="Total Emails Sent"
+                    value={loading ? "..." : stats.totalEmails.toLocaleString()}
+                    change="Real-time"
                     isUp={true}
                     icon={<Mail className="h-6 w-6" />}
                     color="text-emerald-600"
@@ -112,9 +173,8 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title="Total WhatsApp Chats"
-                    
-                    value="1,076"
-                    change="+5.4%"
+                    value={loading ? "..." : stats.totalWhatsApp.toLocaleString()}
+                    change="Real-time"
                     isUp={true}
                     icon={<MessageCircle className="h-6 w-6" />}
                     color="text-purple-600"
@@ -123,10 +183,9 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title="Total Voice Minutes"
-                    
-                    value="452m"
-                    change="-2.1%"
-                    isUp={false}
+                    value={loading ? "..." : `${stats.voiceMinutes}m`}
+                    change="Est. 2m/call"
+                    isUp={true}
                     icon={<Phone className="h-6 w-6" />}
                     color="text-orange-600"
                     bg="bg-orange-50"
@@ -134,26 +193,26 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title="Total Replies"
-
-                    value="142m"
-                    change="+2.1%"
+                    value={loading ? "..." : stats.totalReplies.toLocaleString()}
+                    change={`${stats.totalLeads > 0 ? ((stats.totalReplies / stats.totalLeads) * 100).toFixed(1) : 0}% Rate`}
                     isUp={true}
                     icon={<Expand className="h-6 w-6" />}
                     color="text-orange-600"
-
+                    bg=""
                     border="border-orange-100"
                     onClick={() => setIsRepliesModalOpen(true)}
                     action={<Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-white hover:text-white"
+                        className="h-8 w-8 text-slate-400 hover:text-slate-600"
                         onClick={(e) => {
                             e.stopPropagation();
                             setIsRepliesExpanded(!isRepliesExpanded);
-                        } }
+                        }}
                     >
                         {isRepliesExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                    </Button>} bg={""}                />
+                    </Button>}
+                />
             </div>
 
             {/* Expanded View Section */}
@@ -235,7 +294,7 @@ export default function MasterDashboard() {
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                     <Pie
-                                        data={serviceDistributionData}
+                                        data={realServiceDistribution}
                                         cx="50%"
                                         cy="50%"
                                         innerRadius={60}
@@ -243,7 +302,7 @@ export default function MasterDashboard() {
                                         paddingAngle={5}
                                         dataKey="value"
                                     >
-                                        {serviceDistributionData.map((entry, index) => (
+                                        {realServiceDistribution.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={entry.color} />
                                         ))}
                                     </Pie>

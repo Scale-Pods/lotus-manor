@@ -26,21 +26,92 @@ import {
     Tooltip
 } from "recharts";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-
-const donutData = [
-    { name: 'Total Leads', value: 35, color: '#8b5cf6' }, // Purple
-    { name: 'Replied', value: 19, color: '#10b981' },     // Teal/Green
-    { name: 'Meetings', value: 20, color: '#f97316' },    // Orange
-];
+import { useState, useEffect } from "react";
 
 const activityData = [
-    { name: 'Total Leads', value: 35, fill: '#8b5cf6' },
-    { name: 'Msgs Sent', value: 16, fill: '#14b8a6' },
-    { name: 'Active Camp', value: 3, fill: '#3b82f6' },
-    { name: 'Meetings', value: 20, fill: '#f97316' },
+    { name: 'Total Leads', value: 0, fill: '#8b5cf6' },
+    { name: 'Msgs Sent', value: 0, fill: '#14b8a6' },
+    { name: 'Active Camp', value: 0, fill: '#3b82f6' },
+    { name: 'Meetings', value: 0, fill: '#f97316' },
+];
+
+const donutData = [
+    { name: 'Total Leads', value: 0, color: '#8b5cf6' },
+    { name: 'Replied', value: 0, color: '#10b981' },
+    { name: 'Meetings', value: 0, color: '#f97316' },
 ];
 
 export default function WhatsappDashboardPage() {
+    const [stats, setStats] = useState({
+        totalLeads: 0,
+        msgsSent: 0,
+        replied: 0,
+        meetings: 0
+    });
+    const [donutData, setDonutData] = useState([
+        { name: 'Total Leads', value: 0, color: '#8b5cf6' },
+        { name: 'Replied', value: 0, color: '#10b981' },
+        { name: 'Meetings', value: 0, color: '#f97316' },
+    ]);
+    const [barData, setBarData] = useState(activityData);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const calculateStats = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/leads');
+                if (!res.ok) throw new Error("Failed");
+                const leads = await res.json();
+
+                let whatsappSentCount = 0;
+                let replyCount = 0;
+                let totalLeads = leads.length;
+
+                leads.forEach((lead: any) => {
+                    const stages = lead.stages_passed || [];
+
+                    // Count WhatsApp messages sent
+                    stages.forEach((stage: string) => {
+                        if (stage.toLowerCase().includes("whatsapp")) {
+                            whatsappSentCount++;
+                        }
+                    });
+
+                    if (lead.replied && lead.replied !== "No") {
+                        replyCount++;
+                    }
+                });
+
+                setStats({
+                    totalLeads: leads.length,
+                    msgsSent: whatsappSentCount,
+                    replied: replyCount,
+                    meetings: 0 // No data for meetings yet
+                });
+
+                setDonutData([
+                    { name: 'Total Leads', value: totalLeads, color: '#8b5cf6' },
+                    { name: 'Replied', value: replyCount, color: '#10b981' },
+                    { name: 'Meetings', value: 0, color: '#f97316' },
+                ]);
+
+                setBarData([
+                    { name: 'Total Leads', value: totalLeads, fill: '#8b5cf6' },
+                    { name: 'Msgs Sent', value: whatsappSentCount, fill: '#14b8a6' },
+                    { name: 'Active Camp', value: 3, fill: '#3b82f6' },
+                    { name: 'Meetings', value: 0, fill: '#f97316' },
+                ]);
+
+            } catch (e) {
+                console.error("Dashboard fetch error", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        calculateStats();
+    }, []);
     return (
         <div className="space-y-8 pb-10">
             {/* Header & Actions */}
@@ -56,7 +127,7 @@ export default function WhatsappDashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <MetricCard
                     title="Total Leads"
-                    value="35"
+                    value={loading ? "..." : stats.totalLeads.toLocaleString()}
                     icon={Users}
                     theme="purple"
                 />
@@ -68,13 +139,13 @@ export default function WhatsappDashboardPage() {
                 />
                 <MetricCard
                     title="Messages Sent"
-                    value="16"
+                    value={loading ? "..." : stats.msgsSent.toLocaleString()}
                     icon={MessageCircle}
                     theme="teal"
                 />
                 <MetricCard
                     title="Meetings Booked"
-                    value="20"
+                    value={loading ? "..." : stats.meetings.toLocaleString()}
                     icon={Calendar}
                     theme="orange"
                 />
@@ -118,9 +189,9 @@ export default function WhatsappDashboardPage() {
                         </div>
                         {/* Legend / Summary Cards */}
                         <div className="grid grid-cols-3 gap-4 mt-4">
-                            <SummaryPill label="Total Leads" value="35" color="bg-purple-900" />
-                            <SummaryPill label="Replied" value="19" color="bg-emerald-800" />
-                            <SummaryPill label="Meetings" value="20" color="bg-orange-800" />
+                            <SummaryPill label="Total Leads" value={stats.totalLeads} color="bg-purple-900" />
+                            <SummaryPill label="Replied" value={stats.replied} color="bg-emerald-800" />
+                            <SummaryPill label="Meetings" value={stats.meetings} color="bg-orange-800" />
                         </div>
                     </CardContent>
                 </Card>
@@ -141,13 +212,13 @@ export default function WhatsappDashboardPage() {
                     <CardContent>
                         <div className="w-full" style={{ height: 300, minHeight: 300 }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={activityData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                                <BarChart data={barData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
                                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
                                     <Tooltip cursor={{ fill: '#f8fafc' }} />
                                     <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={40}>
-                                        {activityData.map((entry, index) => (
+                                        {barData.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={entry.fill} />
                                         ))}
                                     </Bar>
@@ -155,10 +226,10 @@ export default function WhatsappDashboardPage() {
                             </ResponsiveContainer>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mt-4">
-                            <SummaryPill label="Total Leads" value="35" color="bg-purple-600" />
-                            <SummaryPill label="Msgs Sent" value="16" color="bg-teal-600" />
+                            <SummaryPill label="Total Leads" value={stats.totalLeads} color="bg-purple-600" />
+                            <SummaryPill label="Msgs Sent" value={stats.msgsSent} color="bg-teal-600" />
                             <SummaryPill label="Active Camp" value="3" color="bg-blue-600" />
-                            <SummaryPill label="Meetings" value="20" color="bg-orange-600" />
+                            <SummaryPill label="Meetings" value={stats.meetings} color="bg-orange-600" />
                         </div>
                     </CardContent>
                 </Card>
