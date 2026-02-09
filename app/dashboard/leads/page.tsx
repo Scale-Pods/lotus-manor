@@ -29,6 +29,11 @@ interface Lead {
     replied: string;
     current_loop: string;
     stages_passed: string[];
+    // Nurture specific fields
+    lead_id?: string;
+    current_week?: string;
+    display_loop?: string;
+    source_loop?: string;
 }
 
 const STAGES = [
@@ -39,6 +44,8 @@ const STAGES = [
     { id: 5, label: "Stage 5", criteria: ["Voice 1"] },
     { id: 6, label: "Stage 6", criteria: ["Voice 2"] },
 ];
+
+const NURTURE_WEEK_STEPS = ["WhatsApp 1", "Email 1", "WhatsApp 2", "Voice 1", "Voice 2", "Email 1", "Email 2"];
 
 export default function LeadsPage() {
     const [leads, setLeads] = useState<Lead[]>([]);
@@ -67,26 +74,44 @@ export default function LeadsPage() {
         fetchLeads();
     }, []);
 
-    const calculateProgress = (stagesPassed: string[]) => {
+    const calculateProgress = (lead: Lead) => {
+        const stagesPassed = lead.stages_passed || [];
+
+        // Nurture Loop Logic
+        if (lead.source_loop === "Nurture") {
+            // Logic: 
+            // Total Nurture Stages = 3 (Week 1, Week 2, Week 3).
+            // Each stage has ~6-7 steps.
+            // Progress = ((CurrentWeek - 1) * 100 / 3) + ( (CompletedStepsInCurrentWeek / TotalStepsInWeek) * 100 / 3 )
+
+            let weekNum = 1;
+            if (lead.current_week) {
+                const match = lead.current_week.match(/Week (\d+)/i);
+                if (match) weekNum = parseInt(match[1]);
+            }
+
+            // Allow up to 3 weeks. If weekNum > 3, we cap at 100% or adjust denominator?
+            const TOTAL_NURTURE_WEEKS = 3;
+            if (weekNum > TOTAL_NURTURE_WEEKS) weekNum = TOTAL_NURTURE_WEEKS;
+
+            const nurtureSteps = ["WhatsApp 1", "Email 1", "WhatsApp 2", "Voice 1", "Voice 2", "Email 2"];
+            // Note: User list ("Email 1", "WhatsApp 1"...) might vary slightly, using best guess from prompt + JSON.
+            // JSON also saw "Email 3", assume it maps to Email 1/2 of Week 3? 
+            // Or just check how many of our defining steps are present.
+
+            const completedStepsCount = nurtureSteps.filter(step => stagesPassed.includes(step)).length;
+            const weekProgress = completedStepsCount / nurtureSteps.length;
+
+            // Global Progress
+            // Completed Weeks = weekNum - 1
+            const baseProgress = ((weekNum - 1) / TOTAL_NURTURE_WEEKS);
+            const currentWeekContribution = (weekProgress / TOTAL_NURTURE_WEEKS);
+
+            return (baseProgress + currentWeekContribution) * 100;
+        }
+
+        // Original Logic (Intro/FollowUp)
         let completedStages = 0;
-
-        // Normalize stagesPassed to check for inclusion easily
-        // Sometimes the API might return "Email 1" or "email 1", let's assume case sensitive from JSON example but be careful.
-        // JSON example: "stages_passed": ["WhatsApp 1", "Email 1"]
-
-        // We will check strictly for now based on the user's prompt mapping.
-        // However, the user said "stage 1 (email 1 +whatsapp1)".
-        // If stages_passed contains EITHER, does it count? Or BOTH? 
-        // Usually "stages_passed" implies completion. 
-        // Let's iterate through our DEFINED stages and see if the user has passed them.
-
-        // Logic: A stage is "passed" if ANY of its criteria is in the `stages_passed` array?
-        // Or if ALL criteria are in it? 
-        // List: ["WhatsApp 1", "Email 1"] -> Stage 1. 
-        // List: ["WhatsApp 2"] -> Stage 2.
-
-        // Let's assume if ANY of the criteria for a stage appears in `stages_passed`, that stage is considered processed/passed.
-
         for (const stage of STAGES) {
             const hasPassedStage = stage.criteria.some(criterion =>
                 stagesPassed.includes(criterion)
@@ -95,12 +120,23 @@ export default function LeadsPage() {
                 completedStages++;
             }
         }
-
         return (completedStages / STAGES.length) * 100;
     };
 
-    const getStageLabel = (stagesPassed: string[]) => {
-        // Find the highest stage passed
+    const getStageLabel = (lead: Lead) => {
+        const stagesPassed = lead.stages_passed || [];
+
+        if (lead.source_loop === "Nurture") {
+            // Return "Stage X" based on Week
+            if (lead.current_week) {
+                const match = lead.current_week.match(/Week (\d+)/i);
+                if (match) return `Stage ${match[1]}`;
+                return lead.current_week; // Fallback
+            }
+            return "Nurture";
+        }
+
+        // Original Logic
         let highestStage = 0;
         for (const stage of STAGES) {
             if (stage.criteria.some(c => stagesPassed.includes(c))) {
@@ -179,8 +215,8 @@ export default function LeadsPage() {
                                 </TableRow>
                             ) : (
                                 leads.map((lead, index) => {
-                                    const progress = calculateProgress(lead.stages_passed || []);
-                                    const stageLabel = getStageLabel(lead.stages_passed || []);
+                                    const progress = calculateProgress(lead);
+                                    const stageLabel = getStageLabel(lead);
 
                                     return (
                                         <TableRow key={index} className="hover:bg-slate-50/50 transition-colors">
@@ -189,7 +225,7 @@ export default function LeadsPage() {
                                             <TableCell className="text-slate-600">{lead.email}</TableCell>
                                             <TableCell>
                                                 <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200">
-                                                    {lead.current_loop}
+                                                    {lead.display_loop || lead.current_loop}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>

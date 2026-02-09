@@ -4,14 +4,17 @@ export async function GET() {
     try {
         const introLoopUrl = process.env.INTRO_LOOP_WEBHOOK_URL;
         const followUpUrl = process.env.FOLLOW_UP_WEBHOOK_URL;
+        const nurtureLoopUrl = process.env.NURTURE_LOOP_WEBHOOK_URL;
 
-        if (!introLoopUrl || !followUpUrl) {
-            return NextResponse.json({ error: 'Webhook URLs are not configured' }, { status: 500 });
+        if (!introLoopUrl || !followUpUrl || !nurtureLoopUrl) {
+            console.warn("One or more webhook URLs are missing");
+            // return NextResponse.json({ error: 'Webhook URLs are not configured' }, { status: 500 });
         }
 
-        const [introRes, followUpRes] = await Promise.all([
-            fetch(introLoopUrl, { cache: 'no-store' }),
-            fetch(followUpUrl, { cache: 'no-store' }),
+        const [introRes, followUpRes, nurtureRes] = await Promise.all([
+            introLoopUrl ? fetch(introLoopUrl, { cache: 'no-store' }) : Promise.resolve({ ok: false, status: 404, statusText: "Not Configured", text: () => "URL Missing", json: () => ({}) } as any),
+            followUpUrl ? fetch(followUpUrl, { cache: 'no-store' }) : Promise.resolve({ ok: false, status: 404, statusText: "Not Configured", text: () => "URL Missing", json: () => ({}) } as any),
+            nurtureLoopUrl ? fetch(nurtureLoopUrl, { cache: 'no-store' }) : Promise.resolve({ ok: false, status: 404, statusText: "Not Configured", text: () => "URL Missing", json: () => ({}) } as any),
         ]);
 
         const results = [];
@@ -58,6 +61,42 @@ export async function GET() {
                 errors.push("Follow Up: Workflow not active");
             } else {
                 errors.push(`Follow Up: ${followUpRes.status} ${followUpRes.statusText}`);
+            }
+        }
+
+        // Process Nurture Loop
+        if (nurtureRes.ok) {
+            try {
+                const data = await nurtureRes.json();
+                const items = Array.isArray(data) ? data : [data];
+                items.forEach((item: any) => {
+                    if (item && typeof item === 'object') {
+                        // Keep original current_loop if it exists (e.g. "Email 3"), but maybe prefix or use display_loop logic?
+                        // User wants "Intro" / "Follow Up" for those loops.
+                        // For Nurture, user wants to use data from backend? 
+                        // The JSON example has "current_loop": "Email 3", "display_loop": "Week 3 — Email 3".
+                        // Use "Nurture" as a fallback source identifier or just let the data speak?
+                        // Let's add a `source` property or just rely on what's there?
+                        // The user said: "if lead/data comes from the nurture link it shoulkd make the table like this output format"
+                        // So we should probably mark it so the frontend knows it's from Nurture.
+                        item.source_loop = "Nurture";
+                    }
+                });
+                results.push(...items);
+            } catch (e) {
+                console.error("Failed to parse Nurture Loop JSON", e);
+                errors.push("Nurture Loop: Invalid JSON");
+            }
+        } else {
+            // It might be undefined if URL not set? logic below handles it.
+            if (nurtureRes) {
+                const text = await nurtureRes.text();
+                console.error(`Nurture Loop failed: ${nurtureRes.status} ${nurtureRes.statusText}`, text);
+                if (nurtureRes.status === 404 && text.includes("activate the workflow")) {
+                    errors.push("Nurture Loop: Workflow not active");
+                } else {
+                    errors.push(`Nurture Loop: ${nurtureRes.status} ${nurtureRes.statusText}`);
+                }
             }
         }
 
