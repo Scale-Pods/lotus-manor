@@ -4,11 +4,12 @@ const VAPI_BASE_URL = 'https://api.vapi.ai';
 
 export async function GET(
     request: Request,
-    { params }: { params: { id: string } }
+    context: { params: Promise<{ id: string }> }
 ) {
     try {
         const apiKey = process.env.VAPI_PUBLIC_KEY;
-        const callId = params.id;
+        const { id } = await context.params;
+        const callId = id;
 
         if (!apiKey) {
             return NextResponse.json({ error: "Configuration error" }, { status: 500 });
