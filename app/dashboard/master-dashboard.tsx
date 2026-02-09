@@ -286,7 +286,7 @@ export default function MasterDashboard() {
                             <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
                                 <PieChartIcon className="h-5 w-5" />
                             </div>
-                            <CardTitle className="text-lg">Response Performance</CardTitle>
+                            <CardTitle className="text-lg">Response Performance!</CardTitle>
                         </div>
                     </CardHeader>
                     <CardContent className="pt-4 flex flex-col items-center justify-center">
