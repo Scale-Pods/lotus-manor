@@ -57,6 +57,7 @@ export default function DashboardLayout({
                 { title: "Email Marketing", href: "/dashboard/email", icon: Mail },
                 { title: "WhatsApp CRM", href: "/dashboard/whatsapp", icon: MessageCircle },
                 { title: "Voice Agent", href: "/dashboard/voice", icon: Mic },
+                { title: "Leads", href: "/dashboard/leads", icon: Users },
                 { title: "Credentials", href: "/dashboard/credentials", icon: Key },
             ]
         },
@@ -116,6 +117,7 @@ export default function DashboardLayout({
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button
+                                suppressHydrationWarning
                                 variant="outline"
                                 className="w-full justify-between bg-white border-slate-200 text-slate-700 hover:bg-slate-50 h-10 shadow-sm"
                             >
@@ -195,7 +197,7 @@ export default function DashboardLayout({
                     <h1 className="text-lg font-semibold text-slate-900">
                         {pathname === "/dashboard" ? "Master Overview" : activeConfig.items.find((item: any) => item.href === pathname)?.title || activeConfig.label}
                     </h1>
-                    
+
                 </header>
                 <main className="flex-1 overflow-auto bg-zinc-50 p-6">
                     {children}
