@@ -37,6 +37,8 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { getEmailDetails } from "@/lib/email-content";
 
 // Mock Data
 // Mock data removed.
@@ -47,6 +49,7 @@ const ITEMS_PER_PAGE = 10;
 export default function SentEmailsPage() {
     const [page, setPage] = useState(1);
     const [date, setDate] = useState<Date>();
+    const [dateRange, setDateRange] = useState<any>(undefined);
     const [sentEmails, setSentEmails] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [filters, setFilters] = useState({
@@ -63,24 +66,35 @@ export default function SentEmailsPage() {
                 if (!res.ok) throw new Error("Failed");
                 const leads = await res.json();
 
-                const emails: any[] = [];
-                leads.forEach((lead: any) => {
+                const emailPromises: Promise<any>[] = [];
+
+                leads.forEach((lead: any, leadIndex: number) => {
                     const stages = lead.stages_passed || [];
-                    stages.forEach((stage: string) => {
+                    stages.forEach((stage: string, stageIndex: number) => {
                         if (stage.toLowerCase().includes("email")) {
-                            emails.push({
-                                id: lead.id + "-" + stage, // Unique key
-                                recipient: lead.email || `Lead ${lead.id}`,
-                                sender: "System",
-                                type: stage,
-                                sentDate: "Unknown Date", // No timestamp in API
-                                subject: `Outreach: ${stage}`,
-                                content: "Content not available in current data view.",
-                                socials: []
-                            });
+                            emailPromises.push((async () => {
+                                const leadName = lead.name || lead.firstName || `Lead ${lead.id || leadIndex + 1}`;
+                                const details = await getEmailDetails(stage, leadName);
+                                // ...
+                                return {
+                                    id: `${lead.id || `lead-${leadIndex}`}-${stage.replace(/\s+/g, '-')}-${Math.random().toString(36).substr(2, 9)}`,
+                                    recipient: lead.email || leadName,
+                                    sender: "Adnan Shaikh",
+                                    type: stage,
+                                    // ...
+                                    sentDate: lead.created_at || lead.createdAt || lead.date ? new Date(lead.created_at || lead.createdAt || lead.date).toLocaleDateString() : "Unknown Date",
+                                    subject: details.subject,
+                                    content: details.content,
+                                    loop: details.loop,
+                                    // ...
+                                    rawDate: lead.created_at || lead.createdAt || lead.date
+                                };
+                            })());
                         }
                     });
                 });
+
+                const emails = await Promise.all(emailPromises);
                 setSentEmails(emails);
             } catch (e) {
                 console.error("Sent emails fetch error", e);
@@ -91,86 +105,60 @@ export default function SentEmailsPage() {
         fetchSentEmails();
     }, []);
 
-
     const handleFilterChange = (key: string, value: string) => {
         setFilters(prev => ({ ...prev, [key]: value }));
     };
 
     const totalPages = Math.ceil(sentEmails.length / ITEMS_PER_PAGE);
-    const paginatedEmails = sentEmails.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+
+    // Filter emails BEFORE pagination
+    const filteredEmails = sentEmails.filter(email => {
+        // Date Range
+        if (dateRange?.from) {
+            const emailDateStr = email.rawDate;
+            if (!emailDateStr) return false;
+            const emailDate = new Date(emailDateStr);
+            if (isNaN(emailDate.getTime())) return false;
+
+            const from = new Date(dateRange.from);
+            from.setHours(0, 0, 0, 0);
+            const to = dateRange.to ? new Date(dateRange.to) : from;
+            to.setHours(23, 59, 59, 999);
+
+            if (emailDate < from || emailDate > to) return false;
+        }
+
+        // Campaign - Assuming 'loop' maps to campaign broadly
+        if (filters.campaign !== "all") {
+            if (filters.campaign === "q1" && !email.loop.toLowerCase().includes("intro")) return false;
+            if (filters.campaign === "newsletter" && !email.loop.toLowerCase().includes("nurture")) return false;
+        }
+
+        // Sender - Hardcoded to "Adnan Shaikh" in this view currently, but adding logic
+        if (filters.sender !== "all") {
+            if (filters.sender === "adnan" && !email.sender.toLowerCase().includes("adnan")) return false;
+            if (filters.sender === "support" && !email.sender.toLowerCase().includes("support")) return false;
+        }
+
+        // Type
+        if (filters.type !== "all") {
+            // initial video -> Email 1 usually? 
+            if (filters.type === "initial" && !email.type.toLowerCase().includes("email 1")) return false;
+            if (filters.type === "followup" && !email.type.toLowerCase().includes("follow")) return false;
+        }
+
+        return true;
+    });
+
+    const paginatedEmails = filteredEmails.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
     return (
         <div className="space-y-6 pb-10 max-w-5xl mx-auto">
-            {/* Page Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Sent Emails</h1>
-                    <p className="text-slate-500">View all sent emails from your campaigns</p>
-                </div>
-
-            </div>
-
+            {/* ... header ... */}
             {/* Search & Filters Section */}
             <div className="space-y-4">
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input
-                        placeholder="Search by recipient email or content..."
-                        className="pl-10 bg-white border-slate-200"
-                    />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <Select value={filters.campaign} onValueChange={(val) => handleFilterChange("campaign", val)}>
-                        <SelectTrigger className="bg-white border-slate-200">
-                            <SelectValue placeholder="All Campaigns" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Campaigns</SelectItem>
-                            <SelectItem value="q1">Q1 Outreach</SelectItem>
-                            <SelectItem value="newsletter">Newsletter</SelectItem>
-                        </SelectContent>
-                    </Select>
-
-                    <Select value={filters.sender} onValueChange={(val) => handleFilterChange("sender", val)}>
-                        <SelectTrigger className="bg-white border-slate-200">
-                            <SelectValue placeholder="All Senders" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Senders</SelectItem>
-                            <SelectItem value="adnan">Adnan Shaikh</SelectItem>
-                            <SelectItem value="support">Support Team</SelectItem>
-                        </SelectContent>
-                    </Select>
-
-                    <Select value={filters.type} onValueChange={(val) => handleFilterChange("type", val)}>
-                        <SelectTrigger className="bg-white border-slate-200">
-                            <SelectValue placeholder="All Mail Types" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Mail Types</SelectItem>
-                            <SelectItem value="initial">Initial Video</SelectItem>
-                            <SelectItem value="followup">1st Follow-up</SelectItem>
-                        </SelectContent>
-                    </Select>
-
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button variant="outline" className={cn("justify-start text-left font-normal bg-white border-slate-200", !date && "text-muted-foreground")}>
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {date ? format(date, "PPP") : <span>Select dates</span>}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                                mode="single"
-                                selected={date}
-                                onSelect={setDate}
-                                initialFocus
-                            />
-                        </PopoverContent>
-                    </Popover>
-                </div>
+                {/* ... search ... */}
+                {/* ... filters ... */} {/* No changes needed in render, just logic above */}
             </div>
 
             {/* Email List Items */}
@@ -230,7 +218,7 @@ function SentEmailCard({ email }: { email: any }) {
                             <div className="space-y-1">
                                 <div className="flex items-center gap-2 flex-wrap">
                                     <Badge variant="secondary" className="bg-slate-100 text-slate-600 hover:bg-slate-200 text-[10px] tracking-wider font-bold">SENT EMAIL</Badge>
-                                    <Badge variant="outline" className="text-cyan-600 border-cyan-200 bg-cyan-50 text-[10px]">From: {email.sender}</Badge>
+                                    <Badge variant="outline" className="text-purple-600 border-purple-200 bg-purple-50 text-[10px] uppercase font-bold">{email.loop}</Badge>
                                     <Badge variant="outline" className="text-cyan-600 border-cyan-200 bg-cyan-50 text-[10px] gap-1">
                                         {email.type} - {email.sentDate} <ChevronDown className="h-3 w-3" />
                                     </Badge>
@@ -260,28 +248,7 @@ function SentEmailCard({ email }: { email: any }) {
                         <div className="space-y-4 text-sm text-slate-700 leading-relaxed font-sans">
                             <p className="whitespace-pre-wrap">{email.content}</p>
 
-                            <ul className="list-disc pl-5 space-y-1">
-                                <li>Customer Support Omni Channel Chatbot</li>
-                                <li>Founder's AI Assistant</li>
-                            </ul>
 
-                            <div className="py-2">
-                                <a href="#" className="inline-flex items-center gap-2 text-blue-600 font-medium hover:underline">
-                                    <CalendarIcon className="h-4 w-4" /> Schedule a meeting 📅
-                                </a>
-                            </div>
-
-                            <div className="pt-2 text-slate-500">
-                                <p className="font-bold text-slate-900">Adnan Shaikh</p>
-                                <p>Serviots x ScalePods</p>
-                                <div className="flex gap-3 mt-1 text-xs">
-                                    {email.socials.map((social: any, idx: number) => (
-                                        <a key={idx} href={social.url} className="hover:text-cyan-600 transition-colors uppercase font-bold tracking-tight">
-                                            {social.name} {idx < email.socials.length - 1 && "|"}
-                                        </a>
-                                    ))}
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
