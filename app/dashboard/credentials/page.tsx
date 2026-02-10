@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Mail, MessageCircle, Mic, ExternalLink, Copy, Eye, EyeOff, ShieldCheck, Wallet } from "lucide-react";
+import { Mail, MessageCircle, Mic, ExternalLink, Copy, Eye, EyeOff, ShieldCheck, Wallet, Phone } from "lucide-react";
 import React, { useState } from "react";
 
 export default function CredentialsPage() {
@@ -29,9 +29,9 @@ export default function CredentialsPage() {
                 >
                     <div className="grid gap-6 md:grid-cols-2">
                         <ReadOnlyField label="Connected Email" value="abcd@scalepods.org" />
-                        
+
                         <ReadOnlyField label="SMTP Host" value="smtp.gmail.com" />
-                        
+
                     </div>
                 </CredentialSection>
 
@@ -46,7 +46,7 @@ export default function CredentialsPage() {
                     <div className="grid gap-6 md:grid-cols-2">
                         <ReadOnlyField label="Phone Number ID" value="10XXXXXXXXXXXXX" />
                         <ReadOnlyField label="WhatsApp Business Account ID" value="19XXXXXXXXXXXXX" />
-                        
+
                     </div>
                 </CredentialSection>
 
@@ -65,9 +65,8 @@ export default function CredentialsPage() {
                     }
                 >
                     <div className="space-y-6">
-                       
 
-                        {/* Wallet Status Preview */}
+
                         <div className="bg-slate-50 rounded-lg p-4 border border-slate-100 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-white rounded-md border border-slate-200">
@@ -81,6 +80,39 @@ export default function CredentialsPage() {
                             <div className="text-right">
                                 <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Current Balance</p>
                                 <p className="text-xl font-bold text-slate-900">$12.50</p>
+                            </div>
+                        </div>
+                    </div>
+                </CredentialSection>
+
+                {/* Maqsam Section */}
+                <CredentialSection
+                    title="Maqsam Telephony"
+                    description="VoIP and Telephony provider credentials."
+                    icon={Phone}
+                    iconColor="text-cyan-600"
+                    iconBg="bg-cyan-50"
+                    action={
+                        <Button className="bg-cyan-600 hover:bg-cyan-700 text-white gap-2">
+                            <Wallet className="h-4 w-4" />
+                            Add Funds
+                        </Button>
+                    }
+                >
+                    <div className="grid gap-6 md:grid-cols-2">
+                        <div className="md:col-span-2 bg-slate-50 rounded-lg p-4 border border-slate-100 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white rounded-md border border-slate-200">
+                                    <ShieldCheck className="h-5 w-5 text-emerald-600" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-slate-900">Status</p>
+                                    <p className="text-xs text-slate-500">Connected</p>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Current Balance</p>
+                                <p className="text-xl font-bold text-slate-900">$50.00</p>
                             </div>
                         </div>
                     </div>

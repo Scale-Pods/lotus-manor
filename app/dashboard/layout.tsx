@@ -167,19 +167,33 @@ export default function DashboardLayout({
                         );
                     })}
                 </nav>
-                <div className="mt-auto p-4 mb-4 space-y-4">
-                    <div className="bg-gradient-to-br from-white-200 to-white-100 rounded-xl p-4 text-blue-600 shadow-lg relative overflow-hidden group hover:shadow-xl transition-all duration-300">
-                        <div className="flex items-center gap-2 mb-2 relative z-10">
-                            <div className="p-1.5 bg-white/10 rounded-lg backdrop-blur-sm">
-                                <Wallet className="h-8 w-8 text-blue-600" />
+                <div className="mt-auto p-4 mb-4 space-y-3">
+                    {/* Vapi Credits */}
+                    <div className="bg-white border border-yellow-200 rounded-xl p-3 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                        <div className="flex items-center justify-between mb-1 relative z-10">
+                            <span className="text-xs font-bold text-yellow-700 uppercase tracking-wider">Vapi Credits</span>
+                            <div className="p-1 bg-yellow-50 rounded-md">
+                                <Wallet className="h-3 w-3 text-yellow-600" />
                             </div>
-                            <span className="text-xs font-medium text-blue-600">Voice Credits</span>
                         </div>
                         <div className="flex items-baseline gap-1 relative z-10">
-                            <span className="text-2xl font-bold tracking-tight">$12.50</span>
-                            <span className="text-xs text-blue-600">USD</span>
+                            <span className="text-xl font-bold tracking-tight text-slate-900">$12.50</span>
+                            <span className="text-[10px] text-slate-500">USD</span>
                         </div>
+                    </div>
 
+                    {/* Maqsam Credits */}
+                    <div className="bg-white border border-cyan-200 rounded-xl p-3 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                        <div className="flex items-center justify-between mb-1 relative z-10">
+                            <span className="text-xs font-bold text-cyan-700 uppercase tracking-wider">Maqsam Credits</span>
+                            <div className="p-1 bg-cyan-50 rounded-md">
+                                <Wallet className="h-3 w-3 text-cyan-600" />
+                            </div>
+                        </div>
+                        <div className="flex items-baseline gap-1 relative z-10">
+                            <span className="text-xl font-bold tracking-tight text-slate-900">$50.00</span>
+                            <span className="text-[10px] text-slate-500">USD</span>
+                        </div>
                     </div>
 
                     <Button variant="ghost" className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 hover:bg-zinc-100" asChild>

@@ -150,7 +150,8 @@ export default function MasterDashboard() {
             </div>
 
             {/* Top Metric Cards */}
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                
                 <MetricCard
                     title="Total Leads"
                     value={loading ? "..." : stats.totalLeads.toLocaleString()}
@@ -186,7 +187,7 @@ export default function MasterDashboard() {
                     value={loading ? "..." : `${stats.voiceMinutes}m`}
                     change="Est. 2m/call"
                     isUp={true}
-                    icon={<Phone className="h-6 w-6" />}
+                    icon={<Activity className="h-6 w-6" />}
                     color="text-orange-600"
                     bg="bg-orange-50"
                     border="border-orange-100"
@@ -197,9 +198,9 @@ export default function MasterDashboard() {
                     change={`${stats.totalLeads > 0 ? ((stats.totalReplies / stats.totalLeads) * 100).toFixed(1) : 0}% Rate`}
                     isUp={true}
                     icon={<Expand className="h-6 w-6" />}
-                    color="text-orange-600"
-                    bg=""
-                    border="border-orange-100"
+                    color="text-indigo-600"
+                    bg="bg-indigo-50"
+                    border="border-indigo-100"
                     onClick={() => setIsRepliesModalOpen(true)}
                     action={<Button
                         variant="ghost"
