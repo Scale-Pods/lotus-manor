@@ -382,6 +382,10 @@ function SentEmailCard({ email }: { email: any }) {
             <CollapsibleContent>
                 <div className="px-6 pb-6 pt-0">
                     <div className="pl-[56px] space-y-4 border-t border-slate-100 pt-4">
+                        <div className="space-y-1">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Subject</span>
+                            <p className="text-sm font-semibold text-slate-900">{email.subject}</p>
+                        </div>
                         <div className="space-y-4 text-sm text-slate-700 leading-relaxed font-sans">
                             <p className="whitespace-pre-wrap">{email.content}</p>
                         </div>

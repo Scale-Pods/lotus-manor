@@ -34,30 +34,37 @@ export const getEmailDetails = async (stage: string, leadName: string = "Valued 
 
         // Prettify Content:
         // 1. Fix missing space after period (e.g. "me.You") -> "me. You"
-        //    Avoids URLs or numbers (simplistic check for Capital letter)
         processedContent = processedContent.replace(/\.([A-Z])/g, '. $1');
 
-        // 2. Ensure Signatures have a newline before them if missing
-        //    (e.g. "Best,Adnan" -> "Best,\nAdnan")
-        //    Actually, "Best,{{Agent Name}}Lotus..." -> "Best,\nAdnan Shaikh\nLotus..."
-        //    Fix specific case from webhook: "Best,Adnan ShaikhLotus" is hard to separate if no delimiter.
-        //    But "Best,{{Agent Name}}" usually became "Best,Adnan Shaikh".
-        //    Let's try to put a newline before common closings if they are inline.
-        const closings = ["Best,", "Regards,", "Cheers,", "Warm regards,"];
+        // 2. Formatting Salutations (e.g. "Hi Adnan,")
+        // Ensure "Hi [Name]," is followed by a double newline
+        // Matches: Start of string or newline -> Hi/Hello/Dear -> Name -> Comma/Colon -> Content
+        processedContent = processedContent.replace(/(^(?:Hi|Hello|Dear)\s+[^,\n]+[,:])([^\n])/gi, '$1\n\n$2');
+
+        // 3. Formatting Signatures
+        // Ensure "Best," "Regards," etc. are preceded by double newline and followed by newline (for name)
+        const closings = ["Best,", "Regards,", "Cheers,", "Warm regards,", "Sincerely,"];
         closings.forEach(closing => {
-            // If closing is preceded by non-newline char, add newline
-            // regex: ([^\n])(Best,) -> $1\n$2
-            const re = new RegExp(`([^\\n])(${closing})`, 'g');
-            processedContent = processedContent.replace(re, '$1\n\n$2');
+            // Preceded by non-newline: add double newline
+            const rePre = new RegExp(`([^\\n])\\s*(${closing})`, 'gi');
+            processedContent = processedContent.replace(rePre, '$1\n\n$2');
+
+            // Followed by non-newline: add single newline (for the name)
+            const rePost = new RegExp(`(${closing})\\s*([^\\n])`, 'gi');
+            processedContent = processedContent.replace(rePost, '$1\n$2');
         });
 
-        // 3. Ensure double newlines for paragraphs?
-        //    If there are single newlines, make them double for wider spacing in UI
-        //    But don't double existing double newlines.
-        //    processedContent = processedContent.replace(/\n(?!\n)/g, '\n\n'); 
-        //    (Maybe too aggressive if list items exist? But valid for these emails)
+        // 4. Formatting Company / Signature lines (e.g. "TaraLotus" -> "Tara\nLotus")
+        // Specific fix for "Lotus Manor Real Estate" being attached to the name
+        processedContent = processedContent.replace(/([a-zA-Z])(Lotus Manor Real Estate)/g, '$1\n$2');
+        processedContent = processedContent.replace(/([a-zA-Z])(Sent from my iPhone)/g, '$1\n$2');
 
-        // Let's just ensure clear spacing.
+        // 4. Try to break long blocks? (Simple heuristic: period followed by space and capital letter could be new sentence, 
+        // but we don't want to break every sentence. Let's stick to the specific user example first:
+        // "back then.Before I assume" was fixed by step 1.
+        // The user wants readable format. The example had distinct thoughts.
+        // Let's look for "If you" or "Before I" which are common sentence starts in these templates and add breaks?
+        // Maybe better to just rely on the fixed periods and salutation/signature separation for now.
 
         const processedSubject = template.subject
             .replace(/\{\{\s*\$json\.Name\s*\}\}/gi, leadName)
@@ -99,12 +106,23 @@ export const getEmailDetailsFromTemplates = (stage: string, leadName: string = "
         // 1. Fix missing space after period (e.g. "me.You") -> "me. You"
         processedContent = processedContent.replace(/\.([A-Z])/g, '. $1');
 
-        // 2. Ensure Signatures have a newline before them if missing
-        const closings = ["Best,", "Regards,", "Cheers,", "Warm regards,"];
+        // 2. Formatting Salutations (e.g. "Hi Adnan,")
+        processedContent = processedContent.replace(/(^(?:Hi|Hello|Dear)\s+[^,\n]+[,:])([^\n])/gi, '$1\n\n$2');
+
+        // 3. Formatting Signatures
+        const closings = ["Best,", "Regards,", "Cheers,", "Warm regards,", "Sincerely,"];
         closings.forEach(closing => {
-            const re = new RegExp(`([^\\n])(${closing})`, 'g');
-            processedContent = processedContent.replace(re, '$1\n\n$2');
+            const rePre = new RegExp(`([^\\n])\\s*(${closing})`, 'gi');
+            processedContent = processedContent.replace(rePre, '$1\n\n$2');
+
+            const rePost = new RegExp(`(${closing})\\s*([^\\n])`, 'gi');
+            processedContent = processedContent.replace(rePost, '$1\n$2');
         });
+
+        // 4. Formatting Company / Signature lines (e.g. "TaraLotus" -> "Tara\nLotus")
+        // Specific fix for "Lotus Manor Real Estate" being attached to the name
+        processedContent = processedContent.replace(/([a-zA-Z])(Lotus Manor Real Estate)/g, '$1\n$2');
+        processedContent = processedContent.replace(/([a-zA-Z])(Sent from my iPhone)/g, '$1\n$2');
 
         const processedSubject = template.subject
             .replace(/\{\{\s*\$json\.Name\s*\}\}/gi, leadName)
