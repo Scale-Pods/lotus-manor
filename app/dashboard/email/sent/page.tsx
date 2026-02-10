@@ -21,7 +21,8 @@ import {
     Calendar as CalendarIcon,
     ArrowRight,
     ArrowLeft,
-    ExternalLink
+    ExternalLink,
+    Loader2
 } from "lucide-react";
 import React, { useState, useEffect } from "react";
 import {
@@ -38,20 +39,16 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { getEmailDetails } from "@/lib/email-content";
+import { getEmailDetailsFromTemplates } from "@/lib/email-content";
 
-// Mock Data
-// Mock data removed.
-
-
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 7;
 
 export default function SentEmailsPage() {
     const [page, setPage] = useState(1);
-    const [date, setDate] = useState<Date>();
     const [dateRange, setDateRange] = useState<any>(undefined);
     const [sentEmails, setSentEmails] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState("");
     const [filters, setFilters] = useState({
         campaign: "all",
         sender: "all",
@@ -59,42 +56,47 @@ export default function SentEmailsPage() {
     });
 
     useEffect(() => {
-        const fetchSentEmails = async () => {
+        const fetchData = async () => {
             setLoading(true);
             try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed");
-                const leads = await res.json();
+                // Fetch both leads and templates in parallel
+                const [leadsRes, templatesRes] = await Promise.all([
+                    fetch('/api/leads'),
+                    fetch('/api/templates')
+                ]);
 
-                const emailPromises: Promise<any>[] = [];
+                if (!leadsRes.ok) throw new Error("Failed to fetch leads");
+                // Templates might fail but we can proceed with empty templates
+
+                const leads = await leadsRes.json();
+                const templates = templatesRes.ok ? await templatesRes.json() : [];
+
+                const emails: any[] = [];
 
                 leads.forEach((lead: any, leadIndex: number) => {
                     const stages = lead.stages_passed || [];
-                    stages.forEach((stage: string, stageIndex: number) => {
+                    stages.forEach((stage: string) => {
                         if (stage.toLowerCase().includes("email")) {
-                            emailPromises.push((async () => {
-                                const leadName = lead.name || lead.firstName || `Lead ${lead.id || leadIndex + 1}`;
-                                const details = await getEmailDetails(stage, leadName);
-                                // ...
-                                return {
-                                    id: `${lead.id || `lead-${leadIndex}`}-${stage.replace(/\s+/g, '-')}-${Math.random().toString(36).substr(2, 9)}`,
-                                    recipient: lead.email || leadName,
-                                    sender: "Adnan Shaikh",
-                                    type: stage,
-                                    // ...
-                                    sentDate: lead.created_at || lead.createdAt || lead.date ? new Date(lead.created_at || lead.createdAt || lead.date).toLocaleDateString() : "Unknown Date",
-                                    subject: details.subject,
-                                    content: details.content,
-                                    loop: details.loop,
-                                    // ...
-                                    rawDate: lead.created_at || lead.createdAt || lead.date
-                                };
-                            })());
+                            const leadName = lead.name || lead.firstName || `Lead ${lead.id || leadIndex + 1}`;
+
+                            // Use synchronous processing with fetched templates
+                            const details = getEmailDetailsFromTemplates(stage, leadName, templates);
+
+                            emails.push({
+                                id: `${lead.id || `lead-${leadIndex}`}-${stage.replace(/\s+/g, '-')}-${Math.random().toString(36).substr(2, 9)}`,
+                                recipient: lead.email || leadName,
+                                sender: "Adnan Shaikh", // This could be dynamic if data available
+                                type: stage,
+                                sentDate: lead.created_at || lead.createdAt || lead.date ? new Date(lead.created_at || lead.createdAt || lead.date).toLocaleDateString() : "Unknown Date",
+                                subject: details.subject,
+                                content: details.content,
+                                loop: details.loop,
+                                rawDate: lead.created_at || lead.createdAt || lead.date
+                            });
                         }
                     });
                 });
 
-                const emails = await Promise.all(emailPromises);
                 setSentEmails(emails);
             } catch (e) {
                 console.error("Sent emails fetch error", e);
@@ -102,17 +104,28 @@ export default function SentEmailsPage() {
                 setLoading(false);
             }
         };
-        fetchSentEmails();
+        fetchData();
     }, []);
 
     const handleFilterChange = (key: string, value: string) => {
         setFilters(prev => ({ ...prev, [key]: value }));
+        setPage(1); // Reset to first page on filter change
     };
-
-    const totalPages = Math.ceil(sentEmails.length / ITEMS_PER_PAGE);
 
     // Filter emails BEFORE pagination
     const filteredEmails = sentEmails.filter(email => {
+        // Search Query
+        if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            if (
+                !email.recipient.toLowerCase().includes(query) &&
+                !email.subject.toLowerCase().includes(query) &&
+                !email.content.toLowerCase().includes(query)
+            ) {
+                return false;
+            }
+        }
+
         // Date Range
         if (dateRange?.from) {
             const emailDateStr = email.rawDate;
@@ -128,77 +141,201 @@ export default function SentEmailsPage() {
             if (emailDate < from || emailDate > to) return false;
         }
 
-        // Campaign - Assuming 'loop' maps to campaign broadly
+        // Campaign
         if (filters.campaign !== "all") {
-            if (filters.campaign === "q1" && !email.loop.toLowerCase().includes("intro")) return false;
-            if (filters.campaign === "newsletter" && !email.loop.toLowerCase().includes("nurture")) return false;
+            if (filters.campaign === "intro" && !email.loop.toLowerCase().includes("intro")) return false;
+            if (filters.campaign === "nurture" && !email.loop.toLowerCase().includes("nurture")) return false;
+            if (filters.campaign === "followup" && !email.loop.toLowerCase().includes("follow")) return false;
         }
 
-        // Sender - Hardcoded to "Adnan Shaikh" in this view currently, but adding logic
+        // Sender
         if (filters.sender !== "all") {
             if (filters.sender === "adnan" && !email.sender.toLowerCase().includes("adnan")) return false;
-            if (filters.sender === "support" && !email.sender.toLowerCase().includes("support")) return false;
+            // Add more senders if necessary
         }
 
         // Type
         if (filters.type !== "all") {
-            // initial video -> Email 1 usually? 
-            if (filters.type === "initial" && !email.type.toLowerCase().includes("email 1")) return false;
-            if (filters.type === "followup" && !email.type.toLowerCase().includes("follow")) return false;
+            if (filters.type === "email1" && !email.type.toLowerCase().includes("email 1")) return false;
+            if (filters.type === "email2" && !email.type.toLowerCase().includes("email 2")) return false;
+            if (filters.type === "email3" && !email.type.toLowerCase().includes("email 3")) return false;
+            if (filters.type === "email4" && !email.type.toLowerCase().includes("email 4")) return false;
+            if (filters.type === "email5" && !email.type.toLowerCase().includes("email 5")) return false;
+            if (filters.type === "email6" && !email.type.toLowerCase().includes("email 6")) return false;
+            if (filters.type === "email7" && !email.type.toLowerCase().includes("email 7")) return false;
+            if (filters.type === "email8" && !email.type.toLowerCase().includes("email 8")) return false;
+            if (filters.type === "email9" && !email.type.toLowerCase().includes("email 9")) return false;
+            if (filters.type === "email10" && !email.type.toLowerCase().includes("email 10")) return false;
+            if (filters.type === "email11" && !email.type.toLowerCase().includes("email 11")) return false;
+            if (filters.type === "email12" && !email.type.toLowerCase().includes("email 12")) return false;
+            if (filters.type === "email13" && !email.type.toLowerCase().includes("email 13")) return false;
+            if (filters.type === "email14" && !email.type.toLowerCase().includes("email 14")) return false;
+            if (filters.type === "email15" && !email.type.toLowerCase().includes("email 15")) return false;
+            if (filters.type === "email16" && !email.type.toLowerCase().includes("email 16")) return false;
+            if (filters.type === "email17" && !email.type.toLowerCase().includes("email 17")) return false;
+            if (filters.type === "email18" && !email.type.toLowerCase().includes("email 18")) return false;
+            if (filters.type === "email19" && !email.type.toLowerCase().includes("email 19")) return false;
+            if (filters.type === "email20" && !email.type.toLowerCase().includes("email 20")) return false;
+            // Add other types as needed
         }
 
         return true;
     });
 
+    const totalPages = Math.ceil(filteredEmails.length / ITEMS_PER_PAGE);
     const paginatedEmails = filteredEmails.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
     return (
         <div className="space-y-6 pb-10 max-w-5xl mx-auto">
-            {/* ... header ... */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight text-slate-900">Sent Emails</h1>
+                    <p className="text-slate-500">View and manage your sent email history.</p>
+                </div>
+            </div>
+
             {/* Search & Filters Section */}
-            <div className="space-y-4">
-                {/* ... search ... */}
-                {/* ... filters ... */} {/* No changes needed in render, just logic above */}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex flex-col md:flex-row gap-4">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <Input
+                            placeholder="Search recipients, subjects..."
+                            className="pl-9 bg-slate-50 border-slate-200"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                    <DateRangePicker
+                        className="w-full md:w-[260px]"
+                        onUpdate={(values) => setDateRange(values.range)}
+                    />
+                </div>
+
+                <div className="flex flex-wrap gap-2 items-center">
+                    <Filter className="h-4 w-4 text-slate-400 mr-2" />
+
+                    <Select value={filters.campaign} onValueChange={(val) => handleFilterChange('campaign', val)}>
+                        <SelectTrigger className="w-[140px] h-9 text-xs">
+                            <SelectValue placeholder="Campaign" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Campaigns</SelectItem>
+                            <SelectItem value="intro">Intro Loop</SelectItem>
+                            <SelectItem value="nurture">Nurture Loop</SelectItem>
+                            <SelectItem value="followup">Follow Up</SelectItem>
+                        </SelectContent>
+                    </Select>
+
+                    <Select value={filters.sender} onValueChange={(val) => handleFilterChange('sender', val)}>
+                        <SelectTrigger className="w-[140px] h-9 text-xs">
+                            <SelectValue placeholder="Sender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Senders</SelectItem>
+                            <SelectItem value="adnan">Adnan Shaikh</SelectItem>
+                        </SelectContent>
+                    </Select>
+
+                    <Select value={filters.type} onValueChange={(val) => handleFilterChange('type', val)}>
+                        <SelectTrigger className="w-[140px] h-9 text-xs">
+                            <SelectValue placeholder="Email Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Types</SelectItem>
+                            <SelectItem value="email1">Email 1</SelectItem>
+                            <SelectItem value="email2">Email 2</SelectItem>
+                            <SelectItem value="email3">Email 3</SelectItem>
+                            <SelectItem value="email4">Email 4</SelectItem>
+                            <SelectItem value="email5">Email 5</SelectItem>
+                            <SelectItem value="email6">Email 6</SelectItem>
+                            <SelectItem value="email7">Email 7</SelectItem>
+                            <SelectItem value="email8">Email 8</SelectItem>
+                            <SelectItem value="email9">Email 9</SelectItem>
+                            <SelectItem value="email10">Email 10</SelectItem>
+                            <SelectItem value="email11">Email 11</SelectItem>
+                            <SelectItem value="email12">Email 12</SelectItem>
+                            <SelectItem value="email13">Email 13</SelectItem>
+                            <SelectItem value="email14">Email 14</SelectItem>
+                            <SelectItem value="email15">Email 15</SelectItem>
+                            <SelectItem value="email16">Email 16</SelectItem>
+                            <SelectItem value="email17">Email 17</SelectItem>
+                            <SelectItem value="email18">Email 18</SelectItem>
+                            <SelectItem value="email19">Email 19</SelectItem>
+                            <SelectItem value="email20">Email 20</SelectItem>
+                        </SelectContent>
+                    </Select>
+
+                    {(searchQuery || dateRange || filters.campaign !== 'all' || filters.sender !== 'all' || filters.type !== 'all') && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-500 h-9 text-xs ml-auto"
+                            onClick={() => {
+                                setSearchQuery("");
+                                setDateRange(undefined);
+                                setFilters({ campaign: "all", sender: "all", type: "all" });
+                                setPage(1);
+                            }}
+                        >
+                            Reset Filters
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {/* Email List Items */}
-            <div className="space-y-4">
-                {paginatedEmails.map((email) => (
-                    <SentEmailCard key={email.id} email={email} />
-                ))}
+            <div className="space-y-4 min-h-[400px]">
+                {loading ? (
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+                        <Loader2 className="h-8 w-8 animate-spin mb-2" />
+                        <p>Loading sent emails...</p>
+                    </div>
+                ) : paginatedEmails.length > 0 ? (
+                    paginatedEmails.map((email) => (
+                        <SentEmailCard key={email.id} email={email} />
+                    ))
+                ) : (
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                        <Mail className="h-8 w-8 mb-2 opacity-50" />
+                        <p>No emails found matching your filters</p>
+                    </div>
+                )}
             </div>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-200">
-                <p className="text-sm text-slate-500">
-                    Showing <span className="font-medium">{(page - 1) * ITEMS_PER_PAGE + 1}</span>-
-                    <span className="font-medium">{Math.min(page * ITEMS_PER_PAGE, sentEmails.length)}</span> of
-                    <span className="font-medium"> {sentEmails.length}</span> recipients
-                </p>
-                <div className="flex items-center gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPage(Math.max(1, page - 1))}
-                        disabled={page === 1}
-                        className="gap-1"
-                    >
-                        <ArrowLeft className="h-4 w-4" /> Previous
-                    </Button>
-                    <span className="text-sm font-medium text-slate-600">
-                        Page {page} of {totalPages}
-                    </span>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPage(Math.min(totalPages, page + 1))}
-                        disabled={page === totalPages}
-                        className="gap-1"
-                    >
-                        Next <ArrowRight className="h-4 w-4" />
-                    </Button>
+            {!loading && sentEmails.length > 0 && (
+                <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+                    <p className="text-sm text-slate-500">
+                        Showing <span className="font-medium">{(page - 1) * ITEMS_PER_PAGE + 1}</span>-
+                        <span className="font-medium">{Math.min(page * ITEMS_PER_PAGE, filteredEmails.length)}</span> of
+                        <span className="font-medium"> {filteredEmails.length}</span> results
+                    </p>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(Math.max(1, page - 1))}
+                            disabled={page === 1}
+                            className="gap-1"
+                        >
+                            <ArrowLeft className="h-4 w-4" /> Previous
+                        </Button>
+                        <span className="text-sm font-medium text-slate-600">
+                            Page {page} of {totalPages}
+                        </span>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setPage(Math.min(totalPages, page + 1))}
+                            disabled={page === totalPages}
+                            className="gap-1"
+                        >
+                            Next <ArrowRight className="h-4 w-4" />
+                        </Button>
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
@@ -247,8 +384,6 @@ function SentEmailCard({ email }: { email: any }) {
                     <div className="pl-[56px] space-y-4 border-t border-slate-100 pt-4">
                         <div className="space-y-4 text-sm text-slate-700 leading-relaxed font-sans">
                             <p className="whitespace-pre-wrap">{email.content}</p>
-
-
                         </div>
                     </div>
                 </div>

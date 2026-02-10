@@ -77,3 +77,50 @@ export const getEmailDetails = async (stage: string, leadName: string = "Valued 
         loop: "Unknown Loop"
     };
 };
+
+export const getEmailDetailsFromTemplates = (stage: string, leadName: string = "Valued Client", allTemplates: any[]) => {
+    // Filter for email templates and find the one matching the stage
+    // stage e.g. "Email 1", "Week 1 - Email 7"
+    const template = allTemplates.find((t: any) => t.type === 'email' && stage.includes(t.name));
+
+    if (template) {
+        const agentName = process.env.NEXT_PUBLIC_AGENT_NAME || "Adnan Shaikh";
+
+        // Replace placeholders from the fetched content
+        let processedContent = template.content
+            .replace(/\{\{\s*\$json\.Name\s*\}\}/gi, leadName)
+            .replace(/\{\{\s*Name\s*\}\}/gi, leadName)
+            .replace(/\[Name\]/gi, leadName)
+            .replace(/\{\{\s*Agent\s*Name\s*\}\}/gi, agentName)
+            .replace(/\[Agent Name\]/gi, agentName)
+            .replace(/\{\{\s*BD_Name\s*\}\}/gi, agentName);
+
+        // Prettify Content:
+        // 1. Fix missing space after period (e.g. "me.You") -> "me. You"
+        processedContent = processedContent.replace(/\.([A-Z])/g, '. $1');
+
+        // 2. Ensure Signatures have a newline before them if missing
+        const closings = ["Best,", "Regards,", "Cheers,", "Warm regards,"];
+        closings.forEach(closing => {
+            const re = new RegExp(`([^\\n])(${closing})`, 'g');
+            processedContent = processedContent.replace(re, '$1\n\n$2');
+        });
+
+        const processedSubject = template.subject
+            .replace(/\{\{\s*\$json\.Name\s*\}\}/gi, leadName)
+            .replace(/\{\{\s*Name\s*\}\}/gi, leadName)
+            .replace(/\[Name\]/gi, leadName);
+
+        return {
+            subject: processedSubject,
+            content: processedContent,
+            loop: template.category || "Intro Loop"
+        };
+    }
+
+    return {
+        subject: `Outreach: ${stage}`,
+        content: "Content not available in current data view.",
+        loop: "Unknown Loop"
+    };
+};
