@@ -68,6 +68,7 @@ export default function MasterDashboard() {
     const [dateLabel, setDateLabel] = useState("Last 7 days");
 
     // Real Data State
+    const [leads, setLeads] = useState<any[]>([]);
     const [stats, setStats] = useState({
         totalLeads: 0,
         totalEmails: 0,
@@ -93,8 +94,11 @@ export default function MasterDashboard() {
                 const res = await fetch('/api/leads');
                 if (!res.ok) throw new Error("Failed");
                 const leads = await res.json();
+                setLeads(leads);
 
                 let emailCount = 0;
+                // ... (rest of filtering logic remains same, just ensuring setLeads is called)
+
                 let whatsappCount = 0;
                 let voiceCount = 0;
                 let replyCount = 0;
@@ -150,8 +154,8 @@ export default function MasterDashboard() {
             </div>
 
             {/* Top Metric Cards */}
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+
                 <MetricCard
                     title="Total Leads"
                     value={loading ? "..." : stats.totalLeads.toLocaleString()}
@@ -229,7 +233,7 @@ export default function MasterDashboard() {
                             Close
                         </Button>
                     </div>
-                    <TotalRepliesView />
+                    <TotalRepliesView leads={leads.filter((l: any) => l.replied && l.replied !== "No")} />
                 </div>
             )}
 
@@ -240,7 +244,7 @@ export default function MasterDashboard() {
                         <DialogTitle>Total Replies - Detailed View</DialogTitle>
                     </DialogHeader>
                     <div className="py-4">
-                        <TotalRepliesView />
+                        <TotalRepliesView leads={leads.filter((l: any) => l.replied && l.replied !== "No")} />
                     </div>
                 </DialogContent>
             </Dialog>

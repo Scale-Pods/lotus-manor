@@ -33,24 +33,37 @@ interface ReplyData {
     preview: string;
 }
 
-const MOCK_DATA: ReplyData[] = [
-    { id: '1', contactName: "Alice Smith", contactInfo: "alice@example.com", mode: 'Email', date: '2025-06-01', time: '10:30 AM', status: 'Replied', preview: "Interested in the platinum package..." },
-    { id: '2', contactName: "Bob Jones", contactInfo: "+1 555-0123", mode: 'WhatsApp', date: '2025-06-01', time: '11:45 AM', status: 'Pending', preview: "Can you send more details?" },
-    { id: '3', contactName: "Charlie Brown", contactInfo: "+1 555-0199", mode: 'Voice', date: '2025-06-02', time: '09:15 AM', status: 'Follow-up', preview: "Call duration: 5m 23s. Summary: Requested callback." },
-    { id: '4', contactName: "Diana Prince", contactInfo: "diana@justice.league", mode: 'Email', date: '2025-06-03', time: '02:20 PM', status: 'Replied', preview: "Confirming appointment for tomorrow." },
-    { id: '5', contactName: "Evan Wright", contactInfo: "+1 555-0188", mode: 'WhatsApp', date: '2025-06-04', time: '04:50 PM', status: 'Pending', preview: "Price list please." },
-    { id: '6', contactName: "Fiona Gall", contactInfo: "fiona@shrek.swamp", mode: 'Email', date: '2025-06-05', time: '08:00 AM', status: 'Replied', preview: "Thanks for the info!" },
-    { id: '7', contactName: "George Bluth", contactInfo: "+1 555-0177", mode: 'Voice', date: '2025-06-06', time: '01:00 PM', status: 'Replied', preview: "Call duration: 2m. Summary: Not interested." },
-];
 
-export function TotalRepliesView() {
+
+export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
     const [search, setSearch] = useState("");
     const [modeFilter, setModeFilter] = useState("all");
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 5;
 
-    // Filter logic (mock)
-    const filteredData = MOCK_DATA.filter(item => {
+    // Map real leads to ReplyData format
+    const realData: ReplyData[] = leads.map((lead: any, idx: number) => {
+        let mode: 'Email' | 'WhatsApp' | 'Voice' = 'Email';
+        if (lead.current_loop?.toLowerCase().includes("whatsapp")) mode = 'WhatsApp';
+        else if (lead.current_loop?.toLowerCase().includes("voice")) mode = 'Voice';
+        else if (lead.stages_passed?.some((s: string) => s.toLowerCase().includes("whatsapp"))) mode = 'WhatsApp';
+
+        const dateObj = new Date(lead.created_at || new Date());
+
+        return {
+            id: lead.id || `lead-${idx}`,
+            contactName: lead.name || "Unknown",
+            contactInfo: lead.email || lead.phone || "No info",
+            mode: mode,
+            date: dateObj.toLocaleDateString(),
+            time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            status: 'Replied',
+            preview: "Reply received. Check details in Leads view."
+        };
+    });
+
+    // Filter logic
+    const filteredData = realData.filter(item => {
         const matchesSearch = item.contactName.toLowerCase().includes(search.toLowerCase()) ||
             item.contactInfo.toLowerCase().includes(search.toLowerCase());
         const matchesMode = modeFilter === "all" || item.mode.toLowerCase() === modeFilter;

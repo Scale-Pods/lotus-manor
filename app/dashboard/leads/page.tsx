@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Users, AlertCircle, Loader2, RefreshCw } from "lucide-react";
+import { Users, AlertCircle, Loader2, RefreshCw, Mail, MessageCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
@@ -52,6 +52,7 @@ export default function LeadsPage() {
     const [templates, setTemplates] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [view, setView] = useState<"leads" | "templates">("leads");
+    const [templateFilter, setTemplateFilter] = useState<"email" | "whatsapp">("email");
     const [error, setError] = useState<string | null>(null);
 
     const fetchLeads = async () => {
@@ -299,20 +300,47 @@ export default function LeadsPage() {
                         </Table>
                     ) : (
                         <div className="p-6 space-y-6">
+                            {/* Template Type Toggles */}
+                            <div className="flex justify-center">
+                                <div className="bg-slate-100 p-1 rounded-lg inline-flex items-center gap-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setTemplateFilter("email")}
+                                        className={`text-xs h-8 px-4 rounded-md transition-all ${templateFilter === "email" ? "bg-white text-slate-900 shadow-sm font-semibold" : "text-slate-500 hover:text-slate-900"}`}
+                                    >
+                                        Email Templates
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setTemplateFilter("whatsapp")}
+                                        className={`text-xs h-8 px-4 rounded-md transition-all ${templateFilter === "whatsapp" ? "bg-white text-slate-900 shadow-sm font-semibold" : "text-slate-500 hover:text-slate-900"}`}
+                                    >
+                                        WhatsApp Templates
+                                    </Button>
+                                </div>
+                            </div>
+
                             {loading && templates.length === 0 ? (
                                 <div className="flex items-center justify-center h-24 text-slate-500 gap-2">
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                     Loading templates...
                                 </div>
-                            ) : templates.length === 0 ? (
-                                <div className="text-center text-slate-500 py-10">No templates found.</div>
+                            ) : templates.filter(t => t.type === templateFilter).length === 0 ? (
+                                <div className="text-center text-slate-500 py-10">No {templateFilter} templates found.</div>
                             ) : (
                                 <div className="grid grid-cols-1 gap-6 max-w-4xl mx-auto">
-                                    {templates.map((template: any, idx) => (
+                                    {templates.filter(t => t.type === templateFilter).map((template: any, idx) => (
                                         <Card key={template.id || idx} className="border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
                                             <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-3 px-4 flex flex-row items-center justify-between">
-                                                <div className="font-semibold text-slate-700">
-                                                    {template.name || `Template ${idx + 1}`}
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`p-2 rounded-md ${template.type === 'email' ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                        {template.type === 'email' ? <Mail className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />}
+                                                    </div>
+                                                    <div className="font-semibold text-slate-700">
+                                                        {template.name || `Template ${idx + 1}`}
+                                                    </div>
                                                 </div>
                                                 {template.category && (
                                                     <Badge variant="secondary" className="text-xs bg-white border border-slate-200">
