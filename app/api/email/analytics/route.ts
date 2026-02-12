@@ -1,4 +1,11 @@
 import { NextResponse } from 'next/server';
+import dns from 'node:dns';
+
+try {
+    dns.setDefaultResultOrder('ipv4first');
+} catch (e) {
+    // ignore
+}
 
 export async function GET(request: Request) {
     try {
@@ -49,7 +56,16 @@ export async function GET(request: Request) {
         }
 
         const data = await response.json();
-        return NextResponse.json(data);
+
+        // Filter for specific emails
+        const targetEmails = ["info@lotusmanor.me", "sales@lotusmanor.me"];
+
+        let filteredData = data;
+        if (Array.isArray(data)) {
+            filteredData = data.filter((item: any) => targetEmails.includes(item.email_account));
+        }
+
+        return NextResponse.json(filteredData);
 
     } catch (error) {
         console.error('Analytics API Route Error:', error);

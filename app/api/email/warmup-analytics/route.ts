@@ -1,4 +1,12 @@
 import { NextResponse } from 'next/server';
+import dns from 'node:dns';
+
+// Force IPv4 to avoid Cloudflare IPv6 connection timeouts
+try {
+    dns.setDefaultResultOrder('ipv4first');
+} catch (e) {
+    // ignore
+}
 
 export async function POST() {
     try {
@@ -12,8 +20,8 @@ export async function POST() {
         }
 
         const targetEmails = [
-            "info@lotusmanor.ae",
-            "info@lotusmanor.me"
+            "info@lotusmanor.me",
+            "sales@lotusmanor.me"
         ];
 
         const response = await fetch('https://api.instantly.ai/api/v2/accounts/warmup-analytics', {
