@@ -8,8 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { consolidateLeads } from "@/lib/leads-utils";
+import { useRouter } from "next/navigation";
 
 export default function EmailDashboardPage() {
+    const router = useRouter();
     const [selectedLoopMetric, setSelectedLoopMetric] = useState("intro");
     const [dateSubtitle, setDateSubtitle] = useState("all time");
 
@@ -158,6 +160,7 @@ export default function EmailDashboardPage() {
                     value={data.totalEmails}
                     icon={<Mail className="h-6 w-6 text-indigo-600" />}
                     bg="bg-indigo-50"
+                    onClick={() => router.push('/dashboard/email/sent')}
                 />
                 <MetricCard
                     title="First Email (Intro)"
@@ -198,6 +201,7 @@ export default function EmailDashboardPage() {
                     value={data.totalReplies}
                     icon={<Inbox className="h-6 w-6 text-sky-600" />}
                     bg="bg-sky-50"
+                    onClick={() => router.push('/dashboard/email/received')}
                 />
             </div>
 
@@ -267,9 +271,12 @@ export default function EmailDashboardPage() {
     );
 }
 
-function MetricCard({ title, subtitle, value, icon, bg }: any) {
+function MetricCard({ title, subtitle, value, icon, bg, onClick }: any) {
     return (
-        <Card className="border-slate-200 hover:shadow-md transition-all cursor-pointer bg-white">
+        <Card
+            className="border-slate-200 hover:shadow-md transition-all cursor-pointer bg-white"
+            onClick={onClick}
+        >
             <CardContent className="p-6 flex items-center justify-between">
                 <div>
                     <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
