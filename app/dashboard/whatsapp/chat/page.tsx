@@ -206,7 +206,7 @@ export default function WhatsappChatPage() {
                             <p className="text-xs text-slate-500">Global outbound health</p>
                         </div>
                         <div className="space-y-3">
-                            <StatusBar label="Sent" value={stats.deliveredCount} total={stats.sentCount || 1} color="bg-blue-400" />
+                            <StatusBar label="Sent" value={stats.sentCount} total={stats.sentCount || 1} color="bg-blue-400" />
                             <StatusBar label="Replied" value={stats.repliedCount} total={stats.sentCount || 1} color="bg-emerald-500" />
                         </div>
                     </CardContent>
