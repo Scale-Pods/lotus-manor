@@ -39,11 +39,7 @@ const whatsappSidebarItems = [
         href: "/dashboard/whatsapp/leads",
         icon: Users,
     },
-    {
-        title: "Total Sent",
-        href: "/dashboard/whatsapp/sent",
-        icon: Send,
-    },
+    
     {
         title: "Analytics",
         href: "/dashboard/whatsapp/analytics",

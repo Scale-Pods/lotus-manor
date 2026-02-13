@@ -1,82 +1,250 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect, useMemo } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
-    BarChart,
-    Bar,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    LineChart,
-    Line
+    AreaChart,
+    Area,
+    BarChart,
+    Bar,
+    Cell
 } from "recharts";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { TrendingUp, Users, MessageSquare, Send } from "lucide-react";
-
-const data = [
-    { name: 'Mon', sent: 400, read: 240, replied: 10 },
-    { name: 'Tue', sent: 300, read: 139, replied: 15 },
-    { name: 'Wed', sent: 500, read: 380, replied: 25 },
-    { name: 'Thu', sent: 280, read: 190, replied: 20 },
-    { name: 'Fri', sent: 590, read: 430, replied: 35 },
-    { name: 'Sat', sent: 320, read: 210, replied: 15 },
-    { name: 'Sun', sent: 450, read: 320, replied: 28 },
-];
+import { TrendingUp, Users, MessageSquare, Send, RefreshCw, BarChart3 } from "lucide-react";
+import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export default function WhatsappAnalyticsPage() {
+    const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
+        from: undefined,
+        to: undefined
+    });
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/leads');
+                if (!res.ok) throw new Error("Failed to fetch");
+                const rawData = await res.json();
+                const allLeads = consolidateLeads(rawData);
+                setLeads(allLeads);
+            } catch (err) {
+                console.error("Analytics fetch error:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, []);
+
+    const filteredLeads = useMemo(() => {
+        return leads.filter(l => {
+            // First, identify if it's a WhatsApp lead
+            const hasWP = l.stages_passed.some(s => s.toLowerCase().includes("whatsapp")) ||
+                (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") ||
+                [1, 2, 3, 4, 5, 6].some(i => l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) ||
+                l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"];
+
+            if (!hasWP) return false;
+
+            // If date range is active, respect it
+            if (dateRange.from || dateRange.to) {
+                if (!l.last_contacted) return false;
+                const contactDate = new Date(l.last_contacted);
+                if (dateRange.from && contactDate < dateRange.from) return false;
+                if (dateRange.to) {
+                    const toDate = new Date(dateRange.to);
+                    toDate.setHours(23, 59, 59, 999);
+                    if (contactDate > toDate) return false;
+                }
+            }
+            return true;
+        });
+    }, [leads, dateRange]);
+
+    const stats = useMemo(() => {
+        let totalSent = 0;
+        let repliedCount = 0;
+        const loops: Record<string, { value: number }> = {
+            "Intro": { value: 0 },
+            "Follow Up": { value: 0 },
+            "Nurture": { value: 0 }
+        };
+
+        filteredLeads.forEach(l => {
+            const loopName = l.source_loop?.toLowerCase().includes("follow up") ? "Follow Up" :
+                l.source_loop?.toLowerCase().includes("nurture") ? "Nurture" : "Intro";
+
+            // Count total outgoing messages from this lead
+            let leadSentCount = 0;
+            for (let i = 1; i <= 6; i++) {
+                if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSentCount++;
+            }
+            if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSentCount++;
+
+            totalSent += leadSentCount;
+
+            // Count replies based on the W.P_Replied column (mapped to whatsapp_replied)
+            const hasReplied = l.whatsapp_replied &&
+                l.whatsapp_replied !== "No" &&
+                l.whatsapp_replied !== "none" &&
+                String(l.whatsapp_replied).trim() !== "";
+
+            if (hasReplied) {
+                repliedCount++;
+                if (loops[loopName]) loops[loopName].value++;
+            }
+        });
+
+        const replyRate = filteredLeads.length > 0 ? (repliedCount / filteredLeads.length) * 100 : 0;
+
+        return {
+            totalSent,
+            repliedCount,
+            totalLeads: filteredLeads.length,
+            replyRate: replyRate.toFixed(1) + "%",
+            loopData: Object.entries(loops).map(([name, data]) => ({ name, value: data.value }))
+        };
+    }, [filteredLeads]);
+
+    const trendData = useMemo(() => {
+        const groups: Record<string, { date: string, sent: number, replied: number }> = {};
+        filteredLeads.forEach(l => {
+            if (!l.last_contacted) return;
+            const d = new Date(l.last_contacted).toLocaleDateString([], { month: 'short', day: 'numeric' });
+            if (!groups[d]) groups[d] = { date: d, sent: 0, replied: 0 };
+
+            let leadSent = 0;
+            for (let i = 1; i <= 6; i++) {
+                if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSent++;
+            }
+            if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSent++;
+
+            groups[d].sent += leadSent;
+            if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") {
+                groups[d].replied += 1;
+            }
+        });
+        return Object.values(groups).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).slice(-7);
+    }, [filteredLeads]);
+
+    if (loading) {
+        return (
+            <div className="h-[400px] flex flex-col items-center justify-center gap-4 text-slate-400">
+                <RefreshCw className="h-8 w-8 animate-spin text-emerald-500" />
+                <p className="font-medium">Loading Analytics...</p>
+            </div>
+        );
+    }
+
     return (
-        <div className="space-y-8 pb-10">
-            <div className="flex items-center justify-between">
+        <div className="space-y-6 pb-10">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Analytics</h1>
-                    <p className="text-slate-500 text-sm">Detailed performance metrics for your WhatsApp channel</p>
+                    <p className="text-slate-500 text-sm">Track campaign performance and lead engagement</p>
                 </div>
-                <DateRangePicker onUpdate={(range) => console.log("WhatsApp Analytics Date Update:", range)} />
+                <div className="flex items-center gap-2">
+                    <DateRangePicker onUpdate={({ range }) => setDateRange({ from: range?.from, to: range?.to })} />
+                    <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="h-10">
+                        <RefreshCw className="h-4 w-4" />
+                    </Button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <MetricCard title="Total Sent" value="12,450" change="+12%" icon={<Send className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
-                <MetricCard title="Read Rate" value="68%" change="+5%" icon={<Users className="h-5 w-5" />} color="text-emerald-600" bg="bg-emerald-50" />
-                <MetricCard title="Reply Rate" value="4.2%" change="+1.5%" icon={<MessageSquare className="h-5 w-5" />} color="text-purple-600" bg="bg-purple-50" />
-                <MetricCard title="Conversion" value="2.8%" change="+0.4%" icon={<TrendingUp className="h-5 w-5" />} color="text-orange-600" bg="bg-orange-50" />
+            {/* Core Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard
+                    title="Total Messages Sent"
+                    value={stats.totalSent.toLocaleString()}
+                    icon={Send}
+                    color="text-blue-600"
+                    bg="bg-blue-50"
+                />
+                <StatCard
+                    title="Total Replies"
+                    value={stats.repliedCount.toLocaleString()}
+                    icon={MessageSquare}
+                    color="text-emerald-600"
+                    bg="bg-emerald-50"
+                />
+                <StatCard
+                    title="Response Rate"
+                    value={stats.replyRate}
+                    icon={TrendingUp}
+                    color="text-purple-600"
+                    bg="bg-purple-50"
+                />
+                <StatCard
+                    title="Contacted Leads"
+                    value={stats.totalLeads.toLocaleString()}
+                    icon={Users}
+                    color="text-slate-600"
+                    bg="bg-slate-50"
+                />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card className="border-slate-200">
+            {/* Main Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <Card className="lg:col-span-2 border-slate-200 shadow-sm bg-white">
                     <CardHeader>
-                        <CardTitle className="text-lg">Engagement Trends</CardTitle>
+                        <CardTitle className="text-sm font-bold text-slate-900">Engagement Trend</CardTitle>
+                        <CardDescription className="text-xs">Outbound messages vs Incoming replies</CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="p-4">
                         <div className="h-[300px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={data}>
+                                <AreaChart data={trendData}>
+                                    <defs>
+                                        <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1} />
+                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                                        </linearGradient>
+                                        <linearGradient id="colorReplied" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.1} />
+                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                                        </linearGradient>
+                                    </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                                    <YAxis axisLine={false} tickLine={false} />
-                                    <Tooltip />
-                                    <Line type="monotone" dataKey="sent" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                                    <Line type="monotone" dataKey="read" stroke="#10b981" strokeWidth={2} dot={false} />
-                                </LineChart>
+                                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} dy={10} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                                    <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                                    <Area type="monotone" dataKey="sent" stroke="#3b82f6" strokeWidth={2} fill="url(#colorSent)" />
+                                    <Area type="monotone" dataKey="replied" stroke="#10b981" strokeWidth={2} fill="url(#colorReplied)" />
+                                </AreaChart>
                             </ResponsiveContainer>
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="border-slate-200">
+                <Card className="border-slate-200 shadow-sm bg-white">
                     <CardHeader>
-                        <CardTitle className="text-lg">Response Breakdown</CardTitle>
+                        <CardTitle className="text-sm font-bold text-slate-900">Loop Breakdown</CardTitle>
+                        <CardDescription className="text-xs">Replies distribution by campaign</CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="p-4">
                         <div className="h-[300px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={data}>
+                                <BarChart data={stats.loopData}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                                    <YAxis axisLine={false} tickLine={false} />
-                                    <Tooltip />
-                                    <Bar dataKey="replied" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} dy={5} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                                    <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                                    <Bar dataKey="value" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={30}>
+                                        {stats.loopData.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={['#3b82f6', '#10b981', '#8b5cf6'][index % 3]} />
+                                        ))}
+                                    </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -87,16 +255,17 @@ export default function WhatsappAnalyticsPage() {
     );
 }
 
-function MetricCard({ title, value, change, icon, color, bg }: any) {
+function StatCard({ title, value, icon: Icon, color, bg }: any) {
     return (
-        <Card className="border-slate-200">
-            <CardContent className="p-6 flex items-center justify-between">
-                <div>
-                    <p className="text-sm font-medium text-slate-500">{title}</p>
-                    <h3 className="text-2xl font-bold text-slate-900 mt-1">{value}</h3>
-                    <p className="text-xs text-emerald-600 font-bold mt-1">{change} vs last mo</p>
+        <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
+            <CardContent className="p-5 flex items-center gap-4">
+                <div className={`p-3 rounded-xl ${bg} ${color}`}>
+                    <Icon className="h-5 w-5" />
                 </div>
-                <div className={`p-4 rounded-xl ${bg} ${color}`}>{icon}</div>
+                <div>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{title}</p>
+                    <h3 className="text-xl font-bold text-slate-900">{value}</h3>
+                </div>
             </CardContent>
         </Card>
     );
