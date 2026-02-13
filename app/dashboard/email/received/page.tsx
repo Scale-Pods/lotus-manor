@@ -20,7 +20,7 @@ import {
     Search,
     Calendar as CalendarIcon
 } from "lucide-react";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     Collapsible,
     CollapsibleContent,
@@ -43,9 +43,10 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 export default function ReceivedEmailsPage() {
     const [replies, setReplies] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [statusFilter, setStatusFilter] = useState("all");
+    const [loopFilter, setLoopFilter] = useState("all");
     const [searchQuery, setSearchQuery] = useState("");
     const [dateRange, setDateRange] = useState<any>(undefined);
+    const [sortBy, setSortBy] = useState("newest");
 
     useEffect(() => {
         const fetchReplies = async () => {
@@ -105,29 +106,38 @@ export default function ReceivedEmailsPage() {
         fetchReplies();
     }, []);
 
-    const filteredReplies = replies.filter(reply => {
-        const matchesStatus = statusFilter === "all" || reply.status === statusFilter;
-        const matchesSearch = reply.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            reply.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            reply.senderName.toLowerCase().includes(searchQuery.toLowerCase());
+    const filteredReplies = useMemo(() => {
+        let result = replies.filter(reply => {
+            const matchesLoop = loopFilter === "all" || reply.loop?.toLowerCase() === loopFilter.toLowerCase();
+            const matchesSearch = reply.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                reply.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                reply.senderName.toLowerCase().includes(searchQuery.toLowerCase());
 
-        // Date Range Filtering
-        if (dateRange?.from) {
-            const replyDateStr = reply.originalDate;
-            if (!replyDateStr) return false;
-            const replyDate = new Date(replyDateStr);
-            if (isNaN(replyDate.getTime())) return false;
+            // Date Range Filtering
+            if (dateRange?.from) {
+                const replyDateStr = reply.originalDate;
+                if (!replyDateStr) return false;
+                const replyDate = new Date(replyDateStr);
+                if (isNaN(replyDate.getTime())) return false;
 
-            const from = new Date(dateRange.from);
-            from.setHours(0, 0, 0, 0);
-            const to = dateRange.to ? new Date(dateRange.to) : from;
-            to.setHours(23, 59, 59, 999);
+                const from = new Date(dateRange.from);
+                from.setHours(0, 0, 0, 0);
+                const to = dateRange.to ? new Date(dateRange.to) : from;
+                to.setHours(23, 59, 59, 999);
 
-            if (replyDate < from || replyDate > to) return false;
-        }
+                if (replyDate < from || replyDate > to) return false;
+            }
 
-        return matchesStatus && matchesSearch;
-    });
+            return matchesLoop && matchesSearch;
+        });
+
+        // Apply Sorting
+        return result.sort((a, b) => {
+            const dateA = a.originalDate ? new Date(a.originalDate).getTime() : 0;
+            const dateB = b.originalDate ? new Date(b.originalDate).getTime() : 0;
+            return sortBy === "newest" ? dateB - dateA : dateA - dateB;
+        });
+    }, [replies, loopFilter, searchQuery, dateRange, sortBy]);
 
     return (
         <div className="space-y-6 pb-10 max-w-5xl mx-auto">
@@ -172,18 +182,19 @@ export default function ReceivedEmailsPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2 items-center">
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <Select value={loopFilter} onValueChange={setLoopFilter}>
                         <SelectTrigger className="w-[140px] h-9 text-xs">
-                            <SelectValue placeholder="All Statuses" />
+                            <SelectValue placeholder="All Loops" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Statuses</SelectItem>
-                            <SelectItem value="Yes">Yes</SelectItem>
-                            <SelectItem value="Dropped">Dropped</SelectItem>
+                            <SelectItem value="all">All Loops</SelectItem>
+                            <SelectItem value="Intro">Intro Loop</SelectItem>
+                            <SelectItem value="followup">Follow Up</SelectItem>
+                            <SelectItem value="nurture">Nurture Loop</SelectItem>
                         </SelectContent>
                     </Select>
 
-                    <Select defaultValue="newest">
+                    <Select value={sortBy} onValueChange={setSortBy}>
                         <SelectTrigger className="w-[140px] h-9 text-xs">
                             <SelectValue placeholder="Sort By" />
                         </SelectTrigger>
@@ -200,7 +211,8 @@ export default function ReceivedEmailsPage() {
                         onClick={() => {
                             setSearchQuery("");
                             setDateRange(undefined);
-                            setStatusFilter("all");
+                            setLoopFilter("all");
+                            setSortBy("newest");
                         }}
                     >
                         Reset Filters

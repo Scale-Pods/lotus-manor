@@ -89,9 +89,33 @@ export default function MasterDashboard() {
                 // Apply Date Filtering for Leads
                 const filteredLeads = flattenedLeads.filter((lead: any) => {
                     if (!dateRange?.from) return true;
-                    if (!lead.last_contacted && !lead.created_at) return false;
 
-                    const leadDate = new Date(lead.last_contacted || lead.created_at);
+                    // Extract best available date (created_at, last_contacted, or embedded reply timestamp)
+                    let leadDateStr = lead.last_contacted || lead.created_at;
+
+                    // Detect timestamp from email_replied (matches Received Emails page logic)
+                    if (lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none") {
+                        const lines = String(lead.email_replied).trim().split('\n');
+                        const lastLine = lines[lines.length - 1].trim();
+                        const possibleDate = new Date(lastLine);
+                        if (!isNaN(possibleDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                            leadDateStr = possibleDate.toISOString();
+                        }
+                    }
+
+                    // Apply same logic for WhatsApp interaction if needed
+                    if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
+                        const lines = String(lead.whatsapp_replied).trim().split('\n');
+                        const lastLine = lines[lines.length - 1].trim();
+                        const possibleDate = new Date(lastLine);
+                        if (!isNaN(possibleDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                            leadDateStr = possibleDate.toISOString();
+                        }
+                    }
+
+                    if (!leadDateStr) return false;
+
+                    const leadDate = new Date(leadDateStr);
                     const from = new Date(dateRange.from);
                     from.setHours(0, 0, 0, 0);
                     const to = dateRange.to ? new Date(dateRange.to) : from;
