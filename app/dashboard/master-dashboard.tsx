@@ -100,7 +100,12 @@ export default function MasterDashboard() {
                         if (s.includes("voice")) voiceCount++;
                     });
 
-                    if (lead.replied && lead.replied !== "No") {
+                    // Check for replies in specific columns as well as general status
+                    const isEmailReplied = lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none";
+                    const isWPReplied = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
+                    const isGeneralReplied = lead.replied === "Yes";
+
+                    if (isEmailReplied || isWPReplied || isGeneralReplied) {
                         replyCount++;
                     }
                 });
@@ -222,7 +227,7 @@ export default function MasterDashboard() {
                             Close
                         </Button>
                     </div>
-                    <TotalRepliesView leads={leads.filter((l: any) => l.replied && l.replied !== "No")} />
+                    <TotalRepliesView leads={leads.filter((l: any) => (l.email_replied && l.email_replied !== "No" && l.email_replied !== "none") || (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") || l.replied === "Yes")} />
                 </div>
             )}
 
@@ -233,7 +238,7 @@ export default function MasterDashboard() {
                         <DialogTitle>Total Replies - Detailed View</DialogTitle>
                     </DialogHeader>
                     <div className="py-4">
-                        <TotalRepliesView leads={leads.filter((l: any) => l.replied && l.replied !== "No")} />
+                        <TotalRepliesView leads={leads.filter((l: any) => (l.email_replied && l.email_replied !== "No" && l.email_replied !== "none") || (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") || l.replied === "Yes")} />
                     </div>
                 </DialogContent>
             </Dialog>

@@ -44,11 +44,43 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
     // Map real leads to ReplyData format
     const realData: ReplyData[] = leads.map((lead: any, idx: number) => {
         let mode: 'Email' | 'WhatsApp' | 'Voice' = 'Email';
-        if (lead.current_loop?.toLowerCase().includes("whatsapp")) mode = 'WhatsApp';
-        else if (lead.current_loop?.toLowerCase().includes("voice")) mode = 'Voice';
-        else if (lead.stages_passed?.some((s: string) => s.toLowerCase().includes("whatsapp"))) mode = 'WhatsApp';
+        let preview = "Reply received. Check details in Leads view.";
+        let displayDate = lead.created_at || new Date().toISOString();
 
-        const dateObj = new Date(lead.created_at || new Date());
+        const isWPReplied = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
+        const isEmailReplied = lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none";
+
+        if (isWPReplied) {
+            mode = 'WhatsApp';
+            const trimmed = String(lead.whatsapp_replied).trim();
+            const lines = trimmed.split('\n');
+            const lastLine = lines[lines.length - 1].trim();
+            const lastLineDate = new Date(lastLine);
+
+            if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                displayDate = lastLineDate.toISOString();
+                preview = lines.slice(0, -1).join('\n').trim() || "WhatsApp Reply Received";
+            } else {
+                preview = lead.whatsapp_replied;
+            }
+        } else if (isEmailReplied) {
+            mode = 'Email';
+            const trimmed = String(lead.email_replied).trim();
+            const lines = trimmed.split('\n');
+            const lastLine = lines[lines.length - 1].trim();
+            const lastLineDate = new Date(lastLine);
+
+            if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                displayDate = lastLineDate.toISOString();
+                preview = lines.slice(0, -1).join('\n').trim() || "Email Reply Received";
+            } else {
+                preview = lead.email_replied;
+            }
+        } else if (lead.current_loop?.toLowerCase().includes("voice")) {
+            mode = 'Voice';
+        }
+
+        const dateObj = new Date(displayDate);
 
         return {
             id: lead.id || `lead-${idx}`,
@@ -58,7 +90,7 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
             date: dateObj.toLocaleDateString(),
             time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             status: 'Replied',
-            preview: "Reply received. Check details in Leads view."
+            preview: preview
         };
     });
 
@@ -97,7 +129,7 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
                             <SelectItem value="all">All Modes</SelectItem>
                             <SelectItem value="email">Email</SelectItem>
                             <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                            <SelectItem value="voice">Voice</SelectItem>
+                            
                         </SelectContent>
                     </Select>
                     <DateRangePicker onUpdate={(val) => console.log("Total Replies Date Filter:", val)} />
