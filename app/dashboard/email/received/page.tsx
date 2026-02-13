@@ -35,6 +35,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { consolidateLeads } from "@/lib/leads-utils";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 // Mock data removed
 
@@ -44,6 +45,7 @@ export default function ReceivedEmailsPage() {
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState("all");
     const [searchQuery, setSearchQuery] = useState("");
+    const [dateRange, setDateRange] = useState<any>(undefined);
 
     useEffect(() => {
         const fetchReplies = async () => {
@@ -74,16 +76,16 @@ export default function ReceivedEmailsPage() {
                             // If it's a timestamp, the rest is the content
                             cleanEmailReply = lines.slice(0, -1).join('\n').trim() || "Email Reply Received";
                         }
-
                         realReplies.push({
                             id: `${lead.id || index}-email-reply`,
                             sender: lead.email || "No Email Provided",
                             status: "Replied",
                             subject: "Email Reply",
-                            timestamp: displayDate ? new Date(displayDate).toLocaleDateString() : "Unknown Date",
+                            timestamp: displayDate ? format(new Date(displayDate), 'MMM dd, yyyy • p') : "Unknown Date",
                             senderName: lead.name || "Lead",
                             content: cleanEmailReply,
-                            originalDate: displayDate
+                            originalDate: displayDate,
+                            loop: lead.source_loop
                         });
                     }
                 });
@@ -106,7 +108,24 @@ export default function ReceivedEmailsPage() {
     const filteredReplies = replies.filter(reply => {
         const matchesStatus = statusFilter === "all" || reply.status === statusFilter;
         const matchesSearch = reply.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            reply.content.toLowerCase().includes(searchQuery.toLowerCase());
+            reply.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            reply.senderName.toLowerCase().includes(searchQuery.toLowerCase());
+
+        // Date Range Filtering
+        if (dateRange?.from) {
+            const replyDateStr = reply.originalDate;
+            if (!replyDateStr) return false;
+            const replyDate = new Date(replyDateStr);
+            if (isNaN(replyDate.getTime())) return false;
+
+            const from = new Date(dateRange.from);
+            from.setHours(0, 0, 0, 0);
+            const to = dateRange.to ? new Date(dateRange.to) : from;
+            to.setHours(23, 59, 59, 999);
+
+            if (replyDate < from || replyDate > to) return false;
+        }
+
         return matchesStatus && matchesSearch;
     });
 
@@ -135,20 +154,26 @@ export default function ReceivedEmailsPage() {
             </Card>
 
             {/* Search & Filters Section */}
-            <div className="space-y-4">
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                    <Input
-                        placeholder="Search by sender or content..."
-                        className="pl-10 bg-white border-slate-200"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex flex-col md:flex-row gap-4">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                        <Input
+                            placeholder="Search by sender or content..."
+                            className="pl-10 bg-slate-50 border-slate-200"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                    <DateRangePicker
+                        className="w-full md:w-[260px]"
+                        onUpdate={(values) => setDateRange(values.range)}
                     />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="flex flex-wrap gap-2 items-center">
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="bg-white border-slate-200">
+                        <SelectTrigger className="w-[140px] h-9 text-xs">
                             <SelectValue placeholder="All Statuses" />
                         </SelectTrigger>
                         <SelectContent>
@@ -158,8 +183,8 @@ export default function ReceivedEmailsPage() {
                         </SelectContent>
                     </Select>
 
-                    <Select>
-                        <SelectTrigger className="bg-white border-slate-200">
+                    <Select defaultValue="newest">
+                        <SelectTrigger className="w-[140px] h-9 text-xs">
                             <SelectValue placeholder="Sort By" />
                         </SelectTrigger>
                         <SelectContent>
@@ -168,7 +193,18 @@ export default function ReceivedEmailsPage() {
                         </SelectContent>
                     </Select>
 
-                    <DateFilter />
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-slate-500 h-9 text-xs ml-auto bg-slate-100 hover:bg-slate-200"
+                        onClick={() => {
+                            setSearchQuery("");
+                            setDateRange(undefined);
+                            setStatusFilter("all");
+                        }}
+                    >
+                        Reset Filters
+                    </Button>
                 </div>
             </div>
 
@@ -185,42 +221,6 @@ export default function ReceivedEmailsPage() {
     );
 }
 
-function DateFilter() {
-    const [date, setDate] = useState<Date>();
-    const [isMounted, setIsMounted] = useState(false);
-
-    React.useEffect(() => {
-        setIsMounted(true);
-    }, []);
-
-    if (!isMounted) {
-        return (
-            <Button variant="outline" className={cn("justify-start text-left font-normal bg-white border-slate-200 animate-pulse")}>
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                <span className="w-24 h-4 bg-slate-100 rounded"></span>
-            </Button>
-        );
-    }
-
-    return (
-        <Popover>
-            <PopoverTrigger asChild>
-                <Button variant="outline" className={cn("justify-start text-left font-normal bg-white border-slate-200", !date && "text-muted-foreground")}>
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {date ? format(date, "PPP") : <span>Select dates</span>}
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={setDate}
-                    initialFocus
-                />
-            </PopoverContent>
-        </Popover>
-    );
-}
 
 function EmailReplyCard({ reply }: { reply: any }) {
     const [isOpen, setIsOpen] = useState(false);
