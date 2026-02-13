@@ -95,7 +95,15 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 last_contacted: getVal(l, ["Last Contacted", "last_contacted"]),
                 sender_email: getVal(l, ["Senders email", "sender_email"]),
                 email_replied: getVal(l, ["Email_Replied", "Email Replied"]),
-                whatsapp_replied: getVal(l, ["W.P_Replied", "Replied"])
+                whatsapp_replied: getVal(l, ["W.P_Replied", "Replied", "whatsapp_replied"]),
+                "W.P_1": getVal(l, ["W.P_1"]),
+                "W.P_2": getVal(l, ["W.P_2"]),
+                "W.P_3": getVal(l, ["W.P_3"]),
+                "W.P_4": getVal(l, ["W.P_4"]),
+                "W.P_5": getVal(l, ["W.P_5"]),
+                "W.P_6": getVal(l, ["W.P_6"]),
+                "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
+                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"])
             });
         });
     }
@@ -139,7 +147,15 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 dropped: getVal(l, ["Dropped"]),
                 sender_email: getVal(l, ["Senders email"]),
                 email_replied: getVal(l, ["Email_Replied", "Email Replied"]),
-                whatsapp_replied: getVal(l, ["W.P_Replied", "Replied"])
+                whatsapp_replied: getVal(l, ["W.P_Replied", "Replied", "whatsapp_replied"]),
+                "W.P_1": getVal(l, ["W.P_1"]),
+                "W.P_2": getVal(l, ["W.P_2"]),
+                "W.P_3": getVal(l, ["W.P_3"]),
+                "W.P_4": getVal(l, ["W.P_4"]),
+                "W.P_5": getVal(l, ["W.P_5"]),
+                "W.P_6": getVal(l, ["W.P_6"]),
+                "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
+                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"])
             });
         });
     }
@@ -198,7 +214,15 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 dropped: getVal(l, ["Dropped"]),
                 sender_email: getVal(l, ["Senders email"]),
                 email_replied: getVal(l, ["Email_Replied", "Email Replied"]),
-                whatsapp_replied: getVal(l, ["W.P_Replied", "Replied"])
+                whatsapp_replied: getVal(l, ["W.P_Replied", "Replied", "whatsapp_replied"]),
+                "W.P_1": getVal(l, ["W.P_1"]),
+                "W.P_2": getVal(l, ["W.P_2"]),
+                "W.P_3": getVal(l, ["W.P_3"]),
+                "W.P_4": getVal(l, ["W.P_4"]),
+                "W.P_5": getVal(l, ["W.P_5"]),
+                "W.P_6": getVal(l, ["W.P_6"]),
+                "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
+                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"])
             });
         });
     }
