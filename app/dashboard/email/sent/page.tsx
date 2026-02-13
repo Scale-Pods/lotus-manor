@@ -72,8 +72,45 @@ export default function SentEmailsPage() {
 
                 leads.forEach((lead: any, leadIndex: number) => {
                     const stages = lead.stages_passed || [];
-                    const senderName = lead.sender_email || lead["Sender Email"] || "Adnan Shaikh";
-                    uniqueSenders.add(senderName);
+
+                    let sEmail = (lead.sender_email || lead["Sender Email"] || "").trim();
+                    let sName = (lead.sender_name || lead["Sender Name"] || "").trim();
+
+                    // Clean up case where sEmail might be "Name <email@domain.com>"
+                    let extractedEmail = sEmail;
+                    let extractedNameFromEmail = "";
+                    if (sEmail.includes("<") && sEmail.includes(">")) {
+                        const match = sEmail.match(/^(.*?)<(.*?)>$/);
+                        if (match) {
+                            extractedNameFromEmail = match[1].trim().replace(/^"|"$/g, '');
+                            extractedEmail = match[2].trim();
+                        }
+                    }
+
+                    let fullSender = "";
+                    const displayName = sName || extractedNameFromEmail || "Adnan Shaikh";
+                    const displayEmail = extractedEmail || sEmail || "adnan@shaikh.com";
+
+                    if (displayName && displayEmail && displayEmail !== "adnan@shaikh.com") {
+                        // Avoid redundancy
+                        if (displayName.toLowerCase() === displayEmail.toLowerCase() || displayEmail.includes(displayName)) {
+                            fullSender = displayEmail;
+                        } else {
+                            fullSender = `${displayName} (${displayEmail})`;
+                        }
+                    } else {
+                        fullSender = displayName || displayEmail;
+                    }
+
+                    // Special fix for the weird "Adnan Shaikh ("Tara Malik"<>)" case
+                    if (fullSender.includes("<>")) {
+                        fullSender = fullSender.replace("<>", "").trim();
+                    }
+                    if (fullSender.includes('("")')) {
+                        fullSender = fullSender.replace('("")', "").trim();
+                    }
+
+                    uniqueSenders.add(fullSender);
 
                     stages.forEach((stage: string) => {
                         if (stage.toLowerCase().includes("email")) {
@@ -105,7 +142,10 @@ export default function SentEmailsPage() {
                                     // Case 2: Content ends with a timestamp (e.g. 2026-02-12T19:12...)
                                     displayDate = lastLineDate.toISOString();
                                     rawDateValue = lastLineDate.toISOString();
-                                    emailBody = rawContent;
+
+                                    // Format the date for the body to be readable
+                                    const readableTime = format(lastLineDate, 'PPP p');
+                                    emailBody = lines.slice(0, -1).join('\n').trim() + "\n\n(Sent on: " + readableTime + ")";
                                     hasValidDateInColumn = true;
                                 } else {
                                     // Case 3: Standard text content
@@ -116,9 +156,9 @@ export default function SentEmailsPage() {
                             emails.push({
                                 id: `${lead.id || `lead-${leadIndex}`}-${stage.replace(/\s+/g, '-')}-${Math.random().toString(36).substr(2, 9)}`,
                                 recipient: lead.email || leadName,
-                                sender: senderName,
+                                sender: fullSender,
                                 type: stage,
-                                sentDate: hasValidDateInColumn ? new Date(displayDate).toLocaleDateString() : null,
+                                sentDate: hasValidDateInColumn ? format(new Date(displayDate), 'MMM dd, yyyy • p') : null,
                                 subject: stage, // Use stage name (e.g. Email 1) as subject since we are not using templates
                                 content: emailBody,
                                 loop: lead.source_loop,
@@ -255,8 +295,8 @@ export default function SentEmailsPage() {
                         <SelectContent>
                             <SelectItem value="all">All Campaigns</SelectItem>
                             <SelectItem value="intro">Intro Loop</SelectItem>
-                            <SelectItem value="nurture">Nurture Loop</SelectItem>
                             <SelectItem value="followup">Follow Up</SelectItem>
+                            <SelectItem value="nurture">Nurture Loop</SelectItem>
                         </SelectContent>
                     </Select>
 
