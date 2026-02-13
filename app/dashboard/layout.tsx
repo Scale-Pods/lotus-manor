@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Mail, MessageCircle, Mic, Settings, LogOut, ChevronDown, Wallet, BarChart2, Users, Send, Key } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -96,6 +97,37 @@ export default function DashboardLayout({
 
     const activeConfig = (dashboardConfig as any)[currentContext];
 
+    // Vapi Balance State
+    const [vapiBalance, setVapiBalance] = useState<number | null>(null);
+    const [loadingVapi, setLoadingVapi] = useState(true);
+
+    useEffect(() => {
+        const fetchVapiBalance = async () => {
+            try {
+                const res = await fetch('/api/vapi/balance');
+                if (res.ok) {
+                    const data = await res.json();
+                    // Assuming data.amount or similar structure. 
+                    // API typically returns { amount: 12.50, currency: 'USD' } or similar.
+                    // Let's assume data.amount for now, based on typical billing APIs.
+                    // If simply { amount: 10 }, use that.
+                    if (data.amount !== undefined) {
+                        setVapiBalance(Number(data.amount));
+                    } else {
+                        // Fallback if structure is different
+                        console.log("Vapi balance data:", data);
+                    }
+                }
+            } catch (error) {
+                console.error("Vapi balance fetch failed", error);
+            } finally {
+                setLoadingVapi(false);
+            }
+        };
+
+        fetchVapiBalance();
+    }, []);
+
     return (
         <div className="flex h-screen overflow-hidden bg-zinc-50 text-slate-900">
             {/* Sidebar */}
@@ -177,7 +209,9 @@ export default function DashboardLayout({
                             </div>
                         </div>
                         <div className="flex items-baseline gap-1 relative z-10">
-                            <span className="text-xl font-bold tracking-tight text-slate-900">$12.50</span>
+                            <span className="text-xl font-bold tracking-tight text-slate-900">
+                                {loadingVapi ? "..." : (vapiBalance !== null ? `$${vapiBalance.toFixed(2)}` : "N/A")}
+                            </span>
                             <span className="text-[10px] text-slate-500">USD</span>
                         </div>
                     </div>

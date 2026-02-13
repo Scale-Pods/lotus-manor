@@ -21,15 +21,18 @@ import { Badge } from "@/components/ui/badge";
 import { Users, AlertCircle, Loader2, RefreshCw, Mail, MessageCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { consolidateLeads } from "@/lib/leads-utils";
 
 interface Lead {
+    id?: string;
     name: string;
-    phone: number;
+    phone: string;
     email: string;
     replied: string;
+    email_replied?: string;
+    whatsapp_replied?: string;
     current_loop: string;
     stages_passed: string[];
-    // Nurture specific fields
     lead_id?: string;
     current_week?: string;
     display_loop?: string;
@@ -43,6 +46,7 @@ const STAGES = [
     { id: 4, label: "Stage 4", criteria: ["Email 3"] },
     { id: 5, label: "Stage 5", criteria: ["Voice 1"] },
     { id: 6, label: "Stage 6", criteria: ["Voice 2"] },
+    { id: 7, label: "Stage 7", criteria: ["FollowUp 48 Hr"] },
 ];
 
 const NURTURE_WEEK_STEPS = ["WhatsApp 1", "Email 1", "WhatsApp 2", "Voice 1", "Voice 2", "Email 1", "Email 2"];
@@ -61,13 +65,22 @@ export default function LeadsPage() {
         try {
             const response = await fetch("/api/leads");
             if (!response.ok) {
-                throw new Error("Failed to fetch leads");
+                throw new Error(`Failed to fetch leads: ${response.statusText}`);
             }
             const data = await response.json();
-            setLeads(data);
-        } catch (err) {
-            console.error(err);
-            setError("Could not load leads data. Please try again later.");
+
+            // Check for API-level errors
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            // Consolidate the leads from all tables
+            const flattenedLeads = consolidateLeads(data);
+            console.log(`Successfully fetched and consolidated ${flattenedLeads.length} leads.`);
+            setLeads(flattenedLeads);
+        } catch (err: any) {
+            console.error("Leads fetch error:", err);
+            setError(err.message || "Could not load leads data. Please try again later.");
         } finally {
             setLoading(false);
         }
@@ -103,32 +116,20 @@ export default function LeadsPage() {
         const stagesPassed = lead.stages_passed || [];
 
         // Nurture Loop Logic
-        if (lead.source_loop === "Nurture") {
-            // Logic: 
-            // Total Nurture Stages = 3 (Week 1, Week 2, Week 3).
-            // Each stage has ~6-7 steps.
-            // Progress = ((CurrentWeek - 1) * 100 / 3) + ( (CompletedStepsInCurrentWeek / TotalStepsInWeek) * 100 / 3 )
-
+        if (lead.source_loop === "nurture") {
             let weekNum = 1;
             if (lead.current_week) {
                 const match = lead.current_week.match(/Week (\d+)/i);
                 if (match) weekNum = parseInt(match[1]);
             }
 
-            // Allow up to 3 weeks. If weekNum > 3, we cap at 100% or adjust denominator?
             const TOTAL_NURTURE_WEEKS = 3;
             if (weekNum > TOTAL_NURTURE_WEEKS) weekNum = TOTAL_NURTURE_WEEKS;
 
             const nurtureSteps = ["WhatsApp 1", "Email 1", "WhatsApp 2", "Voice 1", "Voice 2", "Email 2"];
-            // Note: User list ("Email 1", "WhatsApp 1"...) might vary slightly, using best guess from prompt + JSON.
-            // JSON also saw "Email 3", assume it maps to Email 1/2 of Week 3? 
-            // Or just check how many of our defining steps are present.
-
             const completedStepsCount = nurtureSteps.filter(step => stagesPassed.includes(step)).length;
             const weekProgress = completedStepsCount / nurtureSteps.length;
 
-            // Global Progress
-            // Completed Weeks = weekNum - 1
             const baseProgress = ((weekNum - 1) / TOTAL_NURTURE_WEEKS);
             const currentWeekContribution = (weekProgress / TOTAL_NURTURE_WEEKS);
 
@@ -151,17 +152,15 @@ export default function LeadsPage() {
     const getStageLabel = (lead: Lead) => {
         const stagesPassed = lead.stages_passed || [];
 
-        if (lead.source_loop === "Nurture") {
-            // Return "Stage X" based on Week
+        if (lead.source_loop === "nurture") {
             if (lead.current_week) {
                 const match = lead.current_week.match(/Week (\d+)/i);
                 if (match) return `Stage ${match[1]}`;
-                return lead.current_week; // Fallback
+                return lead.current_week;
             }
             return "Nurture";
         }
 
-        // Original Logic
         let highestStage = 0;
         for (const stage of STAGES) {
             if (stage.criteria.some(c => stagesPassed.includes(c))) {
@@ -273,14 +272,14 @@ export default function LeadsPage() {
                                                 <TableCell className="text-slate-600">{lead.phone}</TableCell>
                                                 <TableCell className="text-slate-600">{lead.email}</TableCell>
                                                 <TableCell>
-                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200">
-                                                        {lead.display_loop || lead.current_loop}
+                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200 uppercase">
+                                                        {lead.source_loop === 'followup' ? 'FOLLOW UP' : lead.source_loop === 'nr_wf' || lead.source_loop === 'Intro' ? 'INTRO' : (lead.display_loop || lead.current_loop || lead.source_loop || "").toUpperCase()}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Badge variant={lead.replied === "Yes" ? "default" : "secondary"}
-                                                        className={lead.replied === "Yes" ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 shadow-none" : ""}>
-                                                        {lead.replied}
+                                                    <Badge variant={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "default" : "secondary"}
+                                                        className={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 shadow-none font-bold" : ""}>
+                                                        {(lead.email_replied && lead.email_replied !== "No") ? "EMAIL REPLIED" : (lead.whatsapp_replied && lead.whatsapp_replied !== "No") ? "WP REPLIED" : lead.replied}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
@@ -350,7 +349,6 @@ export default function LeadsPage() {
                                             </CardHeader>
                                             <CardContent className="p-6 bg-white prose prose-slate max-w-none">
                                                 <div className="whitespace-pre-wrap text-slate-700 font-sans leading-relaxed">
-                                                    {/* Attempt to display body content cleanly */}
                                                     {typeof template.body === 'string' ? template.body :
                                                         typeof template.components === 'object' ? JSON.stringify(template.components, null, 2) :
                                                             JSON.stringify(template, null, 2)}

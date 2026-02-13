@@ -34,6 +34,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { consolidateLeads } from "@/lib/leads-utils";
 
 // Mock data removed
 
@@ -50,27 +51,47 @@ export default function ReceivedEmailsPage() {
             try {
                 const res = await fetch('/api/leads');
                 if (!res.ok) throw new Error("Failed");
-                const leads = await res.json();
+                const rawData = await res.json();
+                const leads = consolidateLeads(rawData);
 
                 const realReplies: any[] = [];
                 leads.forEach((lead: any, index: number) => {
-                    // Check if lead replied
-                    if (lead.replied && lead.replied !== "No") {
+                    // Check if lead replied specifically via email
+                    const emailReply = lead.email_replied || lead.Email_Replied || lead.replied;
+
+                    if (emailReply && emailReply !== "No" && emailReply !== "none") {
+                        const trimmed = String(emailReply).trim();
+                        const lines = trimmed.split('\n');
+                        const lastLine = lines[lines.length - 1].trim();
+
+                        // Detect if there's a timestamp at the end of the reply column
+                        const lastLineDate = new Date(lastLine);
+                        let displayDate = lead.created_at;
+                        let cleanEmailReply = emailReply;
+
+                        if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                            displayDate = lastLineDate.toISOString();
+                            // If it's a timestamp, the rest is the content
+                            cleanEmailReply = lines.slice(0, -1).join('\n').trim() || "Email Reply Received";
+                        }
+
                         realReplies.push({
-                            id: `${lead.id || index}-reply`,
-                            sender: lead.email || "Unknown Sender",
-                            status: lead.replied, // Store raw status for filtering
-                            subject: "New Reply",
-                            timestamp: "Just now",
-                            senderName: lead.firstName ? `${lead.firstName} ${lead.lastName || ''}` : "Lead",
-                            content: `Lead replied: ${lead.replied}`,
-                            originalMessage: {
-                                sender: "System",
-                                timestamp: "Previously",
-                                content: "Original message content..."
-                            }
+                            id: `${lead.id || index}-email-reply`,
+                            sender: lead.email || "No Email Provided",
+                            status: "Replied",
+                            subject: "Email Reply",
+                            timestamp: displayDate ? new Date(displayDate).toLocaleDateString() : "Unknown Date",
+                            senderName: lead.name || "Lead",
+                            content: cleanEmailReply,
+                            originalDate: displayDate
                         });
                     }
+                });
+                // Sort replies by date (newest first)
+                realReplies.sort((a, b) => {
+                    const dateA = a.originalDate ? new Date(a.originalDate).getTime() : 0;
+                    const dateB = b.originalDate ? new Date(b.originalDate).getTime() : 0;
+                    return dateB - dateA;
                 });
                 setReplies(realReplies);
             } catch (e) {
@@ -209,17 +230,25 @@ function EmailReplyCard({ reply }: { reply: any }) {
             <CollapsibleTrigger asChild>
                 <div className="p-6 flex items-center gap-4 cursor-pointer group">
                     <div className="h-12 w-12 shrink-0 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center border border-emerald-100">
-                        <Mail className="h-6 w-6" />
+                        <Reply className="h-5 w-5" />
                     </div>
 
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                            <h4 className="text-lg font-bold text-slate-900 truncate">{reply.sender}</h4>
-                            <span className="text-xs text-slate-400 font-medium">{reply.timestamp}</span>
+                            <div className="flex items-center gap-2">
+                                <h4 className="text-lg font-bold text-slate-900 truncate">{reply.senderName}</h4>
+                                <Badge variant="outline" className="text-purple-600 bg-purple-50 border-purple-100 text-[10px] uppercase font-bold">
+                                    {reply.loop}
+                                </Badge>
+                                {reply.timestamp && (
+                                    <Badge variant="outline" className="text-cyan-600 bg-cyan-50 border-cyan-100 text-[10px] font-bold">{reply.timestamp}</Badge>
+                                )}
+                            </div>
                         </div>
-                        {!isOpen && (
-                            <p className="text-sm text-slate-500 truncate">{reply.content}</p>
-                        )}
+                        <div className="flex items-center gap-2">
+                            <Mail className="h-3 w-3 text-slate-400" />
+                            <p className="text-xs text-slate-500 font-medium truncate">{reply.sender}</p>
+                        </div>
                     </div>
 
                     <div className="shrink-0 p-2 rounded-full text-slate-400 group-hover:bg-slate-50 group-hover:text-slate-600 transition-colors">
@@ -230,29 +259,10 @@ function EmailReplyCard({ reply }: { reply: any }) {
 
             <CollapsibleContent>
                 <div className="px-6 pb-6 pt-0">
-                    <div className="pl-[60px] space-y-4">
-                        {/* Reply Header */}
-                        <div>
-                            <h5 className="font-bold text-slate-900">{reply.subject} <span className="font-normal text-slate-500 ml-2">On {reply.timestamp} {reply.senderName}</span></h5>
-                        </div>
-
+                    <div className="pl-[64px] space-y-4 border-t border-slate-100 pt-4">
                         {/* Email Body */}
-                        <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                        <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
                             {reply.content}
-                        </div>
-
-                        {/* Quoted Original Message */}
-                        <div className="mt-4 pt-4 border-t border-slate-100">
-                            <p className="text-xs font-bold text-slate-500 mb-1">{reply.originalMessage.sender} wrote:</p>
-                            <div className="pl-3 border-l-2 border-slate-200 text-xs text-slate-500 italic">
-                                {reply.originalMessage.content}
-                            </div>
-                        </div>
-
-                        <div className="pt-2 flex justify-end">
-                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 gap-2">
-                                <Reply className="h-4 w-4" /> Reply
-                            </Button>
                         </div>
                     </div>
                 </div>

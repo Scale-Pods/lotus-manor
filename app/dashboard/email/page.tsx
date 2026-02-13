@@ -7,12 +7,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
+import { consolidateLeads } from "@/lib/leads-utils";
 
 export default function EmailDashboardPage() {
     const [selectedLoopMetric, setSelectedLoopMetric] = useState("intro");
     const [dateSubtitle, setDateSubtitle] = useState("all time");
 
-    // State for dashboard metrics
+    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [loading, setLoading] = useState(true);
     const [data, setData] = useState({
         totalEmails: 0,
         firstEmail: 0,
@@ -27,7 +29,6 @@ export default function EmailDashboardPage() {
             nurture: 0
         }
     });
-    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const calculateStats = async () => {
@@ -35,7 +36,22 @@ export default function EmailDashboardPage() {
             try {
                 const res = await fetch('/api/leads');
                 if (!res.ok) throw new Error("Failed");
-                const leads = await res.json();
+                const rawData = await res.json();
+                const allLeads = consolidateLeads(rawData);
+
+                // Apply Date Filtering if dateRange is set
+                const leads = allLeads.filter((lead: any) => {
+                    if (!dateRange?.from) return true;
+                    if (!lead.created_at) return false;
+
+                    const leadDate = new Date(lead.created_at);
+                    const from = new Date(dateRange.from);
+                    from.setHours(0, 0, 0, 0);
+                    const to = dateRange.to ? new Date(dateRange.to) : from;
+                    to.setHours(23, 59, 59, 999);
+
+                    return leadDate >= from && leadDate <= to;
+                });
 
                 let totalEmails = 0;
                 let replyCount = 0;
@@ -105,11 +121,12 @@ export default function EmailDashboardPage() {
         };
 
         calculateStats();
-    }, []);
+    }, [dateRange]); // Recalculate when dateRange changes
 
-    const handleDateUpdate = ({ label }: { label?: string }) => {
-        if (label) {
-            setDateSubtitle(label.toLowerCase() === "today" ? "sent today" : `sent ${label.toLowerCase()}`);
+    const handleDateUpdate = (range: any) => {
+        setDateRange(range.range);
+        if (range.label) {
+            setDateSubtitle(range.label.toLowerCase() === "today" ? "sent today" : `sent ${range.label.toLowerCase()}`);
         } else {
             setDateSubtitle("sent in selected range");
         }

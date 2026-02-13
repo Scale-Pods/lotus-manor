@@ -27,6 +27,7 @@ import {
 } from "recharts";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { useState, useEffect } from "react";
+import { consolidateLeads } from "@/lib/leads-utils";
 
 const activityData = [
     { name: 'Total Leads', value: 0, fill: '#8b5cf6' },
@@ -55,6 +56,7 @@ export default function WhatsappDashboardPage() {
     ]);
     const [barData, setBarData] = useState(activityData);
     const [loading, setLoading] = useState(true);
+    const [dateRange, setDateRange] = useState<any>(undefined);
 
     useEffect(() => {
         const calculateStats = async () => {
@@ -62,7 +64,22 @@ export default function WhatsappDashboardPage() {
             try {
                 const res = await fetch('/api/leads');
                 if (!res.ok) throw new Error("Failed");
-                const leads = await res.json();
+                const rawData = await res.json();
+                const allLeads = consolidateLeads(rawData);
+
+                // Apply Date Filtering
+                const leads = allLeads.filter((lead: any) => {
+                    if (!dateRange?.from) return true;
+                    if (!lead.created_at) return false;
+
+                    const leadDate = new Date(lead.created_at);
+                    const from = new Date(dateRange.from);
+                    from.setHours(0, 0, 0, 0);
+                    const to = dateRange.to ? new Date(dateRange.to) : from;
+                    to.setHours(23, 59, 59, 999);
+
+                    return leadDate >= from && leadDate <= to;
+                });
 
                 let whatsappSentCount = 0;
                 let replyCount = 0;
@@ -111,7 +128,11 @@ export default function WhatsappDashboardPage() {
         };
 
         calculateStats();
-    }, []);
+    }, [dateRange]);
+
+    const handleDateUpdate = (range: any) => {
+        setDateRange(range.range);
+    };
     return (
         <div className="space-y-8 pb-10">
             {/* Header & Actions */}

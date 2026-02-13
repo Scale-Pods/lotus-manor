@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
@@ -60,6 +61,11 @@ export default function EmailLayout({
     children: React.ReactNode;
 }) {
     const pathname = usePathname();
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     return (
         <div className="flex h-screen overflow-hidden bg-zinc-50 text-slate-900">
@@ -77,42 +83,55 @@ export default function EmailLayout({
                 </div>
 
                 <div className="px-4 pb-2">
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                variant="outline"
-                                className="w-full justify-between bg-white border-slate-200 text-slate-700 hover:bg-slate-50 h-10 shadow-sm"
-                            >
-                                <span className="flex items-center gap-2">
-                                    <LayoutDashboard className="h-4 w-4 text-blue-600" />
-                                    <span>Switch Dashboard</span>
-                                </span>
-                                <ChevronDown className="h-4 w-4 opacity-50" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-[220px]" side="top">
-                            <DropdownMenuItem asChild>
-                                <Link href="/dashboard" className="cursor-pointer w-full flex items-center">
-                                    <LayoutDashboard className="mr-2 h-4 w-4" /> Master Overview
-                                </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <Link href="/dashboard/email" className="cursor-pointer w-full flex items-center">
-                                    <Mail className="mr-2 h-4 w-4" /> Email Marketing
-                                </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <Link href="/dashboard/whatsapp" className="cursor-pointer w-full flex items-center">
-                                    <MessageCircle className="mr-2 h-4 w-4" /> WhatsApp CRM
-                                </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <Link href="/dashboard/voice" className="cursor-pointer w-full flex items-center">
-                                    <Mic className="mr-2 h-4 w-4" /> Voice Agent
-                                </Link>
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    {mounted ? (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    className="w-full justify-between bg-white border-slate-200 text-slate-700 hover:bg-slate-50 h-10 shadow-sm"
+                                >
+                                    <span className="flex items-center gap-2">
+                                        <LayoutDashboard className="h-4 w-4 text-blue-600" />
+                                        <span>Switch Dashboard</span>
+                                    </span>
+                                    <ChevronDown className="h-4 w-4 opacity-50" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-[220px]" side="top">
+                                <DropdownMenuItem asChild>
+                                    <Link href="/dashboard" className="cursor-pointer w-full flex items-center">
+                                        <LayoutDashboard className="mr-2 h-4 w-4" /> Master Overview
+                                    </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <Link href="/dashboard/email" className="cursor-pointer w-full flex items-center">
+                                        <Mail className="mr-2 h-4 w-4" /> Email Marketing
+                                    </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <Link href="/dashboard/whatsapp" className="cursor-pointer w-full flex items-center">
+                                        <MessageCircle className="mr-2 h-4 w-4" /> WhatsApp CRM
+                                    </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <Link href="/dashboard/voice" className="cursor-pointer w-full flex items-center">
+                                        <Mic className="mr-2 h-4 w-4" /> Voice Agent
+                                    </Link>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    ) : (
+                        <Button
+                            variant="outline"
+                            className="w-full justify-between bg-white border-slate-200 text-slate-700 h-10 shadow-sm opacity-50"
+                        >
+                            <span className="flex items-center gap-2">
+                                <LayoutDashboard className="h-4 w-4" />
+                                <span>Loading...</span>
+                            </span>
+                            <ChevronDown className="h-4 w-4 opacity-50" />
+                        </Button>
+                    )}
                 </div>
 
                 <div className="px-4 py-2">

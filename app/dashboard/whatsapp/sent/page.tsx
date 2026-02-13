@@ -1,19 +1,102 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Send, CheckCheck, Clock, XCircle, Search } from "lucide-react";
+import { Send, CheckCheck, Clock, XCircle, Search, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-
-const messages = [
-    { id: 1, recipient: "+971 50 123 4567", message: "Hello! Welcome to Lotus Manor. How can we help you today?", status: "Read", time: "10:30 AM" },
-    { id: 2, recipient: "+971 50 987 6543", message: "Reminder: Your appointment is scheduled for tomorrow at 2 PM.", status: "Delivered", time: "09:15 AM" },
-    { id: 3, recipient: "+971 55 444 3333", message: "Thank you for your inquiry. Our agent will contact you shortly.", status: "Failed", time: "昨天 04:45 PM" },
-    { id: 4, recipient: "+971 56 777 8888", message: "Exclusive offer: Get 20% off on your first consultation!", status: "Sent", time: "昨天 11:20 AM" },
-];
+import React, { useState, useEffect } from "react";
+import { consolidateLeads } from "@/lib/leads-utils";
 
 export default function WhatsappSentPage() {
+    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [messages, setMessages] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [stats, setStats] = useState({
+        total: 0,
+        delivered: 0,
+        read: 0,
+        failed: 0
+    });
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                const [leadsRes, templatesRes] = await Promise.all([
+                    fetch('/api/leads'),
+                    fetch('/api/templates')
+                ]);
+
+                if (!leadsRes.ok) throw new Error("Failed to fetch leads");
+                const rawData = await leadsRes.json();
+                const allLeads = consolidateLeads(rawData);
+                const templates = templatesRes.ok ? await templatesRes.json() : [];
+
+                const waMessages: any[] = [];
+                let delivered = 0;
+                let read = 0;
+
+                // Apply Date Filtering
+                const leads = allLeads.filter((lead: any) => {
+                    if (!dateRange?.from) return true;
+                    if (!lead.created_at) return false;
+
+                    const leadDate = new Date(lead.created_at);
+                    const from = new Date(dateRange.from);
+                    from.setHours(0, 0, 0, 0);
+                    const to = dateRange.to ? new Date(dateRange.to) : from;
+                    to.setHours(23, 59, 59, 999);
+
+                    return leadDate >= from && leadDate <= to;
+                });
+
+                leads.forEach((lead: any) => {
+                    const stages = lead.stages_passed || [];
+                    stages.forEach((stage: string) => {
+                        if (stage.toLowerCase().includes("whatsapp")) {
+                            // Find matching template if any
+                            const template = templates.find((t: any) =>
+                                t.type === 'whatsapp' && (t.name === stage || stage.includes(t.name))
+                            );
+
+                            waMessages.push({
+                                id: `${lead.id}-${stage}-${Math.random()}`,
+                                recipient: lead.phoneNumber || lead.phone || lead.name || "Unknown",
+                                message: template ? template.body : `WhatsApp Message: ${stage}`,
+                                status: lead.replied && lead.replied !== "No" ? "Read" : "Delivered",
+                                time: lead.created_at ? new Date(lead.created_at).toLocaleTimeString() : "Unknown",
+                                rawDate: lead.created_at
+                            });
+
+                            if (lead.replied && lead.replied !== "No") read++;
+                            delivered++;
+                        }
+                    });
+                });
+
+                setMessages(waMessages);
+                setStats({
+                    total: waMessages.length,
+                    delivered: delivered,
+                    read: read,
+                    failed: 0
+                });
+            } catch (e) {
+                console.error("WhatsApp sent fetch error", e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, [dateRange]);
+
+    const filteredMessages = messages.filter(msg =>
+        msg.recipient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        msg.message.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -21,14 +104,14 @@ export default function WhatsappSentPage() {
                     <h1 className="text-2xl font-bold">Total Sent Messages</h1>
                     <p className="text-slate-500">History of all outbound WhatsApp communications</p>
                 </div>
-                <DateRangePicker />
+                <DateRangePicker onUpdate={(val) => setDateRange(val.range)} />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <StatCard title="Total Sent" value="1,248" icon={<Send className="h-4 w-4" />} color="text-blue-600" bg="bg-blue-50" />
-                <StatCard title="Delivered" value="1,112" icon={<CheckCheck className="h-4 w-4" />} color="text-emerald-600" bg="bg-emerald-50" />
-                <StatCard title="Read" value="845" icon={<CheckCheck className="h-4 w-4 text-blue-500" />} color="text-amber-600" bg="bg-amber-50" />
-                <StatCard title="Failed" value="24" icon={<XCircle className="h-4 w-4" />} color="text-rose-600" bg="bg-rose-50" />
+                <StatCard title="Total Sent" value={loading ? "..." : stats.total.toLocaleString()} icon={<Send className="h-4 w-4" />} color="text-blue-600" bg="bg-blue-50" />
+                <StatCard title="Delivered" value={loading ? "..." : stats.delivered.toLocaleString()} icon={<CheckCheck className="h-4 w-4" />} color="text-emerald-600" bg="bg-emerald-50" />
+                <StatCard title="Read" value={loading ? "..." : stats.read.toLocaleString()} icon={<CheckCheck className="h-4 w-4 text-blue-500" />} color="text-amber-600" bg="bg-amber-50" />
+                <StatCard title="Failed" value={loading ? "..." : stats.failed.toLocaleString()} icon={<XCircle className="h-4 w-4" />} color="text-rose-600" bg="bg-rose-50" />
             </div>
 
             <Card className="border-slate-200">
@@ -36,33 +119,48 @@ export default function WhatsappSentPage() {
                     <CardTitle className="text-lg">Message History</CardTitle>
                     <div className="relative w-64">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                        <Input className="pl-10 h-9" placeholder="Search recipients..." />
+                        <Input
+                            className="pl-10 h-9"
+                            placeholder="Search recipients..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
                     </div>
                 </CardHeader>
                 <CardContent className="p-0">
-                    <div className="divide-y divide-slate-100">
-                        {messages.map((msg) => (
-                            <div key={msg.id} className="p-4 hover:bg-slate-50 transition-colors flex items-start justify-between">
-                                <div className="space-y-1">
-                                    <p className="font-bold text-slate-950">{msg.recipient}</p>
-                                    <p className="text-sm text-slate-600 max-w-xl">{msg.message}</p>
-                                    <div className="flex items-center gap-3 mt-2">
-                                        <span className="text-[10px] text-slate-400 uppercase font-bold">{msg.time}</span>
-                                        <span className={`flex items-center gap-1 text-[10px] font-bold uppercase ${msg.status === 'Read' ? 'text-blue-500' :
-                                            msg.status === 'Delivered' ? 'text-emerald-500' :
-                                                msg.status === 'Failed' ? 'text-rose-500' : 'text-slate-400'
-                                            }`}>
-                                            {msg.status === 'Read' && <CheckCheck className="h-3 w-3" />}
-                                            {msg.status === 'Delivered' && <CheckCheck className="h-3 w-3" />}
-                                            {msg.status === 'Sent' && <Clock className="h-3 w-3" />}
-                                            {msg.status === 'Failed' && <XCircle className="h-3 w-3" />}
-                                            {msg.status}
-                                        </span>
-                                    </div>
-                                </div>
-                                <Button variant="ghost" size="sm">Details</Button>
+                    <div className="divide-y divide-slate-100 min-h-[200px]">
+                        {loading ? (
+                            <div className="flex items-center justify-center p-12 text-slate-400">
+                                <Loader2 className="h-8 w-8 animate-spin mr-2" />
+                                Loading history...
                             </div>
-                        ))}
+                        ) : filteredMessages.length > 0 ? (
+                            filteredMessages.map((msg) => (
+                                <div key={msg.id} className="p-4 hover:bg-slate-50 transition-colors flex items-start justify-between">
+                                    <div className="space-y-1">
+                                        <p className="font-bold text-slate-950">{msg.recipient}</p>
+                                        <p className="text-sm text-slate-600 max-w-xl">{msg.message}</p>
+                                        <div className="flex items-center gap-3 mt-2">
+                                            <span className="text-[10px] text-slate-400 uppercase font-bold">{msg.time}</span>
+                                            <span className={`flex items-center gap-1 text-[10px] font-bold uppercase ${msg.status === 'Read' ? 'text-blue-500' :
+                                                msg.status === 'Delivered' ? 'text-emerald-500' :
+                                                    msg.status === 'Failed' ? 'text-rose-500' : 'text-slate-400'
+                                                }`}>
+                                                {(msg.status === 'Read' || msg.status === 'Delivered') && <CheckCheck className="h-3 w-3" />}
+                                                {msg.status === 'Sent' && <Clock className="h-3 w-3" />}
+                                                {msg.status === 'Failed' && <XCircle className="h-3 w-3" />}
+                                                {msg.status}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <Button variant="ghost" size="sm">Details</Button>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="p-12 text-center text-slate-400">
+                                No messages found.
+                            </div>
+                        )}
                     </div>
                 </CardContent>
             </Card>
@@ -83,3 +181,4 @@ function StatCard({ title, value, icon, color, bg }: any) {
         </Card>
     );
 }
+

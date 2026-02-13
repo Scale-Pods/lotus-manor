@@ -1,74 +1,77 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
+    // Ensure we are using the correct REST endpoint structure
+    const projectRef = "awflugnwzukejohfqkrr";
+    const baseUrl = `https://${projectRef}.supabase.co/rest/v1`;
+    const secretKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+    if (!secretKey) {
+        console.error("Critical Error: SUPABASE_SERVICE_ROLE_KEY is missing in env.");
+    }
+
+    const headers = {
+        "apikey": secretKey,
+        "Authorization": `Bearer ${secretKey}`,
+        "Content-Type": "application/json"
+    };
+
+    const fetchTable = async (tableName: string) => {
+        // Construct URL without potential double slashes
+        const url = `${baseUrl}/${tableName}?select=*`;
+        console.log(`Fetching from Supabase: ${url}`);
+
+        try {
+            const response = await fetch(url, {
+                headers,
+                cache: 'no-store',
+                // Adding redirect: 'follow' (default) but being explicit
+                redirect: 'follow'
+            });
+
+            const contentType = response.headers.get("content-type");
+
+            // If we get HTML, something is wrong with the auth or URL
+            if (contentType && contentType.includes("text/html")) {
+                const htmlSnippet = (await response.text()).substring(0, 200);
+                console.error(`Error: HTML returned from ${tableName}. Check API keys/URL. Snippet: ${htmlSnippet}`);
+                return [];
+            }
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`Error fetching ${tableName} (${response.status}):`, errorText);
+                return [];
+            }
+
+            const data = await response.json();
+            return Array.isArray(data) ? data : [];
+        } catch (err) {
+            console.error(`Fetch error for ${tableName}:`, err);
+            return [];
+        }
+    };
+
     try {
-        const introLoopUrl = process.env.INTRO_LOOP_WEBHOOK_URL;
-        const followUpUrl = process.env.FOLLOW_UP_WEBHOOK_URL;
-        const nurtureLoopUrl = process.env.NURTURE_LOOP_WEBHOOK_URL;
-
-        const [introRes, followUpRes, nurtureRes] = await Promise.all([
-            introLoopUrl ? fetch(introLoopUrl, { cache: 'no-store' }) : Promise.resolve(null),
-            followUpUrl ? fetch(followUpUrl, { cache: 'no-store' }) : Promise.resolve(null),
-            nurtureLoopUrl ? fetch(nurtureLoopUrl, { cache: 'no-store' }) : Promise.resolve(null),
+        const [nr_wf, followup, nurture] = await Promise.all([
+            fetchTable("nr_wf"),
+            fetchTable("followup"),
+            fetchTable("nurture")
         ]);
 
-        const results: any[] = [];
-        const errors: string[] = [];
-
-        // Helper to process response
-        const processResponse = async (res: Response | null, loopName: string) => {
-            if (!res) return; // URL not configured
-
-            try {
-                const text = await res.text();
-                if (!res.ok) {
-                    throw new Error(`${res.status} ${res.statusText} - ${text.substring(0, 100)}`);
-                }
-
-                if (!text.trim()) return; // Empty response
-
-                try {
-                    const data = JSON.parse(text);
-                    const items = Array.isArray(data) ? data : [data];
-                    items.forEach((item: any) => {
-                        if (item && typeof item === 'object') {
-                            item.current_loop = loopName;
-                            // Add source tagging
-                            if (loopName === "Nurture") item.source_loop = "Nurture";
-                        }
-                    });
-                    results.push(...items);
-                } catch (e) {
-                    console.error(`${loopName}: Invalid JSON`, text.substring(0, 200));
-                    errors.push(`${loopName}: Invalid JSON response`);
-                }
-            } catch (e: any) {
-                console.error(`${loopName} fetch error:`, e.message);
-                errors.push(`${loopName}: ${e.message}`);
-            }
-        };
-
-        await Promise.all([
-            processResponse(introRes, "Intro"),
-            processResponse(followUpRes, "Follow Up"),
-            processResponse(nurtureRes, "Nurture")
-        ]);
-
-        // Always return a 200 with whatever data we managed to get, 
-        // effectively degrading gracefully instead of breaking the whole dashboard.
-        // We filter out the n8n default "Workflow was started" messages.
-        const validLeads = results.filter((item: any) => {
-            if (!item || typeof item !== 'object') return false;
-            if ('message' in item && item.message === 'Workflow was started' && !('name' in item)) {
-                return false;
-            }
-            return true;
+        return NextResponse.json({
+            nr_wf,
+            followup,
+            nurture
         });
 
-        return NextResponse.json(validLeads);
-
-    } catch (error) {
-        console.error('Error fetching leads:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    } catch (error: any) {
+        console.error('Consolidated fetch error:', error);
+        return NextResponse.json({
+            nr_wf: [],
+            followup: [],
+            nurture: [],
+            error: error.message
+        }, { status: 500 });
     }
 }

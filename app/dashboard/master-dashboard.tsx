@@ -38,6 +38,7 @@ import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { consolidateLeads } from "@/lib/leads-utils";
 
 const acquisitionData = [
     { name: 'Mon', leads: 400, conv: 240 },
@@ -47,19 +48,6 @@ const acquisitionData = [
     { name: 'Fri', leads: 590, conv: 430 },
     { name: 'Sat', leads: 320, conv: 210 },
     { name: 'Sun', leads: 450, conv: 320 },
-];
-
-const serviceDistributionData = [
-    { name: 'Email', value: 45, color: '#3b82f6' },
-    { name: 'WhatsApp', value: 35, color: '#10b981' },
-    { name: 'Voice', value: 20, color: '#8b5cf6' },
-];
-
-const weeklyPerformance = [
-    { name: 'Week 1', total: 1200 },
-    { name: 'Week 2', total: 1900 },
-    { name: 'Week 3', total: 1540 },
-    { name: 'Week 4', total: 2400 },
 ];
 
 export default function MasterDashboard() {
@@ -83,7 +71,7 @@ export default function MasterDashboard() {
         if (label) {
             setDateLabel(label);
         }
-        // Here we would fetch real data using 'range' if API supported it
+        // Date range filtering is handled in the frontend for now
         console.log("Date range updated:", range);
     };
 
@@ -93,22 +81,23 @@ export default function MasterDashboard() {
             try {
                 const res = await fetch('/api/leads');
                 if (!res.ok) throw new Error("Failed");
-                const leads = await res.json();
-                setLeads(leads);
+                const rawData = await res.json();
+
+                const flattenedLeads = consolidateLeads(rawData);
+                setLeads(flattenedLeads);
 
                 let emailCount = 0;
-                // ... (rest of filtering logic remains same, just ensuring setLeads is called)
-
                 let whatsappCount = 0;
                 let voiceCount = 0;
                 let replyCount = 0;
 
-                leads.forEach((lead: any) => {
+                flattenedLeads.forEach((lead: any) => {
                     const stages = lead.stages_passed || [];
                     stages.forEach((stage: string) => {
-                        if (stage.toLowerCase().includes("email")) emailCount++;
-                        if (stage.toLowerCase().includes("whatsapp")) whatsappCount++;
-                        if (stage.toLowerCase().includes("voice")) voiceCount++;
+                        const s = stage.toLowerCase();
+                        if (s.includes("email")) emailCount++;
+                        if (s.includes("whatsapp")) whatsappCount++;
+                        if (s.includes("voice")) voiceCount++;
                     });
 
                     if (lead.replied && lead.replied !== "No") {
@@ -117,7 +106,7 @@ export default function MasterDashboard() {
                 });
 
                 setStats({
-                    totalLeads: leads.length,
+                    totalLeads: flattenedLeads.length,
                     totalEmails: emailCount,
                     totalWhatsApp: whatsappCount,
                     totalVoice: voiceCount,
