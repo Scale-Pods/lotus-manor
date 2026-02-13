@@ -307,9 +307,7 @@ export default function WhatsappLeadsPage() {
                                             <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400">
-                                                            <MoreVertical className="h-4 w-4" />
-                                                        </Button>
+                                                        
                                                     </DropdownMenuTrigger>
                                                     <DropdownMenuContent align="end">
                                                         <DropdownMenuItem>View Journey</DropdownMenuItem>

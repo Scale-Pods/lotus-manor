@@ -64,14 +64,16 @@ export default function WhatsappDashboardPage() {
                 if (!res.ok) throw new Error("Failed");
                 const rawData = await res.json();
                 const allLeads = consolidateLeads(rawData);
-                setLeads(allLeads);
+                // Filter: only include leads that have actually been contacted via WhatsApp (matches leads page)
+                const whatsappContactedLeads = allLeads.filter(l => l.last_contacted && String(l.last_contacted).trim() !== "");
+                setLeads(whatsappContactedLeads);
 
                 // Apply Date Filtering
-                const filteredLeads = allLeads.filter((lead: any) => {
+                const filteredLeads = whatsappContactedLeads.filter((lead: any) => {
                     if (!dateRange?.from) return true;
-                    if (!lead.last_contacted && !lead.created_at) return false;
+                    if (!lead.last_contacted) return false;
 
-                    const leadDate = new Date(lead.last_contacted || lead.created_at);
+                    const leadDate = new Date(lead.last_contacted);
                     const from = new Date(dateRange.from);
                     from.setHours(0, 0, 0, 0);
                     const to = dateRange.to ? new Date(dateRange.to) : from;

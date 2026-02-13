@@ -186,7 +186,7 @@ export default function WhatsappAnalyticsPage() {
                     bg="bg-purple-50"
                 />
                 <StatCard
-                    title="Contacted Leads"
+                    title="Unique Contacted Leads"
                     value={stats.totalLeads.toLocaleString()}
                     icon={Users}
                     color="text-slate-600"
