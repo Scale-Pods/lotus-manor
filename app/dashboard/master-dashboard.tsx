@@ -56,6 +56,7 @@ export default function MasterDashboard() {
     const [isRepliesModalOpen, setIsRepliesModalOpen] = useState(false);
     const [isRepliesExpanded, setIsRepliesExpanded] = useState(false);
     const [dateLabel, setDateLabel] = useState("Last 7 days");
+    const [dateRange, setDateRange] = useState<any>(undefined);
 
     // Real Data State
     const [leads, setLeads] = useState<any[]>([]);
@@ -73,8 +74,7 @@ export default function MasterDashboard() {
         if (label) {
             setDateLabel(label);
         }
-        // Date range filtering is handled in the frontend for now
-        console.log("Date range updated:", range);
+        setDateRange(range);
     };
 
     useEffect(() => {
@@ -85,7 +85,22 @@ export default function MasterDashboard() {
                 const leadsRes = await fetch('/api/leads');
                 const rawLeads = await leadsRes.json();
                 const flattenedLeads = consolidateLeads(rawLeads);
-                setLeads(flattenedLeads);
+
+                // Apply Date Filtering for Leads
+                const filteredLeads = flattenedLeads.filter((lead: any) => {
+                    if (!dateRange?.from) return true;
+                    if (!lead.last_contacted && !lead.created_at) return false;
+
+                    const leadDate = new Date(lead.last_contacted || lead.created_at);
+                    const from = new Date(dateRange.from);
+                    from.setHours(0, 0, 0, 0);
+                    const to = dateRange.to ? new Date(dateRange.to) : from;
+                    to.setHours(23, 59, 59, 999);
+
+                    return leadDate >= from && leadDate <= to;
+                });
+
+                setLeads(filteredLeads);
 
                 // Fetch Vapi Calls for real minutes
                 let totalVoiceSeconds = 0;
@@ -94,7 +109,20 @@ export default function MasterDashboard() {
                     if (callsRes.ok) {
                         const callsData = await callsRes.json();
                         if (Array.isArray(callsData)) {
-                            totalVoiceSeconds = callsData.reduce((acc, call) => acc + calculateDuration(call), 0);
+                            // Apply Date Filtering for Calls
+                            const filteredCalls = callsData.filter((call: any) => {
+                                if (!dateRange?.from) return true;
+                                if (!call.startedAt) return false;
+
+                                const callDate = new Date(call.startedAt);
+                                const from = new Date(dateRange.from);
+                                from.setHours(0, 0, 0, 0);
+                                const to = dateRange.to ? new Date(dateRange.to) : from;
+                                to.setHours(23, 59, 59, 999);
+
+                                return callDate >= from && callDate <= to;
+                            });
+                            totalVoiceSeconds = filteredCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
                         }
                     }
                 } catch (err) {
@@ -106,7 +134,7 @@ export default function MasterDashboard() {
                 let voiceCount = 0;
                 let replyCount = 0;
 
-                flattenedLeads.forEach((lead: any) => {
+                filteredLeads.forEach((lead: any) => {
                     const stages = lead.stages_passed || [];
                     stages.forEach((stage: string) => {
                         const s = stage.toLowerCase();
@@ -126,7 +154,7 @@ export default function MasterDashboard() {
                 });
 
                 setStats({
-                    totalLeads: flattenedLeads.length,
+                    totalLeads: filteredLeads.length,
                     totalEmails: emailCount,
                     totalWhatsApp: whatsappCount,
                     totalVoice: voiceCount,
@@ -142,7 +170,7 @@ export default function MasterDashboard() {
         };
 
         calculateStats();
-    }, []);
+    }, [dateRange]);
 
     const router = useRouter();
 
