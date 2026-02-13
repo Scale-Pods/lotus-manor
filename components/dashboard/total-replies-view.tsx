@@ -42,16 +42,14 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
     const itemsPerPage = 5;
 
     // Map real leads to ReplyData format
-    const realData: ReplyData[] = leads.map((lead: any, idx: number) => {
-        let mode: 'Email' | 'WhatsApp' | 'Voice' = 'Email';
-        let preview = "Reply received. Check details in Leads view.";
-        let displayDate = lead.created_at || new Date().toISOString();
-
+    const realData: ReplyData[] = leads.flatMap((lead: any, idx: number) => {
+        const entries: ReplyData[] = [];
         const isWPReplied = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
         const isEmailReplied = lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none";
 
         if (isWPReplied) {
-            mode = 'WhatsApp';
+            let preview = "WhatsApp Reply Received";
+            let displayDate = lead.created_at || new Date().toISOString();
             const trimmed = String(lead.whatsapp_replied).trim();
             const lines = trimmed.split('\n');
             const lastLine = lines[lines.length - 1].trim();
@@ -63,8 +61,23 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
             } else {
                 preview = lead.whatsapp_replied;
             }
-        } else if (isEmailReplied) {
-            mode = 'Email';
+
+            const dateObj = new Date(displayDate);
+            entries.push({
+                id: `${lead.id || `lead-${idx}`}-wp`,
+                contactName: lead.name || "Unknown",
+                contactInfo: lead.email || lead.phone || "No info",
+                mode: 'WhatsApp',
+                date: dateObj.toLocaleDateString(),
+                time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                status: 'Replied',
+                preview: preview
+            });
+        }
+
+        if (isEmailReplied) {
+            let preview = "Email Reply Received";
+            let displayDate = lead.created_at || new Date().toISOString();
             const trimmed = String(lead.email_replied).trim();
             const lines = trimmed.split('\n');
             const lastLine = lines[lines.length - 1].trim();
@@ -76,22 +89,36 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
             } else {
                 preview = lead.email_replied;
             }
-        } else if (lead.current_loop?.toLowerCase().includes("voice")) {
-            mode = 'Voice';
+
+            const dateObj = new Date(displayDate);
+            entries.push({
+                id: `${lead.id || `lead-${idx}`}-email`,
+                contactName: lead.name || "Unknown",
+                contactInfo: lead.email || lead.phone || "No info",
+                mode: 'Email',
+                date: dateObj.toLocaleDateString(),
+                time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                status: 'Replied',
+                preview: preview
+            });
         }
 
-        const dateObj = new Date(displayDate);
+        // Fallback for general replied flag if no specific column data but lead is marked replied
+        if (entries.length === 0 && lead.replied === "Yes") {
+            const dateObj = new Date(lead.created_at || new Date());
+            entries.push({
+                id: `${lead.id || `lead-${idx}`}-general`,
+                contactName: lead.name || "Unknown",
+                contactInfo: lead.email || lead.phone || "No info",
+                mode: 'Email', // Default fallback
+                date: dateObj.toLocaleDateString(),
+                time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                status: 'Replied',
+                preview: "Reply received"
+            });
+        }
 
-        return {
-            id: lead.id || `lead-${idx}`,
-            contactName: lead.name || "Unknown",
-            contactInfo: lead.email || lead.phone || "No info",
-            mode: mode,
-            date: dateObj.toLocaleDateString(),
-            time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            status: 'Replied',
-            preview: preview
-        };
+        return entries;
     });
 
     // Filter logic
@@ -129,7 +156,7 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
                             <SelectItem value="all">All Modes</SelectItem>
                             <SelectItem value="email">Email</SelectItem>
                             <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                            
+
                         </SelectContent>
                     </Select>
                     <DateRangePicker onUpdate={(val) => console.log("Total Replies Date Filter:", val)} />

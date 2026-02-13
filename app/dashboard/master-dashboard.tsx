@@ -38,7 +38,9 @@ import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { consolidateLeads } from "@/lib/leads-utils";
+import { calculateDuration, formatDuration } from "@/lib/utils";
 
 const acquisitionData = [
     { name: 'Mon', leads: 400, conv: 240 },
@@ -79,12 +81,25 @@ export default function MasterDashboard() {
         const calculateStats = async () => {
             setLoading(true);
             try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed");
-                const rawData = await res.json();
-
-                const flattenedLeads = consolidateLeads(rawData);
+                // Fetch Leads
+                const leadsRes = await fetch('/api/leads');
+                const rawLeads = await leadsRes.json();
+                const flattenedLeads = consolidateLeads(rawLeads);
                 setLeads(flattenedLeads);
+
+                // Fetch Vapi Calls for real minutes
+                let totalVoiceSeconds = 0;
+                try {
+                    const callsRes = await fetch('/api/calls');
+                    if (callsRes.ok) {
+                        const callsData = await callsRes.json();
+                        if (Array.isArray(callsData)) {
+                            totalVoiceSeconds = callsData.reduce((acc, call) => acc + calculateDuration(call), 0);
+                        }
+                    }
+                } catch (err) {
+                    console.error("Vapi fetch error:", err);
+                }
 
                 let emailCount = 0;
                 let whatsappCount = 0;
@@ -100,14 +115,14 @@ export default function MasterDashboard() {
                         if (s.includes("voice")) voiceCount++;
                     });
 
-                    // Check for replies in specific columns as well as general status
-                    const isEmailReplied = lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none";
-                    const isWPReplied = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
-                    const isGeneralReplied = lead.replied === "Yes";
+                    // Count each type of reply to fix "all types" bug
+                    const hasEmailReply = lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none";
+                    const hasWPReply = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
 
-                    if (isEmailReplied || isWPReplied || isGeneralReplied) {
-                        replyCount++;
-                    }
+                    if (hasEmailReply) replyCount++;
+                    if (hasWPReply) replyCount++;
+                    // If neither above but has general replied flag, count as 1 if not already counted
+                    if (!hasEmailReply && !hasWPReply && lead.replied === "Yes") replyCount++;
                 });
 
                 setStats({
@@ -115,9 +130,9 @@ export default function MasterDashboard() {
                     totalEmails: emailCount,
                     totalWhatsApp: whatsappCount,
                     totalVoice: voiceCount,
-                    voiceMinutes: voiceCount * 2, // Assumption: 2 mins per call
+                    voiceMinutesString: formatDuration(totalVoiceSeconds),
                     totalReplies: replyCount
-                });
+                } as any);
 
             } catch (e) {
                 console.error("Dashboard fetch error", e);
@@ -128,6 +143,8 @@ export default function MasterDashboard() {
 
         calculateStats();
     }, []);
+
+    const router = useRouter();
 
     // Derived Pie Chart Data
     const realServiceDistribution = [
@@ -159,6 +176,7 @@ export default function MasterDashboard() {
                     color="text-blue-600"
                     bg="bg-blue-50"
                     border="border-blue-100"
+                    onClick={() => router.push('/dashboard/leads')}
                 />
                 <MetricCard
                     title="Total Emails Sent"
@@ -169,6 +187,7 @@ export default function MasterDashboard() {
                     color="text-emerald-600"
                     bg="bg-emerald-50"
                     border="border-emerald-100"
+                    onClick={() => router.push('/dashboard/email/sent')}
                 />
                 <MetricCard
                     title="Total WhatsApp Chats"
@@ -179,16 +198,18 @@ export default function MasterDashboard() {
                     color="text-purple-600"
                     bg="bg-purple-50"
                     border="border-purple-100"
+                    onClick={() => router.push('/dashboard/whatsapp/chat')}
                 />
                 <MetricCard
                     title="Total Voice Minutes"
-                    value={loading ? "..." : `${stats.voiceMinutes}m`}
-                    change="Est. 2m/call"
+                    value={loading ? "..." : (stats as any).voiceMinutesString}
+                    change="Live from Vapi"
                     isUp={true}
                     icon={<Activity className="h-6 w-6" />}
                     color="text-orange-600"
                     bg="bg-orange-50"
                     border="border-orange-100"
+                    onClick={() => router.push('/dashboard/voice')}
                 />
                 <MetricCard
                     title="Total Replies"
