@@ -37,50 +37,66 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                     setLead(found);
                     const timeline: any[] = [];
 
-                    for (let i = 1; i <= 6; i++) {
-                        const content = found[`W.P_${i}`] || found.stage_data?.[`WhatsApp ${i}`];
-                        if (content && String(content).trim()) {
-                            timeline.push({
-                                type: 'bot',
-                                content: String(content),
-                                label: `WhatsApp ${i}`,
-                                date: found.created_at
-                            });
-                        }
-                    }
+                    const parseMsg = (raw: any, label: string, type: 'bot' | 'user') => {
+                        if (!raw || !String(raw).trim()) return null;
+                        const content = String(raw).trim();
 
-                    const replyContent = found.whatsapp_replied || found.stage_data?.["WhatsApp Replied"];
-                    if (replyContent && String(replyContent).trim() && String(replyContent).toLowerCase() !== "no" && String(replyContent).toLowerCase() !== "none") {
-                        const trimmed = String(replyContent).trim();
-                        const lines = trimmed.split('\n');
+                        // Look for ISO timestamp at the end of the message (bot messages often have this)
+                        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+                        const isoMatch = content.match(isoRegex);
+
+                        if (isoMatch) {
+                            return {
+                                type,
+                                content: content.replace(isoRegex, '').trim(),
+                                label: label,
+                                date: isoMatch[1]
+                            };
+                        }
+
+                        // Special handling for W.P_Replied which sometimes has format: "message\n2026-01-29 15:30:00"
+                        const lines = content.split('\n');
                         const lastLine = lines[lines.length - 1].trim();
-                        const lastLineDate = new Date(lastLine);
+                        const lastLineDate = new Date(lastLine.replace(' ', 'T')); // Handle space between date and time
 
-                        let displayContent = trimmed;
-                        let displayDate = found.created_at;
-
-                        if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-                            displayContent = lines.slice(0, -1).join('\n').trim() || "Message Received";
-                            displayDate = lastLineDate.toISOString();
+                        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                            return {
+                                type,
+                                content: lines.slice(0, -1).join('\n').trim() || "Message Received",
+                                label: label,
+                                date: lastLineDate.toISOString()
+                            };
                         }
 
-                        timeline.push({
-                            type: 'user',
-                            content: displayContent,
-                            label: 'Reply Received',
-                            date: displayDate
-                        });
+                        return {
+                            type,
+                            content: content,
+                            label: label,
+                            date: found.created_at
+                        };
+                    };
+
+                    // 1. Outgoing W.P_1 to W.P_6
+                    for (let i = 1; i <= 6; i++) {
+                        const raw = found[`W.P_${i}`] || found.stage_data?.[`WhatsApp ${i}`];
+                        const msg = parseMsg(raw, `WhatsApp ${i}`, 'bot');
+                        if (msg) timeline.push(msg);
                     }
 
-                    const followup = found.stage_data?.["WhatsApp FollowUp"] || found["W.P_FollowUp"];
-                    if (followup && String(followup).trim()) {
-                        timeline.push({
-                            type: 'bot',
-                            content: String(followup),
-                            label: 'WhatsApp FollowUp',
-                            date: found.created_at
-                        });
+                    // 2. Incoming W.P_Replied
+                    const replyRaw = found.whatsapp_replied || found.stage_data?.["WhatsApp Replied"];
+                    if (replyRaw && String(replyRaw).toLowerCase() !== "no" && String(replyRaw).toLowerCase() !== "none") {
+                        const msg = parseMsg(replyRaw, 'Reply Received', 'user');
+                        if (msg) timeline.push(msg);
                     }
+
+                    // 3. Outgoing W.P_FollowUp
+                    const followupRaw = found.stage_data?.["WhatsApp FollowUp"] || found["W.P_FollowUp"];
+                    const fMsg = parseMsg(followupRaw, 'WhatsApp FollowUp', 'bot');
+                    if (fMsg) timeline.push(fMsg);
+
+                    // Sort timeline by date
+                    timeline.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
                     setMessages(timeline);
                 }
@@ -124,7 +140,7 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                         <span>{lead.source_loop} Loop</span>
                     </div>
                 </div>
-                
+
             </div>
 
             {/* Content Area */}
