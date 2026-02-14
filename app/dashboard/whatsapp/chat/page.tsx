@@ -189,45 +189,9 @@ export default function WhatsappChatPage() {
                 </Button>
             </div>
 
-            {/* Overview Metrics */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <MetricCard
-                        title="WhatsApp Leads"
-                        value={loading ? "..." : stats.totalLeads.toLocaleString()}
-                        desc="Leads with WP Activity"
-                        icon={Users}
-                    />
-                    <MetricCard
-                        title="Messages Sent"
-                        value={loading ? "..." : stats.sentCount.toLocaleString()}
-                        desc="Total outgoing pulses"
-                        icon={Send}
-                    />
-                    <MetricCard
-                        title="Total Replies"
-                        value={loading ? "..." : stats.repliedCount.toLocaleString()}
-                        desc={`${stats.totalLeads > 0 ? ((stats.repliedCount / stats.totalLeads) * 100).toFixed(1) : 0}% Response Rate`}
-                        icon={MessageSquare}
-                    />
-                </div>
-
-                <Card className="border-slate-200 shadow-sm bg-white">
-                    <CardContent className="p-4 space-y-4">
-                        <div>
-                            <h3 className="text-sm font-bold text-slate-900">Delivery Status</h3>
-                            <p className="text-xs text-slate-500">Global outbound health</p>
-                        </div>
-                        <div className="space-y-3">
-                            <StatusBar label="Sent" value={stats.sentCount} total={stats.sentCount || 1} color="bg-blue-400" />
-                            <StatusBar label="Replied" value={stats.repliedCount} total={stats.sentCount || 1} color="bg-emerald-500" />
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
             {/* Main Content Area */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                {/* Left Sidebar: Filters */}
                 <div className="lg:col-span-1 space-y-4">
                     <Card className="border-slate-200 shadow-sm bg-white h-auto">
                         <CardContent className="p-4 space-y-6">
@@ -242,7 +206,7 @@ export default function WhatsappChatPage() {
                                 )}
                             </div>
 
-                            <FilterSection title="Reply Status">
+                            <FilterSection title="Reply Status" >
                                 <FilterOption
                                     label="Replied"
                                     checked={pendingFilters.replyStatus.includes("Replied")}
@@ -312,7 +276,39 @@ export default function WhatsappChatPage() {
                     </Card>
                 </div>
 
+                {/* Main Content: Metrics and Table */}
                 <div className="lg:col-span-3 space-y-4">
+                    {/* Overview Metrics (Remaining) */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <MetricCard
+                                title="Messages Sent"
+                                value={loading ? "..." : stats.sentCount.toLocaleString()}
+                                desc="Total outgoing pulses"
+                                icon={Send}
+                            />
+                            <MetricCard
+                                title="Total Replies"
+                                value={loading ? "..." : stats.repliedCount.toLocaleString()}
+                                desc={`${stats.totalLeads > 0 ? ((stats.repliedCount / stats.totalLeads) * 100).toFixed(1) : 0}% Response Rate`}
+                                icon={MessageSquare}
+                            />
+                        </div>
+
+                        <Card className="border-slate-200 shadow-sm bg-white">
+                            <CardContent className="p-4 space-y-4">
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900">Delivery Status</h3>
+                                    <p className="text-xs text-slate-500">Global outbound health</p>
+                                </div>
+                                <div className="space-y-3">
+                                    <StatusBar label="Sent" value={stats.sentCount} total={stats.sentCount || 1} color="bg-blue-400" />
+                                    <StatusBar label="Replied" value={stats.repliedCount} total={stats.sentCount || 1} color="bg-emerald-500" />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                         <Input
