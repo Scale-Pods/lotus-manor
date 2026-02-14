@@ -23,6 +23,8 @@ export interface ConsolidatedLead {
     collapsed_date?: string;
     email_replied?: string;
     whatsapp_replied?: string;
+    "W.P_1 TS"?: string;
+    "W.P_2 TS"?: string;
     [key: string]: any;
 }
 
@@ -103,7 +105,9 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_5": getVal(l, ["W.P_5"]),
                 "W.P_6": getVal(l, ["W.P_6"]),
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
-                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"])
+                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
+                "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
+                "W.P_2 TS": getVal(l, ["W.P_2 TS"])
             });
         });
     }
@@ -155,7 +159,9 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_5": getVal(l, ["W.P_5"]),
                 "W.P_6": getVal(l, ["W.P_6"]),
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
-                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"])
+                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
+                "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
+                "W.P_2 TS": getVal(l, ["W.P_2 TS"])
             });
         });
     }
@@ -222,7 +228,9 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_5": getVal(l, ["W.P_5"]),
                 "W.P_6": getVal(l, ["W.P_6"]),
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
-                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"])
+                "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
+                "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
+                "W.P_2 TS": getVal(l, ["W.P_2 TS"])
             });
         });
     }

@@ -35,18 +35,22 @@ export default function WhatsappChatPage() {
     // Filter State
     const [pendingFilters, setPendingFilters] = useState<{
         replyStatus: string[],
-        loops: string[]
+        loops: string[],
+        messageStatus: string[]
     }>({
         replyStatus: [],
-        loops: []
+        loops: [],
+        messageStatus: []
     });
 
     const [activeFilters, setActiveFilters] = useState<{
         replyStatus: string[],
-        loops: string[]
+        loops: string[],
+        messageStatus: string[]
     }>({
         replyStatus: [],
-        loops: []
+        loops: [],
+        messageStatus: []
     });
 
     const [stats, setStats] = useState({
@@ -125,7 +129,16 @@ export default function WhatsappChatPage() {
             const matchesLoop = activeFilters.loops.length === 0 ||
                 activeFilters.loops.includes(l.source_loop);
 
-            return matchesSearch && matchesReplyStatus && matchesLoop;
+            // Message Status Filter
+            const matchesMessageStatus = activeFilters.messageStatus.length === 0 ||
+                activeFilters.messageStatus.some(status => {
+                    const s1 = (l["W.P_1 TS"] || "").toLowerCase();
+                    const s2 = (l["W.P_2 TS"] || "").toLowerCase();
+                    const target = status.toLowerCase();
+                    return s1.includes(target) || s2.includes(target);
+                });
+
+            return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus;
         });
     }, [leads, searchQuery, activeFilters]);
 
@@ -134,12 +147,12 @@ export default function WhatsappChatPage() {
     };
 
     const handleResetFilters = () => {
-        const reset = { replyStatus: [], loops: [] };
+        const reset = { replyStatus: [], loops: [], messageStatus: [] };
         setPendingFilters(reset);
         setActiveFilters(reset);
     };
 
-    const toggleFilter = (type: 'replyStatus' | 'loops', value: string) => {
+    const toggleFilter = (type: 'replyStatus' | 'loops' | 'messageStatus', value: string) => {
         setPendingFilters(prev => {
             const current = prev[type];
             if (current.includes(value)) {
@@ -222,7 +235,7 @@ export default function WhatsappChatPage() {
                                 <div className="flex items-center gap-2 text-slate-900 font-bold">
                                     <Filter className="h-4 w-4" /> Filters
                                 </div>
-                                {(activeFilters.replyStatus.length > 0 || activeFilters.loops.length > 0) && (
+                                {(activeFilters.replyStatus.length > 0 || activeFilters.loops.length > 0 || activeFilters.messageStatus.length > 0) && (
                                     <button onClick={handleResetFilters} className="text-[10px] text-emerald-600 font-bold hover:underline">
                                         RESET
                                     </button>
@@ -257,6 +270,34 @@ export default function WhatsappChatPage() {
                                     label="Nurture"
                                     checked={pendingFilters.loops.includes("Nurture")}
                                     onCheckedChange={() => toggleFilter('loops', "Nurture")}
+                                />
+                            </FilterSection>
+
+                            <FilterSection title="Message Status">
+                                <FilterOption
+                                    label="Read"
+                                    checked={pendingFilters.messageStatus.includes("Read")}
+                                    onCheckedChange={() => toggleFilter('messageStatus', "Read")}
+                                />
+                                <FilterOption
+                                    label="Sent"
+                                    checked={pendingFilters.messageStatus.includes("Sent")}
+                                    onCheckedChange={() => toggleFilter('messageStatus', "Sent")}
+                                />
+                                <FilterOption
+                                    label="Failed"
+                                    checked={pendingFilters.messageStatus.includes("Failed")}
+                                    onCheckedChange={() => toggleFilter('messageStatus', "Failed")}
+                                />
+                                <FilterOption
+                                    label="Delivered"
+                                    checked={pendingFilters.messageStatus.includes("Delivered")}
+                                    onCheckedChange={() => toggleFilter('messageStatus', "Delivered")}
+                                />
+                                <FilterOption
+                                    label="Deleted"
+                                    checked={pendingFilters.messageStatus.includes("Deleted")}
+                                    onCheckedChange={() => toggleFilter('messageStatus', "Deleted")}
                                 />
                             </FilterSection>
 
@@ -298,9 +339,10 @@ export default function WhatsappChatPage() {
                                     <tr>
                                         <th className="px-4 py-3">Lead</th>
                                         <th className="px-4 py-3 text-center">Loop</th>
-                                        <th className="px-4 py-3 text-center">Msgs Sent</th>
+                                        <th className="px-4 py-3 text-center">Messages Sent</th>
                                         <th className="px-4 py-3 text-center">Status</th>
-                                        <th className="px-4 py-3 text-right">Last Msg Date</th>
+                                        <th className="px-4 py-3 text-center">Message Status</th>
+                                        <th className="px-4 py-3 text-right">Last Message Date</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -495,9 +537,37 @@ function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () =>
                     <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-200">SENT</Badge>
                 )}
             </td>
+            <td className="px-4 py-3 text-center">
+                <div className="flex flex-col items-center gap-1.5">
+                    {lead["W.P_1 TS"] && <MessageStatusBadge index={1} status={lead["W.P_1 TS"]} />}
+                    {lead["W.P_2 TS"] && <MessageStatusBadge index={2} status={lead["W.P_2 TS"]} />}
+                </div>
+            </td>
             <td className="px-4 py-3 text-right text-slate-500 text-xs">
                 {latestDate.toLocaleDateString()}
             </td>
         </tr>
+    );
+}
+
+function MessageStatusBadge({ index, status }: { index: number, status: string }) {
+    if (!status) return null;
+
+    // Format status text (capitalize)
+    const formatted = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+
+    // Determine color
+    let badgeClass = "bg-slate-100 text-slate-600 border-slate-200"; // default/sent
+    if (formatted.includes("Delivered")) badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
+    if (formatted.includes("Read")) badgeClass = "bg-blue-50 text-blue-700 border-blue-100";
+    if (formatted.includes("Failed")) badgeClass = "bg-red-50 text-red-700 border-red-100";
+
+    return (
+        <div className="flex items-center gap-1.5 w-full justify-center">
+            <span className="text-[9px] text-slate-300 font-mono select-none">{index}</span>
+            <Badge variant="outline" className={`h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
+                {formatted}
+            </Badge>
+        </div>
     );
 }

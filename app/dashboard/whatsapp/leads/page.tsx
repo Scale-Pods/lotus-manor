@@ -255,7 +255,6 @@ export default function WhatsappLeadsPage() {
                                         />
                                     </th>
                                     <th className="px-4 py-4">Name</th>
-                                    <th className="px-4 py-4">Email</th>
                                     <th className="px-4 py-4">Phone</th>
                                     <th className="px-4 py-4">Loop</th>
                                     <th className="px-4 py-4 text-center">Reply Status</th>
@@ -266,21 +265,21 @@ export default function WhatsappLeadsPage() {
                             <tbody className="divide-y divide-slate-100">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={8} className="px-4 py-20 text-center text-slate-400">
+                                        <td colSpan={7} className="px-4 py-20 text-center text-slate-400">
                                             <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-emerald-500" />
                                             Syncing with Supabase...
                                         </td>
                                     </tr>
                                 ) : filteredLeads.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} className="px-4 py-20 text-center text-slate-400">
+                                        <td colSpan={7} className="px-4 py-20 text-center text-slate-400">
                                             No leads with contact history found.
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredLeads.map((lead) => (
+                                    filteredLeads.map((lead, index) => (
                                         <tr
-                                            key={lead.id}
+                                            key={`${lead.id}-${index}`}
                                             className="hover:bg-slate-50 transition-colors group cursor-pointer"
                                             onClick={() => setSelectedLeadIdForChat(lead.id)}
                                         >
@@ -291,7 +290,6 @@ export default function WhatsappLeadsPage() {
                                                 />
                                             </td>
                                             <td className="px-4 py-4 font-bold text-slate-900">{lead.name}</td>
-                                            <td className="px-4 py-4 text-slate-600 text-sm">{lead.email}</td>
                                             <td className="px-4 py-4 text-slate-600 font-mono text-xs">{lead.phone}</td>
                                             <td className="px-4 py-4">
                                                 <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-100 text-[10px] uppercase font-bold">
@@ -307,7 +305,7 @@ export default function WhatsappLeadsPage() {
                                             <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
-                                                        
+
                                                     </DropdownMenuTrigger>
                                                     <DropdownMenuContent align="end">
                                                         <DropdownMenuItem>View Journey</DropdownMenuItem>
