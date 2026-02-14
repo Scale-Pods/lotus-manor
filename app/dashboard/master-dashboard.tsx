@@ -42,15 +42,7 @@ import { useRouter } from "next/navigation";
 import { consolidateLeads } from "@/lib/leads-utils";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 
-const acquisitionData = [
-    { name: 'Mon', leads: 400, conv: 240 },
-    { name: 'Tue', leads: 300, conv: 139 },
-    { name: 'Wed', leads: 500, conv: 380 },
-    { name: 'Thu', leads: 280, conv: 190 },
-    { name: 'Fri', leads: 590, conv: 430 },
-    { name: 'Sat', leads: 320, conv: 210 },
-    { name: 'Sun', leads: 450, conv: 320 },
-];
+
 
 export default function MasterDashboard() {
     const [isRepliesModalOpen, setIsRepliesModalOpen] = useState(false);
@@ -60,6 +52,7 @@ export default function MasterDashboard() {
 
     // Real Data State
     const [leads, setLeads] = useState<any[]>([]);
+    const [acquisitionChartData, setAcquisitionChartData] = useState<any[]>([]);
     const [stats, setStats] = useState({
         totalLeads: 0,
         totalEmails: 0,
@@ -125,6 +118,56 @@ export default function MasterDashboard() {
                 });
 
                 setLeads(filteredLeads);
+
+                // Calculate Acquisition Data for the chart
+                const acquisitionMap: { [key: string]: number } = {};
+
+                // Determine graph timeframe: use dateRange or last 7 days of data
+                let startDate = dateRange?.from ? new Date(dateRange.from) : null;
+                let endDate = dateRange?.to ? new Date(dateRange.to) : new Date();
+
+                if (!startDate && filteredLeads.length > 0) {
+                    // Fallback: find oldest lead but limit to 30 days back
+                    const oldest = new Date(Math.min(...filteredLeads.map(l => new Date(l.created_at || Date.now()).getTime())));
+                    const thirtyDaysAgo = new Date();
+                    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                    startDate = oldest > thirtyDaysAgo ? oldest : thirtyDaysAgo;
+                } else if (!startDate) {
+                    startDate = new Date();
+                    startDate.setDate(startDate.getDate() - 7);
+                }
+
+                // Initialize map with all dates in range to avoid gaps
+                const current = new Date(startDate);
+                current.setHours(0, 0, 0, 0);
+                const end = new Date(endDate);
+                end.setHours(0, 0, 0, 0);
+
+                while (current <= end) {
+                    const dateStr = current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    acquisitionMap[dateStr] = 0;
+                    current.setDate(current.getDate() + 1);
+                }
+
+                filteredLeads.forEach((lead: any) => {
+                    const date = new Date(lead.created_at || Date.now());
+                    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    if (acquisitionMap[dateStr] !== undefined) {
+                        acquisitionMap[dateStr]++;
+                    }
+                });
+
+                const chartData = Object.entries(acquisitionMap).map(([name, leads]) => ({
+                    name,
+                    leads
+                })).sort((a, b) => {
+                    // Already semi-sorted by insertion if range is continuous, 
+                    // but safety first: parse back to Date for strict ordering if needed 
+                    // (though Map insertion order is usually enough here)
+                    return 0; // Insertion order is correct due to while loop
+                });
+
+                setAcquisitionChartData(chartData);
 
                 // Fetch Vapi Calls for real minutes
                 let totalVoiceSeconds = 0;
@@ -333,7 +376,7 @@ export default function MasterDashboard() {
                     <CardContent className="pt-4">
                         <div className="w-full" style={{ height: 350, minHeight: 350 }}>
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={acquisitionData}>
+                                <AreaChart data={acquisitionChartData}>
                                     <defs>
                                         <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1} />
