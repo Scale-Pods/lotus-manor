@@ -58,14 +58,15 @@ const GLOBAL_STAGES = [
     { id: 2, label: "Day 2: WhatsApp", criteria: ["WhatsApp 2"] },
     { id: 3, label: "Day 3: Voice Call 1", criteria: ["Voice 1"] },
     { id: 4, label: "Day 3: Voice Call 2", criteria: ["Voice 2"] },
-    { id: 5, label: "Day 5: WhatsApp", criteria: ["WhatsApp 3"] }, // Mapping to next WA
-    { id: 6, label: "Day 7: WhatsApp", criteria: ["WhatsApp 4"] }
+    { id: 5, label: "Day 5: WhatsApp", criteria: ["WhatsApp 3", "Email 2"] }, // Check for new WA tag OR legacy Email slot
+    { id: 6, label: "Day 7: WhatsApp", criteria: ["WhatsApp 4", "Email 3"] }  // Check for new WA tag OR legacy Email slot
 ];
 
 const isUSALead = (phone: string) => {
     if (!phone) return false;
     const clean = phone.replace(/\D/g, '');
-    return clean.startsWith('1') && clean.length > 10; // Simple check for +1 country code
+    // standard USA format: 10 digits (no country code) or 11 digits starting with 1
+    return (clean.length === 10) || (clean.length === 11 && clean.startsWith('1'));
 };
 
 const getStagesForLead = (lead: Lead) => {
@@ -114,7 +115,12 @@ function ProgressBreakdown({ lead }: { lead: Lead }) {
     const stagesPassed = lead.stages_passed || [];
 
     const breakdown = stages.map(stage => {
-        const isMet = stage.criteria.every(c => stagesPassed.includes(c));
+        // Special logic: Day 0 requires ALL criteria (WhatsApp AND Email for USA). 
+        // Other stages might have fallbacks (e.g. WA 3 OR Email 2), so ANY criteria is sufficient.
+        const useAndLogic = stage.label.includes("Day 0") && stage.criteria.length > 1;
+        const isMet = useAndLogic
+            ? stage.criteria.every(c => stagesPassed.includes(c))
+            : stage.criteria.some(c => stagesPassed.includes(c));
         return { name: stage.label, value: 1, isCompleted: isMet };
     });
 
