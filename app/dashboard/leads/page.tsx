@@ -239,16 +239,17 @@ export default function LeadsPage() {
                                 <TableRow className="bg-slate-50/50">
                                     <TableHead className="w-[200px]">Name</TableHead>
                                     <TableHead>Phone</TableHead>
+                                    <TableHead className="text-center">Channel</TableHead>
                                     <TableHead>Email</TableHead>
                                     <TableHead>Current Loop</TableHead>
-                                    <TableHead>Replied</TableHead>
+                                    <TableHead>Reply Status</TableHead>
                                     <TableHead className="w-[250px]">Progress</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {loading && leads.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="h-24 text-center">
+                                        <TableCell colSpan={7} className="h-24 text-center">
                                             <div className="flex items-center justify-center gap-2 text-slate-500">
                                                 <Loader2 className="h-4 w-4 animate-spin" />
                                                 Loading leads...
@@ -257,7 +258,7 @@ export default function LeadsPage() {
                                     </TableRow>
                                 ) : leads.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="h-24 text-center text-slate-500">
+                                        <TableCell colSpan={7} className="h-24 text-center text-slate-500">
                                             No leads found.
                                         </TableCell>
                                     </TableRow>
@@ -270,16 +271,32 @@ export default function LeadsPage() {
                                             <TableRow key={index} className="hover:bg-slate-50/50 transition-colors">
                                                 <TableCell className="font-medium text-slate-900">{lead.name}</TableCell>
                                                 <TableCell className="text-slate-600">{lead.phone}</TableCell>
-                                                <TableCell className="text-slate-600">{lead.email}</TableCell>
+                                                <TableCell className="text-center">
+                                                    <div className="flex flex-col items-center gap-1.5">
+                                                        {lead.email && lead.email !== "No Email" && (
+                                                            <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-100 text-[10px] font-medium h-5 px-1.5 w-full justify-center">
+                                                                Email
+                                                            </Badge>
+                                                        )}
+                                                        {lead.phone && (
+                                                            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-100 text-[10px] font-medium h-5 px-1.5 w-full justify-center">
+                                                                WhatsApp
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className={`text-sm ${lead.email === "No Email" ? "text-slate-300 italic" : "text-slate-600"}`}>
+                                                    {lead.email === "No Email" ? "No Email" : lead.email}
+                                                </TableCell>
                                                 <TableCell>
-                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200 uppercase">
+                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200 uppercase text-[10px] font-bold tracking-wider">
                                                         {lead.source_loop === 'followup' ? 'FOLLOW UP' : lead.source_loop === 'nr_wf' || lead.source_loop === 'Intro' ? 'INTRO' : (lead.display_loop || lead.current_loop || lead.source_loop || "").toUpperCase()}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
                                                     <Badge variant={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "default" : "secondary"}
-                                                        className={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 shadow-none font-bold" : ""}>
-                                                        {(lead.email_replied && lead.email_replied !== "No") ? "EMAIL REPLIED" : (lead.whatsapp_replied && lead.whatsapp_replied !== "No") ? "WP REPLIED" : lead.replied}
+                                                        className={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 shadow-none font-bold capitalize" : "capitalize text-slate-500 bg-slate-100"}>
+                                                        {(lead.email_replied && lead.email_replied !== "No") ? "Replied" : (lead.whatsapp_replied && lead.whatsapp_replied !== "No") ? "Replied" : lead.replied === "No" ? "Sent" : lead.replied}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
