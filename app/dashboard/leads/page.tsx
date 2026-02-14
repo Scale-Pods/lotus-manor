@@ -16,9 +16,11 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Users, AlertCircle, Loader2, RefreshCw, Mail, MessageCircle } from "lucide-react";
+import { Users, AlertCircle, Loader2, RefreshCw, Mail, MessageCircle, ChevronRight } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { consolidateLeads } from "@/lib/leads-utils";
@@ -37,20 +39,165 @@ interface Lead {
     current_week?: string;
     display_loop?: string;
     source_loop?: string;
+    country_code?: string;
 }
 
-const STAGES = [
-    { id: 1, label: "Stage 1", criteria: ["Email 1", "WhatsApp 1"] },
-    { id: 2, label: "Stage 2", criteria: ["WhatsApp 2"] },
-    { id: 3, label: "Stage 3", criteria: ["Email 2"] },
-    { id: 4, label: "Stage 4", criteria: ["Email 3"] },
-    { id: 5, label: "Stage 5", criteria: ["Voice 1"] },
-    { id: 6, label: "Stage 6", criteria: ["Voice 2"] },
-    { id: 7, label: "Stage 7", criteria: ["FollowUp 48 Hr"] },
+// USA Stages (Day 0: WA+Email, Day 2: WA, Day 3: Voice1, Day 3: Voice2, Day 5: Email, Day 7: Email)
+const USA_STAGES = [
+    { id: 1, label: "Day 0: WhatsApp & Email", criteria: ["WhatsApp 1", "Email 1"] }, // Both required? Usually implies "Contacted"
+    { id: 2, label: "Day 2: WhatsApp", criteria: ["WhatsApp 2"] },
+    { id: 3, label: "Day 3: Voice Call 1", criteria: ["Voice 1"] },
+    { id: 4, label: "Day 3: Voice Call 2", criteria: ["Voice 2"] },
+    { id: 5, label: "Day 5: Email", criteria: ["Email 2"] }, // Mapping to next available email
+    { id: 6, label: "Day 7: Email", criteria: ["Email 3"] }
 ];
 
-const NURTURE_WEEK_STEPS = ["WhatsApp 1", "Email 1", "WhatsApp 2", "Voice 1", "Voice 2", "Email 1", "Email 2"];
+// Global Stages (Day 0: WA, Day 2: WA, Day 3: Voice1, Day 3: Voice2, Day 5: WA, Day 7: WA)
+const GLOBAL_STAGES = [
+    { id: 1, label: "Day 0: WhatsApp", criteria: ["WhatsApp 1"] },
+    { id: 2, label: "Day 2: WhatsApp", criteria: ["WhatsApp 2"] },
+    { id: 3, label: "Day 3: Voice Call 1", criteria: ["Voice 1"] },
+    { id: 4, label: "Day 3: Voice Call 2", criteria: ["Voice 2"] },
+    { id: 5, label: "Day 5: WhatsApp", criteria: ["WhatsApp 3"] }, // Mapping to next WA
+    { id: 6, label: "Day 7: WhatsApp", criteria: ["WhatsApp 4"] }
+];
 
+const isUSALead = (phone: string) => {
+    if (!phone) return false;
+    const clean = phone.replace(/\D/g, '');
+    return clean.startsWith('1') && clean.length > 10; // Simple check for +1 country code
+};
+
+const getStagesForLead = (lead: Lead) => {
+    return isUSALead(lead.phone) ? USA_STAGES : GLOBAL_STAGES;
+};
+
+const calculateProgress = (lead: Lead) => {
+    const stages = getStagesForLead(lead);
+    const stagesPassed = lead.stages_passed || [];
+
+    // Check match count
+    let completed = 0;
+
+    // For Nurture, we might be in Week 1, 2, or 4.
+    // The requirement says "same loop only", so the stages are the same for each week.
+    // However, the data might be stored as "Email 1", "Email 2" etc which might overlap.
+    // Effectively, we just check if the specific criteria for that "Day" has been met in the current context.
+
+    stages.forEach(stage => {
+        // Broad check: if ANY of the criteria is met.
+        // For "WhatsApp & Email", strictly speaking we might want both, but usually leads data marks stages as they happen.
+        // Let's assume if ANY criteria in the list is found, that stage step is done. (OR logic)
+        // If strict AND logic is needed for Day 0 (WA AND Email), we can adjust.
+        // Given data structure usually has "Email 1" AND "WhatsApp 1", we can check if ALL are present for multi-criteria.
+
+        const isMet = stage.criteria.every(c => stagesPassed.includes(c)); // Strict AND for Day 0
+        if (isMet) completed++;
+
+        // Fallback for "WhatsApp & Email": if only one sent, is it 50% of step? 
+        // Let's keep it simple: if criteria has multiple, require all? 
+        // User request: "Day 0 whatsapp and email". If only WA sent, Day 0 incomplete.
+    });
+
+    // Special handling for Nurture Week scaling?
+    // "In Nurture loop week 1, week 2 and week 4 same loop only"
+    // This implies the structure repeats. 
+    // If we are in Nurture, we can show progress WITHIN the current week.
+
+    return Math.round((completed / stages.length) * 100);
+};
+
+
+
+function ProgressBreakdown({ lead }: { lead: Lead }) {
+    const stages = getStagesForLead(lead);
+    const stagesPassed = lead.stages_passed || [];
+
+    const breakdown = stages.map(stage => {
+        const isMet = stage.criteria.every(c => stagesPassed.includes(c));
+        return { name: stage.label, value: 1, isCompleted: isMet };
+    });
+
+    const completedCount = breakdown.filter(b => b.isCompleted).length;
+    const progress = Math.round((completedCount / stages.length) * 100);
+
+    const data = [
+        { name: 'Completed', value: completedCount, color: '#10b981' }, // Emerald-500
+        { name: 'Remaining', value: stages.length - completedCount, color: '#e2e8f0' } // Slate-200
+    ];
+
+    return (
+        <Dialog>
+            <DialogTrigger asChild>
+                <div className="cursor-pointer group relative">
+                    <div className="flex justify-between items-center text-xs text-slate-500 mb-1.5">
+                        <div className="flex items-center gap-1 group-hover:text-blue-600 transition-colors">
+                            <span className="font-medium">Stage {completedCount} of {stages.length}</span>
+                            <ChevronRight className="h-3 w-3 opacity-0 -ml-1 group-hover:opacity-100 group-hover:ml-0 transition-all duration-300" />
+                        </div>
+                        <span className="font-bold text-slate-700">{progress}%</span>
+                    </div>
+                    <Progress value={progress} className="h-2 bg-slate-100 group-hover:bg-blue-50 group-hover:ring-2 group-hover:ring-blue-100 transition-all" indicatorClassName="bg-gradient-to-r from-blue-500 to-cyan-500" />
+                    <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                        View Journey
+                    </div>
+                </div>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <span>Lead Journey</span>
+                        <Badge variant="outline" className="ml-2 bg-slate-50">
+                            {isUSALead(lead.phone) ? "USA Flow" : "Global Flow"}
+                        </Badge>
+                    </DialogTitle>
+                </DialogHeader>
+                <div className="grid grid-cols-2 gap-6 py-4">
+                    <div className="h-[160px] relative flex items-center justify-center">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={data}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={40}
+                                    outerRadius={60}
+                                    paddingAngle={5}
+                                    dataKey="value"
+                                    stroke="none"
+                                >
+                                    {data.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.color} />
+                                    ))}
+                                </Pie>
+                            </PieChart>
+                        </ResponsiveContainer>
+                        <div className="absolute inset-0 flex items-center justify-center flex-col">
+                            <span className="text-2xl font-bold text-slate-900">{progress}%</span>
+                            <span className="text-[10px] text-slate-500 uppercase font-bold">Complete</span>
+                        </div>
+                    </div>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            {breakdown.map((step, i) => (
+                                <div key={i} className="flex items-center gap-2 text-sm">
+                                    <div className={`h-2 w-2 rounded-full ${step.isCompleted ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                                    <span className={step.isCompleted ? 'text-slate-900 font-medium' : 'text-slate-400'}>
+                                        {step.name}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+
+
+// Restore LeadsPage component
 export default function LeadsPage() {
     const [leads, setLeads] = useState<Lead[]>([]);
     const [templates, setTemplates] = useState<any[]>([]);
@@ -69,14 +216,11 @@ export default function LeadsPage() {
             }
             const data = await response.json();
 
-            // Check for API-level errors
             if (data.error) {
                 throw new Error(data.error);
             }
 
-            // Consolidate the leads from all tables
             const flattenedLeads = consolidateLeads(data);
-            console.log(`Successfully fetched and consolidated ${flattenedLeads.length} leads.`);
             setLeads(flattenedLeads);
         } catch (err: any) {
             console.error("Leads fetch error:", err);
@@ -111,64 +255,6 @@ export default function LeadsPage() {
             fetchTemplates();
         }
     }, [view]);
-
-    const calculateProgress = (lead: Lead) => {
-        const stagesPassed = lead.stages_passed || [];
-
-        // Nurture Loop Logic
-        if (lead.source_loop === "nurture") {
-            let weekNum = 1;
-            if (lead.current_week) {
-                const match = lead.current_week.match(/Week (\d+)/i);
-                if (match) weekNum = parseInt(match[1]);
-            }
-
-            const TOTAL_NURTURE_WEEKS = 3;
-            if (weekNum > TOTAL_NURTURE_WEEKS) weekNum = TOTAL_NURTURE_WEEKS;
-
-            const nurtureSteps = ["WhatsApp 1", "Email 1", "WhatsApp 2", "Voice 1", "Voice 2", "Email 2"];
-            const completedStepsCount = nurtureSteps.filter(step => stagesPassed.includes(step)).length;
-            const weekProgress = completedStepsCount / nurtureSteps.length;
-
-            const baseProgress = ((weekNum - 1) / TOTAL_NURTURE_WEEKS);
-            const currentWeekContribution = (weekProgress / TOTAL_NURTURE_WEEKS);
-
-            return (baseProgress + currentWeekContribution) * 100;
-        }
-
-        // Original Logic (Intro/FollowUp)
-        let completedStages = 0;
-        for (const stage of STAGES) {
-            const hasPassedStage = stage.criteria.some(criterion =>
-                stagesPassed.includes(criterion)
-            );
-            if (hasPassedStage) {
-                completedStages++;
-            }
-        }
-        return (completedStages / STAGES.length) * 100;
-    };
-
-    const getStageLabel = (lead: Lead) => {
-        const stagesPassed = lead.stages_passed || [];
-
-        if (lead.source_loop === "nurture") {
-            if (lead.current_week) {
-                const match = lead.current_week.match(/Week (\d+)/i);
-                if (match) return `Stage ${match[1]}`;
-                return lead.current_week;
-            }
-            return "Nurture";
-        }
-
-        let highestStage = 0;
-        for (const stage of STAGES) {
-            if (stage.criteria.some(c => stagesPassed.includes(c))) {
-                highestStage = stage.id;
-            }
-        }
-        return highestStage > 0 ? `Stage ${highestStage}` : "New";
-    }
 
     if (loading) {
         return (
@@ -264,9 +350,6 @@ export default function LeadsPage() {
                                     </TableRow>
                                 ) : (
                                     leads.map((lead, index) => {
-                                        const progress = calculateProgress(lead);
-                                        const stageLabel = getStageLabel(lead);
-
                                         return (
                                             <TableRow key={index} className="hover:bg-slate-50/50 transition-colors">
                                                 <TableCell className="font-medium text-slate-900">{lead.name}</TableCell>
@@ -274,12 +357,12 @@ export default function LeadsPage() {
                                                 <TableCell className="text-center">
                                                     <div className="flex flex-col items-center gap-1.5">
                                                         {lead.email && lead.email !== "No Email" && (
-                                                            <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-100 text-[10px] font-medium h-5 px-1.5 w-full justify-center">
+                                                            <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-100 text-[12px] font-medium h-5 px-1.5 w-full justify-center">
                                                                 Email
                                                             </Badge>
                                                         )}
                                                         {lead.phone && (
-                                                            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-100 text-[10px] font-medium h-5 px-1.5 w-full justify-center">
+                                                            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-100 text-[12px] font-medium h-5 px-1.5 w-full justify-center">
                                                                 WhatsApp
                                                             </Badge>
                                                         )}
@@ -300,13 +383,7 @@ export default function LeadsPage() {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <div className="space-y-1.5 container">
-                                                        <div className="flex justify-between text-xs text-slate-500">
-                                                            <span>{stageLabel}</span>
-                                                            <span>{Math.round(progress)}%</span>
-                                                        </div>
-                                                        <Progress value={progress} className="h-2 bg-slate-100" indicatorClassName="bg-gradient-to-r from-blue-500 to-cyan-500" />
-                                                    </div>
+                                                    <ProgressBreakdown lead={lead} />
                                                 </TableCell>
                                             </TableRow>
                                         );
