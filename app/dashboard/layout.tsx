@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Mail, MessageCircle, Mic, Settings, LogOut, ChevronDown, Wallet, BarChart2, Users, Send, Key } from "lucide-react";
+import { LayoutDashboard, Mail, MessageCircle, Mic, Settings, LogOut, ChevronDown, Wallet, BarChart2, Users, Send, Key, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import {
@@ -12,6 +12,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const sidebarItems = [
     {
@@ -35,6 +36,41 @@ const sidebarItems = [
         icon: Mic,
     },
 ];
+
+function WalletModal({ isOpen, onClose, type, balance }: { isOpen: boolean, onClose: () => void, type: 'vapi' | 'maqsam', balance: number | string | null }) {
+    return (
+        <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="sm:max-w-[400px]">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Wallet className="h-5 w-5 text-blue-600" />
+                        <span>{type === 'vapi' ? 'Vapi.ai' : 'Maqsam'} Balance</span>
+                    </DialogTitle>
+                </DialogHeader>
+                <div className="py-6 space-y-6">
+                    <div className="bg-slate-50 rounded-xl p-8 border border-slate-100 flex flex-col items-center justify-center text-center">
+                        <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-1">Current Credits</p>
+                        <p className="text-5xl font-bold text-slate-900">
+                            {balance !== null ? (typeof balance === 'number' ? `$${balance.toFixed(2)}` : balance) : "N/A"}
+                        </p>
+                    </div>
+
+                    <Button
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 font-bold shadow-lg shadow-blue-500/20 gap-2"
+                        onClick={() => {
+                            if (type === 'vapi') window.open('https://dashboard.vapi.ai/billing', '_blank');
+                            else window.open('https://maqsam.com/billing', '_blank');
+                            onClose();
+                        }}
+                    >
+                        <ExternalLink className="h-4 w-4" />
+                        Add Funds
+                    </Button>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
 
 export default function DashboardLayout({
     children,
@@ -97,36 +133,10 @@ export default function DashboardLayout({
 
     const activeConfig = (dashboardConfig as any)[currentContext];
 
-    // Vapi Balance State
+    // Vapi Balance State (Space reserved for real data fetching)
     const [vapiBalance, setVapiBalance] = useState<number | null>(null);
-    const [loadingVapi, setLoadingVapi] = useState(true);
-
-    useEffect(() => {
-        const fetchVapiBalance = async () => {
-            try {
-                const res = await fetch('/api/vapi/balance');
-                if (res.ok) {
-                    const data = await res.json();
-                    // Assuming data.amount or similar structure. 
-                    // API typically returns { amount: 12.50, currency: 'USD' } or similar.
-                    // Let's assume data.amount for now, based on typical billing APIs.
-                    // If simply { amount: 10 }, use that.
-                    if (data.amount !== undefined) {
-                        setVapiBalance(Number(data.amount));
-                    } else {
-                        // Fallback if structure is different
-                        console.log("Vapi balance data:", data);
-                    }
-                }
-            } catch (error) {
-                console.error("Vapi balance fetch failed", error);
-            } finally {
-                setLoadingVapi(false);
-            }
-        };
-
-        fetchVapiBalance();
-    }, []);
+    const [loadingVapi, setLoadingVapi] = useState(false); // Set to false since it's "N/A" for now
+    const [walletModal, setWalletModal] = useState<{ isOpen: boolean, type: 'vapi' | 'maqsam' }>({ isOpen: false, type: 'vapi' });
 
     return (
         <div className="flex h-screen overflow-hidden bg-zinc-50 text-slate-900">
@@ -200,36 +210,6 @@ export default function DashboardLayout({
                     })}
                 </nav>
                 <div className="mt-auto p-4 mb-4 space-y-3">
-                    {/* Vapi Credits */}
-                    <div className="bg-white border border-yellow-200 rounded-xl p-3 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300">
-                        <div className="flex items-center justify-between mb-1 relative z-10">
-                            <span className="text-xs font-bold text-yellow-700 uppercase tracking-wider">Vapi Credits</span>
-                            <div className="p-1 bg-yellow-50 rounded-md">
-                                <Wallet className="h-3 w-3 text-yellow-600" />
-                            </div>
-                        </div>
-                        <div className="flex items-baseline gap-1 relative z-10">
-                            <span className="text-xl font-bold tracking-tight text-slate-900">
-                                {loadingVapi ? "..." : (vapiBalance !== null ? `$${vapiBalance.toFixed(2)}` : "N/A")}
-                            </span>
-                            <span className="text-[10px] text-slate-500">USD</span>
-                        </div>
-                    </div>
-
-                    {/* Maqsam Credits */}
-                    <div className="bg-white border border-cyan-200 rounded-xl p-3 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300">
-                        <div className="flex items-center justify-between mb-1 relative z-10">
-                            <span className="text-xs font-bold text-cyan-700 uppercase tracking-wider">Maqsam Credits</span>
-                            <div className="p-1 bg-cyan-50 rounded-md">
-                                <Wallet className="h-3 w-3 text-cyan-600" />
-                            </div>
-                        </div>
-                        <div className="flex items-baseline gap-1 relative z-10">
-                            <span className="text-xl font-bold tracking-tight text-slate-900">$50.00</span>
-                            <span className="text-[10px] text-slate-500">USD</span>
-                        </div>
-                    </div>
-
                     <Button variant="ghost" className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 hover:bg-zinc-100" asChild>
                         <Link href="/">
                             <LogOut className="h-4 w-4" />
@@ -242,11 +222,54 @@ export default function DashboardLayout({
             {/* Main Content */}
             <div className="flex flex-1 flex-col overflow-hidden">
                 <header className="flex h-14 items-center gap-4 border-b border-zinc-200 bg-white px-6 lg:h-[60px]">
-                    <h1 className="text-lg font-semibold text-slate-900">
-                        {pathname === "/dashboard" ? "Master Overview" : activeConfig.items.find((item: any) => item.href === pathname)?.title || activeConfig.label}
-                    </h1>
+                    <div className="flex flex-1 items-center justify-between">
+                        <h1 className="text-lg font-semibold text-slate-900">
+                            {pathname === "/dashboard" ? "Master Overview" : activeConfig.items.find((item: any) => item.href === pathname)?.title || activeConfig.label}
+                        </h1>
 
+                        {currentContext === "master" && (
+                            <div className="flex items-center gap-3">
+                                {/* Vapi Wallet Button */}
+                                <Button
+                                    variant="outline"
+                                    className="h-10 px-4 border-yellow-200 bg-yellow-50/30 hover:bg-yellow-50 text-yellow-700 gap-3 flex items-center shadow-sm transition-all"
+                                    onClick={() => setWalletModal({ isOpen: true, type: 'vapi' })}
+                                >
+                                    <div className="p-1.5 bg-yellow-100 rounded-md">
+                                        <Wallet className="h-4 w-4" />
+                                    </div>
+                                    <div className="flex flex-col items-start leading-[1.1]">
+                                        <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">Vapi Bal</span>
+                                        <span className="text-sm font-bold">{loadingVapi ? "..." : (vapiBalance !== null ? `$${vapiBalance.toFixed(2)}` : "N/A")}</span>
+                                    </div>
+                                </Button>
+
+                                {/* Maqsam Wallet Button */}
+                                <Button
+                                    variant="outline"
+                                    className="h-10 px-4 border-cyan-200 bg-cyan-50/30 hover:bg-cyan-50 text-cyan-700 gap-3 flex items-center shadow-sm transition-all"
+                                    onClick={() => setWalletModal({ isOpen: true, type: 'maqsam' })}
+                                >
+                                    <div className="p-1.5 bg-cyan-100 rounded-md">
+                                        <Wallet className="h-4 w-4" />
+                                    </div>
+                                    <div className="flex flex-col items-start leading-[1.1]">
+                                        <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">Maqsam Bal</span>
+                                        <span className="text-sm font-bold">N/A</span>
+                                    </div>
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                 </header>
+
+                <WalletModal
+                    isOpen={walletModal.isOpen}
+                    type={walletModal.type}
+                    balance={walletModal.type === 'vapi' ? vapiBalance : "N/A"}
+                    onClose={() => setWalletModal({ ...walletModal, isOpen: false })}
+                />
+
                 <main className="flex-1 overflow-auto bg-zinc-50 p-6">
                     {children}
                 </main>
