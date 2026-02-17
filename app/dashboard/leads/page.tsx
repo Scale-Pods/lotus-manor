@@ -47,7 +47,7 @@ const USA_STAGES = [
     { id: 1, label: "Day 0: WhatsApp & Email", criteria: ["WhatsApp 1", "Email 1"] }, // Both required? Usually implies "Contacted"
     { id: 2, label: "Day 2: WhatsApp", criteria: ["WhatsApp 2"] },
     { id: 3, label: "Day 3: Voice Call 1", criteria: ["Voice 1"] },
-    { id: 4, label: "Day 3: Voice Call 2", criteria: ["Voice 2"] },
+    { id: 4, label: "Day 4: Voice Call 2", criteria: ["Voice 2"] },
     { id: 5, label: "Day 5: Email", criteria: ["Email 2"] }, // Mapping to next available email
     { id: 6, label: "Day 7: Email", criteria: ["Email 3"] }
 ];
@@ -57,9 +57,9 @@ const GLOBAL_STAGES = [
     { id: 1, label: "Day 0: WhatsApp", criteria: ["WhatsApp 1"] },
     { id: 2, label: "Day 2: WhatsApp", criteria: ["WhatsApp 2"] },
     { id: 3, label: "Day 3: Voice Call 1", criteria: ["Voice 1"] },
-    { id: 4, label: "Day 3: Voice Call 2", criteria: ["Voice 2"] },
-    { id: 5, label: "Day 5: WhatsApp", criteria: ["WhatsApp 3", "Email 2"] }, // Check for new WA tag OR legacy Email slot
-    { id: 6, label: "Day 7: WhatsApp", criteria: ["WhatsApp 4", "Email 3"] }  // Check for new WA tag OR legacy Email slot
+    { id: 4, label: "Day 4: Voice Call 2", criteria: ["Voice 2"] },
+    { id: 5, label: "Day 5: WhatsApp", criteria: ["WhatsApp 3" /*, "Email 2"*/] }, // Email removed for Global
+    { id: 6, label: "Day 7: WhatsApp", criteria: ["WhatsApp 4" /*, "Email 3"*/] }  // Email removed for Global
 ];
 
 const isUSALead = (phone: string) => {

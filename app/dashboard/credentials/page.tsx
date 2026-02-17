@@ -9,6 +9,30 @@ import { Mail, MessageCircle, Mic, ExternalLink, Copy, Eye, EyeOff, ShieldCheck,
 import React, { useState } from "react";
 
 export default function CredentialsPage() {
+    const [senderEmails, setSenderEmails] = useState<string[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    React.useEffect(() => {
+        const fetchEmails = async () => {
+            try {
+                const res = await fetch('/api/email/warmup-analytics', { method: 'POST' });
+                if (!res.ok) throw new Error("Failed to fetch analytics");
+                const data = await res.json();
+
+                // Extract emails from the warmup account objects
+                if (Array.isArray(data)) {
+                    const emails = data.map((account: any) => account.email);
+                    setSenderEmails(emails);
+                }
+            } catch (err) {
+                console.error("Error fetching sender emails:", err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchEmails();
+    }, []);
+
     return (
         <div className="space-y-8 pb-10 max-w-5xl mx-auto">
             <div className="flex items-center justify-between">
@@ -22,16 +46,21 @@ export default function CredentialsPage() {
                 {/* Email Section */}
                 <CredentialSection
                     title="Email Integration"
-                    description="Connected Gmail/SMTP accounts for outreach."
+                    description="Active sender accounts detected from your campaigns."
                     icon={Mail}
                     iconColor="text-rose-600"
                     iconBg="bg-rose-50"
                 >
                     <div className="grid gap-6 md:grid-cols-2">
-                        <ReadOnlyField label="Connected Email" value="abcd@scalepods.org" />
-
-                        <ReadOnlyField label="SMTP Host" value="smtp.gmail.com" />
-
+                        {loading ? (
+                            <div className="md:col-span-2 text-slate-400 text-sm animate-pulse">Detecting active email accounts...</div>
+                        ) : senderEmails.length > 0 ? (
+                            senderEmails.map((email, idx) => (
+                                <ReadOnlyField key={idx} label={`Project Email ${idx + 1}`} value={email} />
+                            ))
+                        ) : (
+                            <ReadOnlyField label="Connected Email" value="No active emails detected" />
+                        )}
                     </div>
                 </CredentialSection>
 
@@ -44,8 +73,8 @@ export default function CredentialsPage() {
                     iconBg="bg-emerald-50"
                 >
                     <div className="grid gap-6 md:grid-cols-2">
-                        <ReadOnlyField label="Phone Number ID" value="10XXXXXXXXXXXXX" />
-                        <ReadOnlyField label="WhatsApp Business Account ID" value="19XXXXXXXXXXXXX" />
+                        <ReadOnlyField label="Phone Number " value="+971 55 xxx xx74" />
+                        <ReadOnlyField label="WhatsApp Business Account ID" value="277xxxxxxxxx4717" />
 
                     </div>
                 </CredentialSection>
