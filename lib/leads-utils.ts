@@ -43,6 +43,15 @@ function getVal(obj: any, keys: string[]) {
     return undefined;
 }
 
+function getWhatsAppHistory(l: any) {
+    const history: any = {};
+    for (let i = 1; i <= 10; i++) {
+        history[`W.P_Replied_${i}`] = getVal(l, [`W.P_Replied ${i}`, `W.P_Replied_${i}`]);
+        history[`W.P_FollowUp_${i}`] = getVal(l, [`W.P_FollowUp ${i}`, `W.P_FollowUp_${i}`]);
+    }
+    return history;
+}
+
 export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
     const consolidatedLeads: ConsolidatedLead[] = [];
 
@@ -107,7 +116,8 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
-                "W.P_2 TS": getVal(l, ["W.P_2 TS"])
+                "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
+                ...getWhatsAppHistory(l)
             });
         });
     }
@@ -161,7 +171,8 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
-                "W.P_2 TS": getVal(l, ["W.P_2 TS"])
+                "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
+                ...getWhatsAppHistory(l)
             });
         });
     }
@@ -230,7 +241,8 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
-                "W.P_2 TS": getVal(l, ["W.P_2 TS"])
+                "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
+                ...getWhatsAppHistory(l)
             });
         });
     }

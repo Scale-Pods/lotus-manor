@@ -37,7 +37,7 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                     setLead(found);
                     const timeline: any[] = [];
 
-                    const parseMsg = (raw: any, label: string, type: 'bot' | 'user') => {
+                    const parseMsg = (raw: any, label: string, type: 'bot' | 'user', sequence: number) => {
                         if (!raw || !String(raw).trim()) return null;
                         const content = String(raw).trim();
 
@@ -50,7 +50,8 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                                 type,
                                 content: content.replace(isoRegex, '').trim(),
                                 label: label,
-                                date: isoMatch[1]
+                                date: isoMatch[1],
+                                sequence
                             };
                         }
 
@@ -64,7 +65,8 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                                 type,
                                 content: lines.slice(0, -1).join('\n').trim() || "Message Received",
                                 label: label,
-                                date: lastLineDate.toISOString()
+                                date: lastLineDate.toISOString(),
+                                sequence
                             };
                         }
 
@@ -72,31 +74,55 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                             type,
                             content: content,
                             label: label,
-                            date: found.created_at
+                            date: found.created_at,
+                            sequence
                         };
                     };
 
                     // 1. Outgoing W.P_1 to W.P_6
                     for (let i = 1; i <= 6; i++) {
                         const raw = found[`W.P_${i}`] || found.stage_data?.[`WhatsApp ${i}`];
-                        const msg = parseMsg(raw, `WhatsApp ${i}`, 'bot');
+                        const msg = parseMsg(raw, `WhatsApp ${i}`, 'bot', i * 100);
                         if (msg) timeline.push(msg);
                     }
 
                     // 2. Incoming W.P_Replied
                     const replyRaw = found.whatsapp_replied || found.stage_data?.["WhatsApp Replied"];
                     if (replyRaw && String(replyRaw).toLowerCase() !== "no" && String(replyRaw).toLowerCase() !== "none") {
-                        const msg = parseMsg(replyRaw, 'Reply Received', 'user');
+                        const msg = parseMsg(replyRaw, 'Reply Received', 'user', 700);
                         if (msg) timeline.push(msg);
                     }
 
-                    // 3. Outgoing W.P_FollowUp
+                    // 3. Outgoing W.P_FollowUp (Original Single Field)
                     const followupRaw = found.stage_data?.["WhatsApp FollowUp"] || found["W.P_FollowUp"];
-                    const fMsg = parseMsg(followupRaw, 'WhatsApp FollowUp', 'bot');
+                    const fMsg = parseMsg(followupRaw, 'WhatsApp FollowUp', 'bot', 701);
                     if (fMsg) timeline.push(fMsg);
 
-                    // Sort timeline by date
-                    timeline.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                    // 4. Extended History: W.P_Replied_1 to 10
+                    for (let i = 1; i <= 10; i++) {
+                        const raw = found[`W.P_Replied_${i}`];
+                        if (raw && String(raw).toLowerCase() !== "no" && String(raw).toLowerCase() !== "none") {
+                            // Sequence: 1000 + (1 * 20) = 1020, 1040, etc.
+                            const msg = parseMsg(raw, `Reply ${i}`, 'user', 1000 + (i * 20));
+                            if (msg) timeline.push(msg);
+                        }
+                    }
+
+                    // 5. Extended History: W.P_FollowUp_1 to 10
+                    for (let i = 1; i <= 10; i++) {
+                        const raw = found[`W.P_FollowUp_${i}`];
+                        // Sequence: 1000 + (1 * 20) + 1 = 1021, 1041, etc.
+                        const msg = parseMsg(raw, `FollowUp ${i}`, 'bot', 1000 + (i * 20) + 1);
+                        if (msg) timeline.push(msg);
+                    }
+
+                    // Sort timeline by date, then by sequence
+                    timeline.sort((a, b) => {
+                        const timeA = new Date(a.date).getTime();
+                        const timeB = new Date(b.date).getTime();
+                        if (timeA !== timeB) return timeA - timeB;
+                        return a.sequence - b.sequence;
+                    });
 
                     setMessages(timeline);
                 }
