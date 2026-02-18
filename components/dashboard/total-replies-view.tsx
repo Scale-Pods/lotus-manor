@@ -42,83 +42,87 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
     const itemsPerPage = 5;
 
     // Map real leads to ReplyData format
-    const realData: ReplyData[] = leads.flatMap((lead: any, idx: number) => {
-        const entries: ReplyData[] = [];
-        const isWPReplied = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
-        const isEmailReplied = lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none";
+    const realData: (ReplyData & { link: string })[] = [];
 
-        if (isWPReplied) {
-            let preview = "WhatsApp Reply Received";
-            let displayDate = lead.created_at || new Date().toISOString();
-            const trimmed = String(lead.whatsapp_replied).trim();
-            const lines = trimmed.split('\n');
+    leads.forEach((lead: any, idx: number) => {
+        // --- WhatsApp Logic ---
+        let wpReply = "";
+        let wpDateStr = lead.updated_at || lead.created_at || new Date().toISOString();
+        let hasWP = false;
+
+        // Check legacy
+        if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
+            hasWP = true;
+            wpReply = String(lead.whatsapp_replied).trim();
+            // Try to extract date
+            const lines = wpReply.split('\n');
             const lastLine = lines[lines.length - 1].trim();
-            const lastLineDate = new Date(lastLine);
-
-            if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-                displayDate = lastLineDate.toISOString();
-                preview = lines.slice(0, -1).join('\n').trim() || "WhatsApp Reply Received";
-            } else {
-                preview = lead.whatsapp_replied;
+            const possibleDate = new Date(lastLine);
+            if (!isNaN(possibleDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                wpDateStr = possibleDate.toISOString();
+                wpReply = lines.slice(0, -1).join('\n').trim() || "See chat for details";
             }
+        }
 
-            const dateObj = new Date(displayDate);
-            entries.push({
+        // Check extended if no legacy or to find newer interaction
+        for (let i = 1; i <= 10; i++) {
+            const r = lead[`W.P_Replied_${i}`];
+            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                hasWP = true;
+                // Extended replies usually just contain the text. Date might not be embedded.
+                // We use the last found reply as the "latest" preview.
+                wpReply = String(r).trim();
+                // If we want to use updated_at, we already have it. 
+            }
+        }
+
+        if (hasWP) {
+            const dateObj = new Date(wpDateStr);
+            realData.push({
                 id: `${lead.id || `lead-${idx}`}-wp`,
                 contactName: lead.name || "Unknown",
-                contactInfo: lead.email || lead.phone || "No info",
+                contactInfo: lead.phone || "No info",
                 mode: 'WhatsApp',
                 date: dateObj.toLocaleDateString(),
                 time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: 'Replied',
-                preview: preview
+                preview: wpReply.substring(0, 50) + (wpReply.length > 50 ? "..." : ""),
+                link: `/dashboard/whatsapp/chat` // Navigate to generic chat page where they can search
             });
         }
 
-        if (isEmailReplied) {
-            let preview = "Email Reply Received";
-            let displayDate = lead.created_at || new Date().toISOString();
-            const trimmed = String(lead.email_replied).trim();
-            const lines = trimmed.split('\n');
+        // --- Email Logic ---
+        let emailReply = "";
+        let emailDateStr = lead.updated_at || lead.created_at || new Date().toISOString();
+        let hasEmail = false;
+
+        if (lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none") {
+            hasEmail = true;
+            emailReply = String(lead.email_replied).trim();
+            // Try to extract date
+            const lines = emailReply.split('\n');
             const lastLine = lines[lines.length - 1].trim();
-            const lastLineDate = new Date(lastLine);
-
-            if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-                displayDate = lastLineDate.toISOString();
-                preview = lines.slice(0, -1).join('\n').trim() || "Email Reply Received";
-            } else {
-                preview = lead.email_replied;
+            const possibleDate = new Date(lastLine);
+            if (!isNaN(possibleDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                emailDateStr = possibleDate.toISOString();
+                emailReply = lines.slice(0, -1).join('\n').trim() || "See email for details";
             }
+        }
 
-            const dateObj = new Date(displayDate);
-            entries.push({
+        if (hasEmail) {
+            const dateObj = new Date(emailDateStr);
+            realData.push({
                 id: `${lead.id || `lead-${idx}`}-email`,
                 contactName: lead.name || "Unknown",
-                contactInfo: lead.email || lead.phone || "No info",
+                contactInfo: lead.email || "No info",
                 mode: 'Email',
                 date: dateObj.toLocaleDateString(),
                 time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: 'Replied',
-                preview: preview
+                preview: emailReply.substring(0, 50) + (emailReply.length > 50 ? "..." : ""),
+                link: `/dashboard/email/sent` // Navigate to email page
             });
         }
-
-        // Fallback for general replied flag if no specific column data but lead is marked replied
-        if (entries.length === 0 && lead.replied === "Yes") {
-            const dateObj = new Date(lead.created_at || new Date());
-            entries.push({
-                id: `${lead.id || `lead-${idx}`}-general`,
-                contactName: lead.name || "Unknown",
-                contactInfo: lead.email || lead.phone || "No info",
-                mode: 'Email', // Default fallback
-                date: dateObj.toLocaleDateString(),
-                time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                status: 'Replied',
-                preview: "Reply received"
-            });
-        }
-
-        return entries;
     });
 
     // Filter logic
@@ -173,11 +177,12 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
                             <TableHead>Date & Time</TableHead>
                             <TableHead>Preview</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Action</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {displayedData.length > 0 ? (
-                            displayedData.map((item) => (
+                            displayedData.map((item: any) => (
                                 <TableRow key={item.id}>
                                     <TableCell>
                                         <div className="font-medium">{item.contactName}</div>
@@ -203,11 +208,16 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
                                             {item.status}
                                         </Badge>
                                     </TableCell>
+                                    <TableCell className="text-right">
+                                        <Button size="sm" variant="ghost" className="text-blue-600 hover:text-blue-700" onClick={() => window.location.href = item.link}>
+                                            View
+                                        </Button>
+                                    </TableCell>
                                 </TableRow>
                             ))
                         ) : (
                             <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">
+                                <TableCell colSpan={6} className="h-24 text-center">
                                     No results found.
                                 </TableCell>
                             </TableRow>

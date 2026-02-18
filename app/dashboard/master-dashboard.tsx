@@ -97,12 +97,43 @@ export default function MasterDashboard() {
                     }
 
                     // Apply same logic for WhatsApp interaction if needed
-                    if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
-                        const lines = String(lead.whatsapp_replied).trim().split('\n');
-                        const lastLine = lines[lines.length - 1].trim();
-                        const possibleDate = new Date(lastLine);
-                        if (!isNaN(possibleDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-                            leadDateStr = possibleDate.toISOString();
+                    // Apply same logic for WhatsApp interaction if needed
+                    let hasWPReply = false;
+                    if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") hasWPReply = true;
+                    else {
+                        for (let i = 1; i <= 10; i++) {
+                            const r = lead[`W.P_Replied_${i}`];
+                            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                                hasWPReply = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (hasWPReply) {
+                        // Try to find a timestamp in any reply
+                        let foundDate = false;
+                        if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
+                            const lines = String(lead.whatsapp_replied).trim().split('\n');
+                            const lastLine = lines[lines.length - 1].trim();
+                            const possibleDate = new Date(lastLine);
+                            if (!isNaN(possibleDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                                leadDateStr = possibleDate.toISOString();
+                                foundDate = true;
+                            }
+                        }
+                        if (!foundDate) {
+                            for (let i = 1; i <= 10; i++) {
+                                const r = lead[`W.P_Replied_${i}`];
+                                if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                                    // Attempt to parse date from extended reply if format allows (usually contains date in text or we fallback to updated_at)
+                                    // For now, if we match an extended reply, we assume the lead relies on created_at/last_contacted if parsed date fails.
+                                    // However, to be consistent with 'Received Emails', we try.
+                                    // But extended replies might just be text.
+                                    // New Logic: If has extended reply, and no other date, stick with created_at/last_contacted from line 87.
+                                    break;
+                                }
+                            }
                         }
                     }
 
@@ -202,17 +233,62 @@ export default function MasterDashboard() {
                 let replyCount = 0;
 
                 filteredLeads.forEach((lead: any) => {
+                    // 1. Email Count
                     const stages = lead.stages_passed || [];
+                    let hasEmail = false;
                     stages.forEach((stage: string) => {
-                        const s = stage.toLowerCase();
-                        if (s.includes("email")) emailCount++;
-                        if (s.includes("whatsapp")) whatsappCount++;
-                        if (s.includes("voice")) voiceCount++;
+                        if (stage.toLowerCase().includes("email")) hasEmail = true;
                     });
+                    if (hasEmail) emailCount++;
 
-                    // Count each type of reply to fix "all types" bug
+                    // 2. WhatsApp Count (Check legacy stages + extended history)
+                    let hasWhatsApp = false;
+                    stages.forEach((stage: string) => {
+                        if (stage.toLowerCase().includes("whatsapp")) hasWhatsApp = true;
+                    });
+                    if (!hasWhatsApp) {
+                        // Check legacy replied
+                        if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") hasWhatsApp = true;
+                        // Check extended replied/followup
+                        for (let i = 1; i <= 10; i++) {
+                            if (lead[`W.P_Replied_${i}`] || lead[`W.P_FollowUp_${i}`]) {
+                                hasWhatsApp = true;
+                                break;
+                            }
+                        }
+                        // Check legacy sent
+                        if (!hasWhatsApp) {
+                            for (let i = 1; i <= 6; i++) {
+                                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) {
+                                    hasWhatsApp = true;
+                                    break;
+                                }
+                            }
+                            if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) hasWhatsApp = true;
+                        }
+                    }
+                    if (hasWhatsApp) whatsappCount++;
+
+                    // 3. Voice Count
+                    let hasVoice = false;
+                    stages.forEach((stage: string) => {
+                        if (stage.toLowerCase().includes("voice")) hasVoice = true;
+                    });
+                    if (hasVoice) voiceCount++;
+
+                    // 4. Replies Count
                     const hasEmailReply = lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none";
-                    const hasWPReply = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
+
+                    let hasWPReply = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
+                    if (!hasWPReply) {
+                        for (let i = 1; i <= 10; i++) {
+                            const r = lead[`W.P_Replied_${i}`];
+                            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                                hasWPReply = true;
+                                break;
+                            }
+                        }
+                    }
 
                     if (hasEmailReply) replyCount++;
                     if (hasWPReply) replyCount++;
@@ -343,7 +419,22 @@ export default function MasterDashboard() {
                             Close
                         </Button>
                     </div>
-                    <TotalRepliesView leads={leads.filter((l: any) => (l.email_replied && l.email_replied !== "No" && l.email_replied !== "none") || (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") || l.replied === "Yes")} />
+                    <TotalRepliesView leads={leads.filter((l: any) => {
+                        const hasEmail = l.email_replied && l.email_replied !== "No" && l.email_replied !== "none";
+                        const hasLegacyWP = l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none";
+                        const hasReplyFlag = l.replied === "Yes";
+
+                        let hasExtendedWP = false;
+                        for (let i = 1; i <= 10; i++) {
+                            const r = l[`W.P_Replied_${i}`];
+                            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                                hasExtendedWP = true;
+                                break;
+                            }
+                        }
+
+                        return hasEmail || hasLegacyWP || hasExtendedWP || hasReplyFlag;
+                    })} />
                 </div>
             )}
 
@@ -354,7 +445,22 @@ export default function MasterDashboard() {
                         <DialogTitle>Total Replies - Detailed View</DialogTitle>
                     </DialogHeader>
                     <div className="py-4">
-                        <TotalRepliesView leads={leads.filter((l: any) => (l.email_replied && l.email_replied !== "No" && l.email_replied !== "none") || (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") || l.replied === "Yes")} />
+                        <TotalRepliesView leads={leads.filter((l: any) => {
+                            const hasEmail = l.email_replied && l.email_replied !== "No" && l.email_replied !== "none";
+                            const hasLegacyWP = l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none";
+                            const hasReplyFlag = l.replied === "Yes";
+
+                            let hasExtendedWP = false;
+                            for (let i = 1; i <= 10; i++) {
+                                const r = l[`W.P_Replied_${i}`];
+                                if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                                    hasExtendedWP = true;
+                                    break;
+                                }
+                            }
+
+                            return hasEmail || hasLegacyWP || hasExtendedWP || hasReplyFlag;
+                        })} />
                     </div>
                 </DialogContent>
             </Dialog>
@@ -429,7 +535,7 @@ export default function MasterDashboard() {
                     </CardContent>
                 </Card>
             </div>
-        </div>
+        </div >
     );
 }
 
