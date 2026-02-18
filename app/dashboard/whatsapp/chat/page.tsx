@@ -71,29 +71,66 @@ export default function WhatsappChatPage() {
                 const allLeads = consolidateLeads(rawData);
 
                 // Only include leads with some WhatsApp activity
-                const wpLeads = allLeads.filter(l =>
-                    l.stages_passed.some(s => s.toLowerCase().includes("whatsapp")) ||
-                    (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none")
-                );
+                const wpLeads = allLeads.filter(l => {
+                    // 1. Check legacy stages
+                    if (l.stages_passed.some(s => s.toLowerCase().includes("whatsapp"))) return true;
+
+                    // 2. Check legacy replied field
+                    if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") return true;
+
+                    // 3. Check extended history (Replied 1-10)
+                    for (let i = 1; i <= 10; i++) {
+                        const r = l[`W.P_Replied_${i}`];
+                        if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
+                    }
+
+                    // 4. Check extended history (FollowUp 1-10)
+                    for (let i = 1; i <= 10; i++) {
+                        if (l[`W.P_FollowUp_${i}`]) return true;
+                    }
+
+                    return false;
+                });
 
                 setLeads(wpLeads);
 
                 // Calculate real metrics
                 let totalSent = 0;
                 let repliedCount = 0;
+
                 wpLeads.forEach(l => {
-                    // Count all outgoing W.P_1-6 and FollowUp messages
+                    // Count all outgoing W.P_1-6
                     let leadSent = 0;
                     for (let i = 1; i <= 6; i++) {
                         if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSent++;
                     }
+
+                    // Count legacy FollowUp
                     if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSent++;
+
+                    // Count extended FollowUp 1-10
+                    for (let i = 1; i <= 10; i++) {
+                        if (l[`W.P_FollowUp_${i}`]) leadSent++;
+                    }
 
                     totalSent += leadSent;
 
+                    // Check for ANY reply
+                    let hasReplied = false;
                     if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") {
-                        repliedCount++;
+                        hasReplied = true;
+                    } else {
+                        // Check extended replies
+                        for (let i = 1; i <= 10; i++) {
+                            const r = l[`W.P_Replied_${i}`];
+                            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                                hasReplied = true;
+                                break;
+                            }
+                        }
                     }
+
+                    if (hasReplied) repliedCount++;
                 });
 
                 setStats({
@@ -118,7 +155,19 @@ export default function WhatsappChatPage() {
             const matchesSearch = l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 l.phone.includes(searchQuery);
 
-            const hasReplied = l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none";
+            // Check for ANY reply
+            let hasReplied = false;
+            if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") {
+                hasReplied = true;
+            } else {
+                for (let i = 1; i <= 10; i++) {
+                    const r = l[`W.P_Replied_${i}`];
+                    if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                        hasReplied = true;
+                        break;
+                    }
+                }
+            }
 
             // Reply Status Filter
             const matchesReplyStatus = activeFilters.replyStatus.length === 0 ||
@@ -479,7 +528,25 @@ function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () =>
     }
     if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) sentCount++;
 
-    const hasReplied = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
+    // Calculate extended sent count (FollowUp 1-10)
+    for (let i = 1; i <= 10; i++) {
+        if (lead[`W.P_FollowUp_${i}`]) sentCount++;
+    }
+
+    // Check for ANY reply
+    let hasReplied = false;
+    if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
+        hasReplied = true;
+    } else {
+        // Check extended replies
+        for (let i = 1; i <= 10; i++) {
+            const r = lead[`W.P_Replied_${i}`];
+            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                hasReplied = true;
+                break;
+            }
+        }
+    }
 
     // 2. Find Last Message Date
     const getMsgDate = (raw: any) => {
@@ -511,6 +578,15 @@ function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () =>
     // Check followup
     const fd = getMsgDate(lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]);
     if (fd && fd > latestDate) latestDate = fd;
+
+    // Check extended history
+    for (let i = 1; i <= 10; i++) {
+        const dReplied = getMsgDate(lead[`W.P_Replied_${i}`]);
+        if (dReplied && dReplied > latestDate) latestDate = dReplied;
+
+        const dFollow = getMsgDate(lead[`W.P_FollowUp_${i}`]);
+        if (dFollow && dFollow > latestDate) latestDate = dFollow;
+    }
 
     return (
         <tr className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={onClick}>
