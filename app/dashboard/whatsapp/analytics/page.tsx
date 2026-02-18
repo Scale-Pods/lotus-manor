@@ -49,17 +49,33 @@ export default function WhatsappAnalyticsPage() {
     const filteredLeads = useMemo(() => {
         return leads.filter(l => {
             // First, identify if it's a WhatsApp lead
-            const hasWP = l.stages_passed.some(s => s.toLowerCase().includes("whatsapp")) ||
+            let hasWP = l.stages_passed.some(s => s.toLowerCase().includes("whatsapp")) ||
                 (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") ||
                 [1, 2, 3, 4, 5, 6].some(i => l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) ||
                 l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"];
+
+            if (!hasWP) {
+                // Check extended history
+                for (let i = 1; i <= 10; i++) {
+                    if (l[`W.P_Replied_${i}`] || l[`W.P_FollowUp_${i}`]) {
+                        hasWP = true;
+                        break;
+                    }
+                }
+            }
 
             if (!hasWP) return false;
 
             // If date range is active, respect it
             if (dateRange.from || dateRange.to) {
-                if (!l.last_contacted) return false;
-                const contactDate = new Date(l.last_contacted);
+                // Should fallback to created_at if last_contacted is missing? 
+                // Analytics usually relies on accurate timestamps, but let's stick to last_contacted for now to match strict logic or fallback if needed?
+                // The original code returned false if !l.last_contacted. Let's keep it safe but maybe expanded leads don't have last_contacted set?
+                // Ideally, we should check created_at or updated_at if last_contacted is missing, similar to Dashboard. 
+                const dateRef = l.last_contacted || l.updated_at || l.created_at;
+                if (!dateRef) return false;
+
+                const contactDate = new Date(dateRef);
                 if (dateRange.from && contactDate < dateRange.from) return false;
                 if (dateRange.to) {
                     const toDate = new Date(dateRange.to);
@@ -91,13 +107,29 @@ export default function WhatsappAnalyticsPage() {
             }
             if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSentCount++;
 
+            // Extended FollowUps
+            for (let i = 1; i <= 10; i++) {
+                if (l[`W.P_FollowUp_${i}`]) leadSentCount++;
+            }
+
             totalSent += leadSentCount;
 
-            // Count replies based on the W.P_Replied column (mapped to whatsapp_replied)
-            const hasReplied = l.whatsapp_replied &&
+            // Count replies based on rules
+            let hasReplied = false;
+            if (l.whatsapp_replied &&
                 l.whatsapp_replied !== "No" &&
                 l.whatsapp_replied !== "none" &&
-                String(l.whatsapp_replied).trim() !== "";
+                String(l.whatsapp_replied).trim() !== "") {
+                hasReplied = true;
+            } else {
+                for (let i = 1; i <= 10; i++) {
+                    const r = l[`W.P_Replied_${i}`];
+                    if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                        hasReplied = true;
+                        break;
+                    }
+                }
+            }
 
             if (hasReplied) {
                 repliedCount++;
@@ -119,8 +151,10 @@ export default function WhatsappAnalyticsPage() {
     const trendData = useMemo(() => {
         const groups: Record<string, { date: string, sent: number, replied: number }> = {};
         filteredLeads.forEach(l => {
-            if (!l.last_contacted) return;
-            const d = new Date(l.last_contacted).toLocaleDateString([], { month: 'short', day: 'numeric' });
+            const dateRef = l.last_contacted || l.updated_at || l.created_at;
+            if (!dateRef) return;
+
+            const d = new Date(dateRef).toLocaleDateString([], { month: 'short', day: 'numeric' });
             if (!groups[d]) groups[d] = { date: d, sent: 0, replied: 0 };
 
             let leadSent = 0;
@@ -129,8 +163,27 @@ export default function WhatsappAnalyticsPage() {
             }
             if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSent++;
 
+            // Extended FollowUps
+            for (let i = 1; i <= 10; i++) {
+                if (l[`W.P_FollowUp_${i}`]) leadSent++;
+            }
+
             groups[d].sent += leadSent;
+
+            let hasReplied = false;
             if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") {
+                hasReplied = true;
+            } else {
+                for (let i = 1; i <= 10; i++) {
+                    const r = l[`W.P_Replied_${i}`];
+                    if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                        hasReplied = true;
+                        break;
+                    }
+                }
+            }
+
+            if (hasReplied) {
                 groups[d].replied += 1;
             }
         });

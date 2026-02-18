@@ -65,15 +65,24 @@ export default function WhatsappDashboardPage() {
                 const rawData = await res.json();
                 const allLeads = consolidateLeads(rawData);
                 // Filter: only include leads that have actually been contacted via WhatsApp (matches leads page)
-                const whatsappContactedLeads = allLeads.filter(l => l.last_contacted && String(l.last_contacted).trim() !== "");
+                // Filter: only include leads that have actually been contacted via WhatsApp (matches leads page)
+                const whatsappContactedLeads = allLeads.filter(l => {
+                    const hasLegacy = l.last_contacted && String(l.last_contacted).trim() !== "";
+                    const hasExtended = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].some(i => l[`W.P_Replied_${i}`] || l[`W.P_FollowUp_${i}`]);
+                    return hasLegacy || hasExtended;
+                });
+
                 setLeads(whatsappContactedLeads);
 
                 // Apply Date Filtering
                 const filteredLeads = whatsappContactedLeads.filter((lead: any) => {
                     if (!dateRange?.from) return true;
-                    if (!lead.last_contacted) return false;
 
-                    const leadDate = new Date(lead.last_contacted);
+                    // Use updated_at or created_at if last_contacted is missing for extended leads
+                    const dateRef = lead.last_contacted || lead.updated_at || lead.created_at;
+                    if (!dateRef) return false;
+
+                    const leadDate = new Date(dateRef);
                     const from = new Date(dateRange.from);
                     from.setHours(0, 0, 0, 0);
                     const to = dateRange.to ? new Date(dateRange.to) : from;
@@ -89,17 +98,71 @@ export default function WhatsappDashboardPage() {
                 const dailyGroups: Record<string, { date: string, sent: number, replied: number }> = {};
 
                 filteredLeads.forEach((l: any) => {
-                    const hasWP = l.stages_passed?.some((s: string) => s.toLowerCase().includes("whatsapp")) ||
+                    let hasWP = l.stages_passed?.some((s: string) => s.toLowerCase().includes("whatsapp")) ||
                         (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") ||
                         [1, 2, 3, 4, 5, 6].some(i => l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) ||
                         l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"];
 
-                    if (hasWP) contactedCount++;
+                    // Check extended history for activity
+                    if (!hasWP) {
+                        for (let i = 1; i <= 10; i++) {
+                            if (l[`W.P_Replied_${i}`] || l[`W.P_FollowUp_${i}`]) {
+                                hasWP = true;
+                                break;
+                            }
+                        }
+                    }
 
-                    const isReplied = l.whatsapp_replied &&
+                    // Count total outgoing messages (Sent Count)
+                    let leadSentCount = 0;
+                    for (let i = 1; i <= 6; i++) {
+                        if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSentCount++;
+                    }
+                    if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSentCount++;
+
+                    // Extended FollowUps
+                    for (let i = 1; i <= 10; i++) {
+                        if (l[`W.P_FollowUp_${i}`]) leadSentCount++;
+                    }
+
+                    if (hasWP) contactedCount += leadSentCount; // Note: In the original logic, contactedCount seemed to be message count based on naming in MetricCard, but variable name implies leads.
+                    // Actually, looking at the code "contactedCount++;" in original, it was counting LEADS. 
+                    // BUT looking at MetricCard "Messages Sent" value={stats.contactedLeads}, it seems the user wants MESSAGES SENT there. 
+                    // However, the original code `if (hasWP) contactedCount++` counts LEADS. 
+                    // Let's stick to the previous behavior of counting LEADS if that's what it did, OR correct it?
+                    // Original Code: "Messages Sent" -> value={stats.contactedLeads} -> calculated as `if (hasWP) contactedCount++`.
+                    // This creates a discrepancy. The label says "Messages Sent" but the code counts "Contacted Leads".
+                    // The Chat page calculates "Messages Sent" as total pulses. 
+                    // The user said "fix the message sent and replies cards".
+                    // I should probably switch this to count MESSAGES, not leads, to match the label. 
+                    // Let's recalculate `contactedCount` to be total messages sent.
+
+                    // Wait, let's look at `contactedLeads` usage in the original code. 
+                    // It was passed to "Messages Sent" card.
+                    // The Chat page `stats.sentCount` sums up pulses.
+                    // I will change `contactedCount` to sum `leadSentCount`. 
+
+                    // Re-evaluated: The previous code was:
+                    // `if (hasWP) contactedCount++;` 
+                    // This was definitely counting Leads. 
+                    // But the label is "Messages Sent". 
+                    // I will change it to accumulate `leadSentCount` so it actually shows messages sent as per the label.
+
+                    let isReplied = l.whatsapp_replied &&
                         l.whatsapp_replied !== "No" &&
                         l.whatsapp_replied !== "none" &&
                         String(l.whatsapp_replied).trim() !== "";
+
+                    // Check extended replies
+                    if (!isReplied) {
+                        for (let i = 1; i <= 10; i++) {
+                            const r = l[`W.P_Replied_${i}`];
+                            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                                isReplied = true;
+                                break;
+                            }
+                        }
+                    }
 
                     if (isReplied) {
                         replyCount++;
@@ -108,15 +171,10 @@ export default function WhatsappDashboardPage() {
                     }
 
                     // For Trend
-                    if (l.last_contacted || l.created_at) {
-                        const d = new Date(l.last_contacted || l.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' });
+                    const dateRef = l.last_contacted || l.updated_at || l.created_at;
+                    if (dateRef) {
+                        const d = new Date(dateRef).toLocaleDateString([], { month: 'short', day: 'numeric' });
                         if (!dailyGroups[d]) dailyGroups[d] = { date: d, sent: 0, replied: 0 };
-
-                        let leadSentCount = 0;
-                        for (let i = 1; i <= 6; i++) {
-                            if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSentCount++;
-                        }
-                        if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSentCount++;
 
                         dailyGroups[d].sent += leadSentCount;
                         if (isReplied) dailyGroups[d].replied += 1;
@@ -125,18 +183,98 @@ export default function WhatsappDashboardPage() {
 
                 setStats({
                     totalLeads: filteredLeads.length,
-                    contactedLeads: contactedCount,
+                    contactedLeads: contactedCount, // Now this is actually Messages Sent count
                     totalReplies: replyCount,
                     replied: replyCount,
                     waiting: waitingCount,
                     nurture: 0,
-                    unresponsive: filteredLeads.length - contactedCount
+                    unresponsive: filteredLeads.length - (filteredLeads.filter((l: any) => {
+                        // Recalculate unique contacted leads for the "unresponsive" metric if needed, 
+                        // but "unresponsive" was `filteredLeads.length - contactedCount` (where contactedCount was leads).
+                        // Since I changed contactedCount to messages, I need a separate "unique leads" count?
+                        // Actually, let's just make `contactedLeads` strictly messages sent to match the UI label.
+                        // I will leave unresponsive as is for now, or just set it to 0 as it's a derived stat rarely used.
+                        return 0;
+                    }).length)
+                    // Correction: The Stats State has `contactedLeads`. 
+                    // If I change it to messages sent, `unresponsive` calc `filteredLeads.length - contactedCount` becomes negative.
+                    // I should probably track `uniqueContactedLeads` separate from `totalMessagesSent`.
+                });
+
+                // Let's do it cleanly:
+                // stats.contactedLeads -> map to "Messages Sent" in UI.
+
+                // Redo the loop slightly to be safer.
+
+                const finalStats = {
+                    totalLeads: filteredLeads.length,
+                    messagesSent: 0,
+                    uniqueLeadsContacted: 0,
+                    totalReplies: 0,
+                    waiting: 0,
+                    unresponsive: 0
+                };
+
+                filteredLeads.forEach((l: any) => {
+                    let leadSentCount = 0;
+                    for (let i = 1; i <= 6; i++) {
+                        if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSentCount++;
+                    }
+                    if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSentCount++;
+                    for (let i = 1; i <= 10; i++) {
+                        if (l[`W.P_FollowUp_${i}`]) leadSentCount++;
+                    }
+
+                    let hasWP = leadSentCount > 0;
+
+                    if (hasWP) {
+                        finalStats.messagesSent += leadSentCount;
+                        finalStats.uniqueLeadsContacted++;
+                    }
+
+                    let isReplied = false;
+                    if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none" && String(l.whatsapp_replied).trim() !== "") {
+                        isReplied = true;
+                    } else {
+                        for (let i = 1; i <= 10; i++) {
+                            const r = l[`W.P_Replied_${i}`];
+                            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                                isReplied = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (isReplied) {
+                        finalStats.totalReplies++;
+                    } else if (hasWP) {
+                        finalStats.waiting++;
+                    }
+
+                    // Trend
+                    const dateRef = l.last_contacted || l.updated_at || l.created_at;
+                    if (dateRef) {
+                        const d = new Date(dateRef).toLocaleDateString([], { month: 'short', day: 'numeric' });
+                        if (!dailyGroups[d]) dailyGroups[d] = { date: d, sent: 0, replied: 0 };
+                        dailyGroups[d].sent += leadSentCount;
+                        if (isReplied) dailyGroups[d].replied += 1;
+                    }
+                });
+
+                setStats({
+                    totalLeads: finalStats.totalLeads,
+                    contactedLeads: finalStats.messagesSent, // Map to messages sent
+                    totalReplies: finalStats.totalReplies,
+                    replied: finalStats.totalReplies,
+                    waiting: finalStats.waiting,
+                    nurture: 0,
+                    unresponsive: finalStats.totalLeads - finalStats.uniqueLeadsContacted
                 });
 
                 setDonutData([
-                    { name: 'Total Leads', value: filteredLeads.length, color: '#8b5cf6' },
-                    { name: 'Messages Sent', value: contactedCount, color: '#3b82f6' },
-                    { name: 'Total Replies', value: replyCount, color: '#10b981' },
+                    { name: 'Total Leads', value: finalStats.totalLeads, color: '#8b5cf6' },
+                    { name: 'Messages Sent', value: finalStats.messagesSent, color: '#3b82f6' },
+                    { name: 'Total Replies', value: finalStats.totalReplies, color: '#10b981' },
                 ]);
 
                 setTrendData(Object.values(dailyGroups)
@@ -154,7 +292,14 @@ export default function WhatsappDashboardPage() {
     }, [dateRange]);
 
     const repliedLeads = useMemo(() => {
-        return leads.filter(l => l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none");
+        return leads.filter(l => {
+            if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") return true;
+            for (let i = 1; i <= 10; i++) {
+                const r = l[`W.P_Replied_${i}`];
+                if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
+            }
+            return false;
+        });
     }, [leads]);
 
     return (
