@@ -387,7 +387,7 @@ export default function WhatsappChatPage() {
                                         <th className="px-4 py-3 text-center">Messages Sent</th>
                                         <th className="px-4 py-3 text-center">Status</th>
                                         <th className="px-4 py-3 text-center">Message Status</th>
-                                        <th className="px-4 py-3 text-right">Last Message Date</th>
+                                        <th className="px-4 py-3 text-right">Last Contacted</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
