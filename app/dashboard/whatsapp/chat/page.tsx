@@ -596,6 +596,26 @@ function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () =>
         if (dFollow && dFollow > latestDate) latestDate = dFollow;
     }
 
+    const formatTooltipDate = (date: Date | string) => {
+        const d = typeof date === 'string' ? new Date(date) : date;
+        if (isNaN(d.getTime())) return String(date);
+
+        const now = new Date();
+        const isToday = d.toDateString() === now.toDateString();
+
+        if (isToday) {
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        return d.toLocaleString([], {
+            day: 'numeric',
+            month: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    };
+
     return (
         <tr className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={onClick}>
             <td className="px-4 py-3">
@@ -623,7 +643,7 @@ function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () =>
                     </TooltipTrigger>
                     {hasReplied && (
                         <TooltipContent side="top" className="bg-slate-900 text-white text-[10px] border-none px-2 py-1">
-                            {latestDate.toLocaleString()}
+                            {formatTooltipDate(latestDate)}
                         </TooltipContent>
                     )}
                 </Tooltip>
@@ -647,7 +667,32 @@ function MessageStatusBadge({ index, status }: { index: number, status: string }
     // Parse status and timestamp
     const parts = status.split(' - ');
     const statusText = parts[0].trim();
-    const timestamp = parts.length > 1 ? parts[1].trim() : null;
+    const rawTimestamp = parts.length > 1 ? parts[1].trim() : null;
+
+    // Helper to format the hover time/date
+    const formatTooltipDate = (dateStr: string) => {
+        // Handle specialized format if it's already a string from backend
+        // Try to parse it as a date
+        const d = new Date(dateStr.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1')); // Basic YMD conversion for parsing
+        const finalDate = isNaN(d.getTime()) ? new Date(dateStr) : d;
+
+        if (isNaN(finalDate.getTime())) return dateStr;
+
+        const now = new Date();
+        const isToday = finalDate.toDateString() === now.toDateString();
+
+        if (isToday) {
+            return finalDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        return finalDate.toLocaleString([], {
+            day: 'numeric',
+            month: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    };
 
     // Format status text (capitalize)
     const formatted = statusText.charAt(0).toUpperCase() + statusText.slice(1).toLowerCase();
@@ -668,9 +713,9 @@ function MessageStatusBadge({ index, status }: { index: number, status: string }
                     </Badge>
                 </div>
             </TooltipTrigger>
-            {timestamp && (
+            {rawTimestamp && (
                 <TooltipContent side="top" className="bg-slate-900 text-white text-[10px] border-none px-2 py-1">
-                    {timestamp}
+                    {formatTooltipDate(rawTimestamp)}
                 </TooltipContent>
             )}
         </Tooltip>
