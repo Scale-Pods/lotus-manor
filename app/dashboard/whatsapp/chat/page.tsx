@@ -642,7 +642,7 @@ function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () =>
                         </div>
                     </TooltipTrigger>
                     {hasReplied && (
-                        <TooltipContent side="top" className="bg-slate-900 text-white text-[10px] border-none px-2 py-1">
+                        <TooltipContent side="top" className="bg-slate-800/40 backdrop-blur-md text-white text-[10px] border-none px-2 py-1 shadow-xl">
                             {formatTooltipDate(latestDate)}
                         </TooltipContent>
                     )}
@@ -714,7 +714,7 @@ function MessageStatusBadge({ index, status }: { index: number, status: string }
                 </div>
             </TooltipTrigger>
             {rawTimestamp && (
-                <TooltipContent side="top" className="bg-slate-900 text-white text-[10px] border-none px-2 py-1">
+                <TooltipContent side="top" className="bg-slate-800/40 backdrop-blur-md text-white text-[10px] border-none px-2 py-1 shadow-xl">
                     {formatTooltipDate(rawTimestamp)}
                 </TooltipContent>
             )}
