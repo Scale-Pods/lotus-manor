@@ -23,6 +23,12 @@ import {
 } from "lucide-react";
 import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
 import { WhatsAppChatDetail } from "@/components/dashboard/whatsapp-chat-detail";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export default function WhatsappChatPage() {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
@@ -379,23 +385,25 @@ export default function WhatsappChatPage() {
                                 No WhatsApp chats found.
                             </div>
                         ) : (
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
-                                    <tr>
-                                        <th className="px-4 py-3">Lead</th>
-                                        <th className="px-4 py-3 text-center">Loop</th>
-                                        <th className="px-4 py-3 text-center">Messages Sent</th>
-                                        <th className="px-4 py-3 text-center">Status</th>
-                                        <th className="px-4 py-3 text-center">Message Status</th>
-                                        <th className="px-4 py-3 text-right">Last Contacted</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {paginatedLeads.map((lead) => (
-                                        <CustomerRow key={lead.id} lead={lead} onClick={() => setSelectedLeadId(lead.id)} />
-                                    ))}
-                                </tbody>
-                            </table>
+                            <TooltipProvider>
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                                        <tr>
+                                            <th className="px-4 py-3">Lead</th>
+                                            <th className="px-4 py-3 text-center">Loop</th>
+                                            <th className="px-4 py-3 text-center">Messages Sent</th>
+                                            <th className="px-4 py-3 text-center">Status</th>
+                                            <th className="px-4 py-3 text-center">Message Status</th>
+                                            <th className="px-4 py-3 text-right">Last Contacted</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {paginatedLeads.map((lead) => (
+                                            <CustomerRow key={lead.id} lead={lead} onClick={() => setSelectedLeadId(lead.id)} />
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </TooltipProvider>
                         )}
 
                         {/* Pagination Controls */}
@@ -603,11 +611,22 @@ function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () =>
             </td>
             <td className="px-4 py-3 text-center font-bold text-slate-700">{sentCount}</td>
             <td className="px-4 py-3 text-center">
-                {hasReplied ? (
-                    <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none text-[10px] font-bold">REPLIED</Badge>
-                ) : (
-                    <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-200">SENT</Badge>
-                )}
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div>
+                            {hasReplied ? (
+                                <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none text-[10px] font-bold">REPLIED</Badge>
+                            ) : (
+                                <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-200">SENT</Badge>
+                            )}
+                        </div>
+                    </TooltipTrigger>
+                    {hasReplied && (
+                        <TooltipContent side="top" className="bg-slate-900 text-white text-[10px] border-none px-2 py-1">
+                            {latestDate.toLocaleString()}
+                        </TooltipContent>
+                    )}
+                </Tooltip>
             </td>
             <td className="px-4 py-3 text-center">
                 <div className="flex flex-col items-center gap-1.5">
@@ -625,8 +644,13 @@ function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () =>
 function MessageStatusBadge({ index, status }: { index: number, status: string }) {
     if (!status) return null;
 
+    // Parse status and timestamp
+    const parts = status.split(' - ');
+    const statusText = parts[0].trim();
+    const timestamp = parts.length > 1 ? parts[1].trim() : null;
+
     // Format status text (capitalize)
-    const formatted = status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+    const formatted = statusText.charAt(0).toUpperCase() + statusText.slice(1).toLowerCase();
 
     // Determine color
     let badgeClass = "bg-slate-100 text-slate-600 border-slate-200"; // default/sent
@@ -635,11 +659,20 @@ function MessageStatusBadge({ index, status }: { index: number, status: string }
     if (formatted.includes("Failed")) badgeClass = "bg-red-50 text-red-700 border-red-100";
 
     return (
-        <div className="flex items-center gap-1.5 w-full justify-center">
-            <span className="text-[9px] text-slate-300 font-mono select-none">{index}</span>
-            <Badge variant="outline" className={`h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
-                {formatted}
-            </Badge>
-        </div>
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <div className="flex items-center gap-1.5 w-full justify-center cursor-help">
+                    <span className="text-[9px] text-slate-400 font-mono select-none">{index}</span>
+                    <Badge variant="outline" className={`h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
+                        {formatted}
+                    </Badge>
+                </div>
+            </TooltipTrigger>
+            {timestamp && (
+                <TooltipContent side="top" className="bg-slate-900 text-white text-[10px] border-none px-2 py-1">
+                    {timestamp}
+                </TooltipContent>
+            )}
+        </Tooltip>
     );
 }
