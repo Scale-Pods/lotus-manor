@@ -25,6 +25,7 @@ export interface ConsolidatedLead {
     whatsapp_replied?: string;
     "W.P_1 TS"?: string;
     "W.P_2 TS"?: string;
+    unsubscribed?: string;
     [key: string]: any;
 }
 
@@ -117,6 +118,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
                 "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
+                unsubscribed: getVal(l, ["Unsubscribed", "Unsubscribed text"]) || "No",
                 ...getWhatsAppHistory(l)
             });
         });
@@ -172,6 +174,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
                 "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
+                unsubscribed: getVal(l, ["Unsubscribed", "Unsubscribed text"]) || "No",
                 ...getWhatsAppHistory(l)
             });
         });
@@ -242,6 +245,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
                 "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
+                unsubscribed: getVal(l, ["Unsubscribed", "Unsubscribed text"]) || "No",
                 ...getWhatsAppHistory(l)
             });
         });

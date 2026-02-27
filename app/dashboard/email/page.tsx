@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Mail, Send, Inbox, LayoutDashboard, RefreshCw, BarChart2 } from "lucide-react";
+import { Mail, Send, Inbox, LayoutDashboard, RefreshCw, BarChart2, UserMinus, ChevronDown, ChevronUp } from "lucide-react";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,6 +22,7 @@ export default function EmailDashboardPage() {
         firstEmail: 0,
         responseRate: "0%",
         totalReplies: 0,
+        totalUnsubscribed: 0,
         introCounts: [0, 0, 0],       // Email 1-3
         followUpCounts: [0, 0, 0],    // Email 4-6
         nurtureCounts: [0, 0, 0, 0, 0, 0, 0, 0, 0], // Email 7-15
@@ -31,6 +32,9 @@ export default function EmailDashboardPage() {
             nurture: 0
         }
     });
+
+    const [unsubscribedLeads, setUnsubscribedLeads] = useState<any[]>([]);
+    const [isUnsubscribedExpanded, setIsUnsubscribedExpanded] = useState(false);
 
     useEffect(() => {
         const calculateStats = async () => {
@@ -57,6 +61,8 @@ export default function EmailDashboardPage() {
 
                 let totalEmails = 0;
                 let replyCount = 0;
+                let unsubscribedCount = 0;
+                let unsubsLeads: any[] = [];
 
                 const intro = [0, 0, 0];
                 const followUp = [0, 0, 0];
@@ -98,6 +104,11 @@ export default function EmailDashboardPage() {
                     if (lead.replied && lead.replied !== "No") {
                         replyCount++;
                     }
+
+                    if (lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes")) {
+                        unsubscribedCount++;
+                        unsubsLeads.push(lead);
+                    }
                 });
 
                 setData({
@@ -105,6 +116,7 @@ export default function EmailDashboardPage() {
                     firstEmail: intro[0],
                     responseRate: leads.length > 0 ? ((replyCount / leads.length) * 100).toFixed(1) + "%" : "0%",
                     totalReplies: replyCount,
+                    totalUnsubscribed: unsubscribedCount,
                     introCounts: intro,
                     followUpCounts: followUp,
                     nurtureCounts: nurture,
@@ -114,6 +126,7 @@ export default function EmailDashboardPage() {
                         nurture: nurture.reduce((a, b) => a + b, 0)
                     }
                 });
+                setUnsubscribedLeads(unsubsLeads);
 
             } catch (e) {
                 console.error("Dashboard fetch error", e);
@@ -153,7 +166,7 @@ export default function EmailDashboardPage() {
             </div>
 
             {/* Top Metrics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 <MetricCard
                     title="Total Emails"
                     subtitle={dateSubtitle}
@@ -203,7 +216,70 @@ export default function EmailDashboardPage() {
                     bg="bg-sky-50"
                     onClick={() => router.push('/dashboard/email/received')}
                 />
+
+                <MetricCard
+                    title="Unsubscribed"
+                    subtitle="All time"
+                    value={data.totalUnsubscribed}
+                    icon={<UserMinus className="h-6 w-6 text-rose-600" />}
+                    bg="bg-rose-50"
+                    onClick={() => setIsUnsubscribedExpanded(!isUnsubscribedExpanded)}
+                    extra={isUnsubscribedExpanded ? <ChevronUp className="h-4 w-4 ml-2" /> : <ChevronDown className="h-4 w-4 ml-2" />}
+                />
             </div>
+
+            {/* Expandable Unsubscribed List */}
+            {isUnsubscribedExpanded && (
+                <Card className="border-rose-100 bg-rose-50/30 overflow-hidden animate-in slide-in-from-top-4 duration-300">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-bold flex items-center gap-2">
+                            <UserMinus className="h-4 w-4 text-rose-600" />
+                            Unsubscribed Leads Details
+                        </CardTitle>
+                        <CardDescription>
+                            Showing {unsubscribedLeads.length} leads who have unsubscribed
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-rose-100 text-rose-900 font-semibold">
+                                        <th className="text-left py-3 px-4">Name</th>
+                                        <th className="text-left py-3 px-4">Email ID</th>
+                                        <th className="text-left py-3 px-4">Status</th>
+                                        <th className="text-left py-3 px-4">Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {unsubscribedLeads.length > 0 ? (
+                                        unsubscribedLeads.map((lead, idx) => (
+                                            <tr key={lead.id || idx} className="border-b border-rose-50/50 hover:bg-rose-50/50 transition-colors">
+                                                <td className="py-3 px-4 font-medium">{lead.name}</td>
+                                                <td className="py-3 px-4 text-slate-600">{lead.email}</td>
+                                                <td className="py-3 px-4">
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
+                                                        Unsubscribed
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 px-4 text-slate-500">
+                                                    {lead.created_at ? new Date(lead.created_at).toLocaleDateString() : 'N/A'}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    ) : (
+                                        <tr>
+                                            <td colSpan={4} className="py-8 text-center text-slate-500">
+                                                No unsubscribed leads found for the selected range.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Campaign Breakdown with Tabs */}
             <div className="space-y-4">
@@ -278,8 +354,11 @@ function MetricCard({ title, subtitle, value, icon, bg, onClick }: any) {
             onClick={onClick}
         >
             <CardContent className="p-6 flex items-center justify-between">
-                <div>
-                    <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
+                <div className="flex-1">
+                    <div className="flex items-center">
+                        <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
+                        {arguments[0].extra}
+                    </div>
                     <p className="text-sm font-bold text-slate-900">{title}</p>
                     <p className="text-xs text-slate-500">{subtitle}</p>
                 </div>

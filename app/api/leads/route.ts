@@ -1,14 +1,18 @@
 import { NextResponse } from 'next/server';
 
-export async function GET() {
-    // Ensure we are using the correct REST endpoint structure
-    const projectRef = "awflugnwzukejohfqkrr";
-    const baseUrl = `https://${projectRef}.supabase.co/rest/v1`;
-    const secretKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-    if (!secretKey) {
-        console.error("Critical Error: SUPABASE_SERVICE_ROLE_KEY is missing in env.");
+export async function GET() {
+    // Dynamically get Supabase config from env
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+    const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+
+    if (!supabaseUrl || !secretKey) {
+        console.error("Critical Error: Supabase config is missing in env.");
+        return NextResponse.json({ error: "Config missing" }, { status: 500 });
     }
+
+    // Ensure we have the base URL without trailing slash
+    const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
 
     const headers = {
         "apikey": secretKey,
@@ -19,22 +23,25 @@ export async function GET() {
     const fetchTable = async (tableName: string) => {
         // Construct URL without potential double slashes
         const url = `${baseUrl}/${tableName}?select=*`;
-        console.log(`Fetching from Supabase: ${url}`);
+
+        // Legacy AbortController for Node 22 compatibility
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
 
         try {
             const response = await fetch(url, {
                 headers,
                 cache: 'no-store',
-                // Adding redirect: 'follow' (default) but being explicit
-                redirect: 'follow'
+                redirect: 'follow',
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             const contentType = response.headers.get("content-type");
 
-            // If we get HTML, something is wrong with the auth or URL
             if (contentType && contentType.includes("text/html")) {
                 const htmlSnippet = (await response.text()).substring(0, 200);
-                console.error(`Error: HTML returned from ${tableName}. Check API keys/URL. Snippet: ${htmlSnippet}`);
+                console.error(`Error: HTML returned from ${tableName}. Snippet: ${htmlSnippet}`);
                 return [];
             }
 
@@ -45,9 +52,15 @@ export async function GET() {
             }
 
             const data = await response.json();
+            console.log(`Successfully fetched ${tableName}: ${Array.isArray(data) ? data.length : 0} records`);
             return Array.isArray(data) ? data : [];
-        } catch (err) {
-            console.error(`Fetch error for ${tableName}:`, err);
+        } catch (err: any) {
+            clearTimeout(timeoutId);
+            if (err.name === 'AbortError') {
+                console.error(`Timeout error for ${tableName}: Request aborted after 60s.`);
+            } else {
+                console.error(`Fetch error for ${tableName}:`, err);
+            }
             return [];
         }
     };
