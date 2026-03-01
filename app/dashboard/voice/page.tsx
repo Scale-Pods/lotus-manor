@@ -27,7 +27,9 @@ export default function VoiceDashboardPage() {
         totalCost: 0,
         avgCost: 0,
         successRate: 0,
-        completedCalls: 0
+        completedCalls: 0,
+        characterCount: 0,
+        characterLimit: 0
     });
     const [allCalls, setAllCalls] = useState<any[]>([]);
     const [dailyVolume, setDailyVolume] = useState<any[]>([]);
@@ -39,10 +41,26 @@ export default function VoiceDashboardPage() {
         const fetchAllData = async () => {
             setLoading(true);
             try {
-                const res = await fetch('/api/calls');
-                if (!res.ok) throw new Error("Failed to fetch calls");
-                const calls = await res.json();
+                // Fetch calls and exact balance simultaneously
+                const [callsRes, balanceRes] = await Promise.all([
+                    fetch('/api/calls'),
+                    fetch('/api/vapi/balance') // Mapped to our ElevenLabs user endpoint
+                ]);
+
+                if (!callsRes.ok) throw new Error("Failed to fetch calls");
+
+                const calls = await callsRes.json();
                 setAllCalls(calls);
+
+                // Update real-time capacity stats independently
+                if (balanceRes.ok) {
+                    const balance = await balanceRes.json();
+                    setStats(prev => ({
+                        ...prev,
+                        characterCount: balance.character_count || 0,
+                        characterLimit: balance.character_limit || 0
+                    }));
+                }
             } catch (error) {
                 console.error("Error fetching voice data:", error);
             } finally {
@@ -67,35 +85,46 @@ export default function VoiceDashboardPage() {
         // Filter by date range if set
         const filteredCalls = allCalls.filter((call: any) => {
             if (!dateRange?.from) return true;
-            if (!call.startedAt) return false;
-            const callDate = new Date(call.startedAt);
+
+            // Get date from Vapi or ElevenLabs
+            const dateStr = call.startedAt || (call.start_time_unix_secs ? new Date(call.start_time_unix_secs * 1000).toISOString() : null);
+            if (!dateStr) return false;
+
+            const callDate = new Date(dateStr);
             const from = startOfDay(new Date(dateRange.from));
             const to = dateRange.to ? startOfDay(new Date(dateRange.to)) : from;
-            // Adjust 'to' to end of day? ensuring inclusive comparison
             to.setHours(23, 59, 59, 999);
 
             return callDate >= from && callDate <= to;
         });
 
         filteredCalls.forEach((call: any) => {
-            // Metrics
-            if (call.status === 'ended' || call.status === 'completed') {
-                completed++;
-                // Assume success if no error reported or status is completed with normal end reason
-                if (call.endedReason !== 'error') successCount++;
+            // Normalize ElevenLabs fields from the /api/calls endpoint
+            const status = call.status;
+            const startedAtDate = call.startedAt ? new Date(call.startedAt) : null;
+            const duration = call.durationSeconds || 0;
+
+            // Extract numeric credits from string like "176 credits" or fallback to 0
+            let cost = 0;
+            if (typeof call.cost === 'string' && call.cost.includes('credits')) {
+                cost = parseInt(call.cost.replace(/\D/g, '')) || 0;
+            } else if (typeof call.cost === 'number') {
+                cost = call.cost;
             }
 
-            const duration = calculateDuration(call);
-            const cost = call.cost || 0;
+            // Metrics
+            if (status === 'done' || status === 'ended' || status === 'completed' || status === 'success') {
+                completed++;
+                successCount++;
+            }
 
             totalDuration += duration;
             totalCost += cost;
 
             // Charts processing
-            if (call.startedAt) {
-                const date = parseISO(call.startedAt);
-                const dayKey = format(date, 'MMM dd');
-                const hour = getHours(date);
+            if (startedAtDate) {
+                const dayKey = format(startedAtDate, 'MMM dd');
+                const hour = getHours(startedAtDate);
 
                 dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
                 hourMap[hour]++;
@@ -107,7 +136,8 @@ export default function VoiceDashboardPage() {
         const avgCost = totalCalls > 0 ? totalCost / totalCalls : 0;
         const successRate = totalCalls > 0 ? (successCount / totalCalls) * 100 : 0;
 
-        setStats({
+        setStats(prev => ({
+            ...prev,
             totalCalls,
             totalDuration,
             avgDuration,
@@ -115,12 +145,17 @@ export default function VoiceDashboardPage() {
             avgCost,
             successRate,
             completedCalls: completed
-        });
+        }));
 
-        // Format Daily Volume
-        const dailyData = Array.from(dayMap.entries()).map(([name, calls]) => ({ name, calls }));
-        // Sort by date roughly (if needed, simplified here)
-        setDailyVolume(dailyData.reverse().slice(0, 7).reverse()); // Show last 7 days
+        // Format Daily Volume - Ensure chronological order
+        const dailyData = Array.from(dayMap.entries())
+            .map(([name, calls]) => ({ name, calls }))
+            .sort((a, b) => {
+                const dateA = new Date(`${a.name} ${new Date().getFullYear()}`).getTime();
+                const dateB = new Date(`${b.name} ${new Date().getFullYear()}`).getTime();
+                return dateA - dateB;
+            });
+        setDailyVolume(dailyData.slice(-7)); // Show last 7 days
 
         // Format Hourly Distribution
         const hourlyData = hourMap.map((calls, hour) => ({
@@ -153,7 +188,7 @@ export default function VoiceDashboardPage() {
             </div>
 
             {/* Metrics Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <MetricCard
                     title="Total Executions"
                     value={`${stats.totalCalls} calls`}
@@ -166,24 +201,15 @@ export default function VoiceDashboardPage() {
                     icon={<Clock className="h-5 w-5 text-slate-600" />}
                 />
                 <MetricCard
+                    title="Real-Time Credits Used"
+                    value={`${stats.characterCount.toLocaleString()}`}
+                    badge={`of ${stats.characterLimit.toLocaleString()} max`}
+                    icon={<DollarSign className="h-5 w-5 text-slate-600" />}
+                />
+                <MetricCard
                     title="Average Duration"
                     value={`${Math.round(stats.avgDuration)}s`}
                     icon={<Timer className="h-5 w-5 text-slate-600" />}
-                />
-                <MetricCard
-                    title="Total Cost"
-                    value={`$${stats.totalCost.toFixed(2)}`}
-                    icon={<DollarSign className="h-5 w-5 text-slate-600" />}
-                />
-                <MetricCard
-                    title="Average Cost"
-                    value={`$${stats.avgCost.toFixed(2)}`}
-                    icon={<DollarSign className="h-5 w-5 text-slate-600" />}
-                />
-                <MetricCard
-                    title="Success Rate"
-                    value={`${Math.round(stats.successRate)}%`}
-                    icon={<TrendingUp className="h-5 w-5 text-slate-600" />}
                 />
             </div>
 

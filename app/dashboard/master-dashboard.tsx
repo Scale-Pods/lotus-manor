@@ -59,7 +59,8 @@ export default function MasterDashboard() {
         totalWhatsApp: 0,
         totalVoice: 0,
         totalReplies: 0,
-        voiceMinutes: 0
+        voiceMinutes: 0,
+        totalVoiceCalls: 0
     });
     const [loading, setLoading] = useState(true);
 
@@ -200,8 +201,9 @@ export default function MasterDashboard() {
 
                 setAcquisitionChartData(chartData);
 
-                // Fetch Vapi Calls for real minutes
+                // Fetch Vapi Calls for real minutes and total actual calls
                 let totalVoiceSeconds = 0;
+                let totalVoiceCallsCount = 0;
                 try {
                     const callsRes = await fetch('/api/calls');
                     if (callsRes.ok) {
@@ -221,6 +223,7 @@ export default function MasterDashboard() {
                                 return callDate >= from && callDate <= to;
                             });
                             totalVoiceSeconds = filteredCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
+                            totalVoiceCallsCount = filteredCalls.length;
                         }
                     }
                 } catch (err) {
@@ -302,6 +305,7 @@ export default function MasterDashboard() {
                     totalWhatsApp: whatsappCount,
                     totalVoice: voiceCount,
                     voiceMinutesString: formatDuration(totalVoiceSeconds),
+                    totalVoiceCalls: totalVoiceCallsCount,
                     totalReplies: replyCount
                 } as any);
 
@@ -372,9 +376,9 @@ export default function MasterDashboard() {
                     onClick={() => router.push('/dashboard/whatsapp/chat')}
                 />
                 <MetricCard
-                    title="Total Voice Minutes"
-                    value={loading ? "..." : (stats as any).voiceMinutesString}
-                    change="Live from Vapi"
+                    title="Total Voice Calls"
+                    value={loading ? "..." : (stats as any).totalVoiceCalls?.toLocaleString() || "0"}
+                    change="Real-time"
                     isUp={true}
                     icon={<Activity className="h-6 w-6" />}
                     color="text-orange-600"

@@ -39,17 +39,34 @@ export default function VoiceAnalyticsPage() {
         totalCalls: 0,
         avgDuration: 0,
         totalCost: 0,
-        successRate: 0
+        successRate: 0,
+        typesData: [],
+        characterCount: 0,
+        characterLimit: 0
     });
 
     useEffect(() => {
         const fetchAllData = async () => {
             setLoading(true);
             try {
-                const res = await fetch('/api/calls');
-                if (!res.ok) throw new Error("Failed");
-                const fetchedCalls = await res.json();
+                const [callsRes, balanceRes] = await Promise.all([
+                    fetch('/api/calls'),
+                    fetch('/api/vapi/balance')
+                ]);
+
+                if (!callsRes.ok) throw new Error("Failed");
+
+                const fetchedCalls = await callsRes.json();
                 setAllCalls(fetchedCalls);
+
+                if (balanceRes.ok) {
+                    const balance = await balanceRes.json();
+                    setStats(prev => ({
+                        ...prev,
+                        characterCount: balance.character_count || 0,
+                        characterLimit: balance.character_limit || 0
+                    }));
+                }
             } catch (err) {
                 console.error("Fetch error", err);
             } finally {
@@ -63,8 +80,12 @@ export default function VoiceAnalyticsPage() {
         // Filter by date range if set
         const filteredCalls = allCalls.filter((call: any) => {
             if (!dateRange?.from) return true;
-            if (!call.startedAt) return false;
-            const callDate = new Date(call.startedAt);
+
+            // Normalize startedAt for filtering
+            const dateStr = call.startedAt || (call.start_time_unix_secs ? new Date(call.start_time_unix_secs * 1000).toISOString() : null);
+            if (!dateStr) return false;
+
+            const callDate = new Date(dateStr);
             const from = startOfDay(new Date(dateRange.from));
             const to = dateRange.to ? startOfDay(new Date(dateRange.to)) : from;
             to.setHours(23, 59, 59, 999);
@@ -79,26 +100,47 @@ export default function VoiceAnalyticsPage() {
     const processAnalytics = (data: any[]) => {
         // Quick Stats
         const totalCalls = data.length;
-        const totalDuration = data.reduce((acc: number, c: any) => acc + calculateDuration(c), 0);
-        const totalCost = data.reduce((acc: number, c: any) => acc + (c.cost || 0), 0);
-        const successCount = data.filter((c: any) => c.status === 'ended' || c.status === 'completed').length;
 
-        setStats({
-            totalCalls,
-            avgDuration: totalCalls > 0 ? totalDuration / totalCalls : 0,
-            totalCost,
-            successRate: totalCalls > 0 ? Math.round((successCount / totalCalls) * 100) : 0
-        });
+        let totalDuration = 0;
+        let totalCredits = 0;
+        let successCount = 0;
 
-        // Charts
         const dayMap = new Map();
         const durationBuckets = { '0-30s': 0, '30s-1m': 0, '1m-2m': 0, '2m-5m': 0, '5m+': 0 };
+        const typesMap = new Map();
 
         data.forEach(call => {
-            const time = call.startedAt ? format(parseISO(call.startedAt), 'MMM dd') : 'N/A';
-            dayMap.set(time, (dayMap.get(time) || 0) + 1);
+            const dateStr = call.startedAt || null;
+            const time = dateStr ? format(new Date(dateStr), 'MMM dd') : 'N/A';
+            const dur = call.durationSeconds || 0;
 
-            const dur = calculateDuration(call);
+            // Parse credits correctly
+            let cost = 0;
+            if (typeof call.cost === 'string' && call.cost.includes('credits')) {
+                cost = parseInt(call.cost.replace(/\D/g, '')) || 0;
+            } else if (typeof call.cost === 'number') {
+                cost = call.cost;
+            }
+
+            if (call.status === 'done' || call.status === 'ended' || call.status === 'completed' || call.status === 'success') {
+                successCount++;
+            }
+
+            totalDuration += dur;
+            totalCredits += cost;
+
+            // Types mapping
+            const rawType = call.type || call.call_type || call.metadata?.call_type;
+            const typeLabel = rawType === 'inbound' ? 'Inbound' : (rawType === 'outbound' || rawType === 'campaign' ? 'Outbound' : 'Web Call');
+            typesMap.set(typeLabel, (typesMap.get(typeLabel) || 0) + 1);
+
+            // Chart maps
+            const dayObj = dayMap.get(time) || { calls: 0, credits: 0 };
+            dayMap.set(time, {
+                calls: dayObj.calls + 1,
+                credits: dayObj.credits + cost
+            });
+
             if (dur < 30) durationBuckets['0-30s']++;
             else if (dur < 60) durationBuckets['30s-1m']++;
             else if (dur < 120) durationBuckets['1m-2m']++;
@@ -106,24 +148,33 @@ export default function VoiceAnalyticsPage() {
             else durationBuckets['5m+']++;
         });
 
+        setStats(prev => ({
+            ...prev,
+            totalCalls,
+            avgDuration: totalCalls > 0 ? totalDuration / totalCalls : 0,
+            totalCost: totalCredits,
+            successRate: totalCalls > 0 ? Math.round((successCount / totalCalls) * 100) : 0,
+            typesData: Array.from(typesMap.entries()) as any
+        }));
+
+        // Ensure chronological sort for charts
+        const sortedDays = Array.from(dayMap.entries()).sort((a, b) => {
+            const dateA = new Date(`${a[0]} ${new Date().getFullYear()}`).getTime();
+            const dateB = new Date(`${b[0]} ${new Date().getFullYear()}`).getTime();
+            return dateA - dateB;
+        });
+
         // Volume Chart (Line)
-        const vData = Array.from(dayMap.entries()).map(([name, value]) => ({ name, value })).reverse();
+        const vData = sortedDays.map(([name, obj]) => ({ name, value: obj.calls }));
         setVolumeData(vData);
 
         // Duration Chart (Bar)
         const dData = Object.entries(durationBuckets).map(([name, value]) => ({ name, value }));
         setDurationData(dData);
 
-        // Cost Chart (Placeholder logic: divide cost over buckets or days. Using Volume days for simplicty)
-        // If we want detailed cost over time, we'd recalc aggregations. 
-        // For now, let's map volume days to cost for those days.
-        const cData = Array.from(dayMap.keys()).map(day => {
-            const dayCost = data.filter(c => c.startedAt && format(parseISO(c.startedAt), 'MMM dd') === day)
-                .reduce((acc, c) => acc + (c.cost || 0), 0);
-            return { name: day, value: parseFloat(dayCost.toFixed(2)) };
-        }).reverse();
+        // Credits Analysis mapped
+        const cData = sortedDays.map(([name, obj]) => ({ name, value: obj.credits }));
         setCostData(cData);
-
     };
 
     if (loading) {
@@ -144,26 +195,14 @@ export default function VoiceAnalyticsPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
-
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="w-[150px] bg-white">
-                            <SelectValue placeholder="Status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Status</SelectItem>
-                            <SelectItem value="completed">Completed</SelectItem>
-                            <SelectItem value="failed">Failed</SelectItem>
-                        </SelectContent>
-                    </Select>
                 </div>
             </div>
 
             {/* Key Metric Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="Total Calls" value={stats.totalCalls} change="+0%" icon={<Phone className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
-                <StatCard title="Avg Duration" value={`${Math.round(stats.avgDuration)}s`} change="0%" icon={<Clock className="h-5 w-5" />} color="text-purple-600" bg="bg-purple-50" />
-                <StatCard title="Total Cost" value={`$${stats.totalCost.toFixed(2)}`} change="+0%" icon={<DollarSign className="h-5 w-5" />} color="text-emerald-600" bg="bg-emerald-50" />
-                <StatCard title="Success Rate" value={`${stats.successRate}%`} change="+0%" icon={<CheckCircle className="h-5 w-5" />} color="text-orange-600" bg="bg-orange-50" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <StatCard title="Total Calls" value={stats.totalCalls} change="Historical" icon={<Phone className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
+                <StatCard title="Avg Duration" value={`${Math.round(stats.avgDuration)}s`} change="All Time" icon={<Clock className="h-5 w-5" />} color="text-purple-600" bg="bg-purple-50" />
+                <StatCard title="Real-Time Credits Used" value={stats.characterCount.toLocaleString()} change={`Max: ${stats.characterLimit.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} color="text-emerald-600" bg="bg-emerald-50" />
             </div>
 
             {/* Charts Section */}
@@ -208,10 +247,10 @@ export default function VoiceAnalyticsPage() {
                     </CardContent>
                 </Card>
 
-                {/* Cost Analysis */}
+                {/* Cost Analysis -> Credits Usage */}
                 <Card className="border-slate-200">
                     <CardHeader>
-                        <CardTitle className="text-lg">Cost Analysis</CardTitle>
+                        <CardTitle className="text-lg">Credits Usage</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="w-full h-[300px]">
@@ -225,8 +264,8 @@ export default function VoiceAnalyticsPage() {
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                                    <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${value}`} />
-                                    <Tooltip formatter={(value) => [`$${value}`, 'Cost']} />
+                                    <YAxis axisLine={false} tickLine={false} />
+                                    <Tooltip formatter={(value) => [`${value} credits`, 'Used']} />
                                     <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorCost)" />
                                 </AreaChart>
                             </ResponsiveContainer>
@@ -240,33 +279,29 @@ export default function VoiceAnalyticsPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <Card className="border-slate-200">
                         <CardHeader>
-                            <CardTitle className="text-lg">Top Call Reasons</CardTitle>
+                            <CardTitle className="text-lg">Call Sources Volume</CardTitle>
                         </CardHeader>
                         <CardContent>
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Topic</TableHead>
+                                        <TableHead>Channel Type</TableHead>
                                         <TableHead className="text-right">Volume</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    <TableRow>
-                                        <TableCell className="font-medium">Appointment Booking</TableCell>
-                                        <TableCell className="text-right font-bold">45</TableCell>
-                                    </TableRow>
-                                    <TableRow>
-                                        <TableCell className="font-medium">General Inquiry</TableCell>
-                                        <TableCell className="text-right font-bold">30</TableCell>
-                                    </TableRow>
-                                    <TableRow>
-                                        <TableCell className="font-medium">Reschedule</TableCell>
-                                        <TableCell className="text-right font-bold">10</TableCell>
-                                    </TableRow>
-                                    <TableRow>
-                                        <TableCell className="font-medium">Cancellation</TableCell>
-                                        <TableCell className="text-right font-bold">5</TableCell>
-                                    </TableRow>
+                                    {/* @ts-ignore */}
+                                    {(stats.typesData || []).map((typeTuple: any, i: number) => (
+                                        <TableRow key={i}>
+                                            <TableCell className="font-medium">{typeTuple[0]}</TableCell>
+                                            <TableCell className="text-right font-bold">{typeTuple[1]}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                    {(!stats.typesData || stats.typesData.length === 0) && (
+                                        <TableRow>
+                                            <TableCell colSpan={2} className="text-center py-4 text-slate-500">No data available for this range</TableCell>
+                                        </TableRow>
+                                    )}
                                 </TableBody>
                             </Table>
                         </CardContent>

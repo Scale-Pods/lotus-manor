@@ -12,6 +12,8 @@ export default function CredentialsPage() {
     const [senderEmails, setSenderEmails] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const [voiceBalance, setVoiceBalance] = useState<any>(null);
+
     React.useEffect(() => {
         const fetchEmails = async () => {
             try {
@@ -30,7 +32,21 @@ export default function CredentialsPage() {
                 setLoading(false);
             }
         };
+
+        const fetchVoiceBalance = async () => {
+            try {
+                const res = await fetch('/api/vapi/balance');
+                if (res.ok) {
+                    const data = await res.json();
+                    setVoiceBalance(data);
+                }
+            } catch (err) {
+                console.error("Error fetching voice balance:", err);
+            }
+        };
+
         fetchEmails();
+        fetchVoiceBalance();
     }, []);
 
     return (
@@ -81,34 +97,36 @@ export default function CredentialsPage() {
 
                 {/* Voice Section */}
                 <CredentialSection
-                    title="Voice Agent (Vapi)"
-                    description="Vapi.ai credentials and wallet management."
+                    title="Voice Agent (ElevenLabs)"
+                    description="ElevenLabs.io credentials and subscription management."
                     icon={Mic}
                     iconColor="text-blue-600"
                     iconBg="bg-blue-50"
                     action={
-                        <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2" onClick={() => window.open('https://dashboard.vapi.ai/billing', '_blank')}>
+                        <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2" onClick={() => window.open('https://elevenlabs.io/app/subscription', '_blank')}>
                             <Wallet className="h-4 w-4" />
-                            Add Funds
+                            Manage Subscription
                         </Button>
                     }
                 >
                     <div className="space-y-6">
-
-
                         <div className="bg-slate-50 rounded-lg p-4 border border-slate-100 flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-white rounded-md border border-slate-200">
                                     <ShieldCheck className="h-5 w-5 text-emerald-600" />
                                 </div>
                                 <div>
-                                    <p className="text-sm font-bold text-slate-900">Active Subscription</p>
-                                    <p className="text-xs text-slate-500">Pro Plan (Tier 1)</p>
+                                    <p className="text-sm font-bold text-slate-900">Total Credits (Limit)</p>
+                                    <p className="text-xs text-slate-500">
+                                        {voiceBalance ? `${voiceBalance.character_limit.toLocaleString()} chars` : 'Loading...'}
+                                    </p>
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Current Balance</p>
-                                <p className="text-xl font-bold text-slate-900">$12.50</p>
+                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Remaining Credits</p>
+                                <p className="text-xl font-bold text-emerald-600">
+                                    {voiceBalance ? `${(voiceBalance.character_limit - voiceBalance.character_count).toLocaleString()}` : '...'}
+                                </p>
                             </div>
                         </div>
                     </div>

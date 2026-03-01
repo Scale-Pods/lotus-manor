@@ -37,34 +37,58 @@ const sidebarItems = [
     },
 ];
 
-function WalletModal({ isOpen, onClose, type, balance }: { isOpen: boolean, onClose: () => void, type: 'vapi' | 'maqsam', balance: number | string | null }) {
+function WalletModal({ isOpen, onClose, type, details }: { isOpen: boolean, onClose: () => void, type: 'vapi' | 'maqsam', details?: any }) {
+    const isVapi = type === 'vapi';
+    const title = isVapi ? 'ElevenLabs' : 'Maqsam';
+
+    // Parse the data
+    const used = details ? (isVapi ? details.character_count : details.used) : null;
+    const limit = details ? (isVapi ? details.character_limit : details.limit) : null;
+    const left = (typeof limit === 'number' && typeof used === 'number') ? limit - used : null;
+
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-[400px]">
+            <DialogContent className="sm:max-w-[420px]">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Wallet className="h-5 w-5 text-blue-600" />
-                        <span>{type === 'vapi' ? 'Vapi.ai' : 'Maqsam'} Balance</span>
+                        <Wallet className={`h-5 w-5 ${isVapi ? 'text-yellow-600' : 'text-cyan-600'}`} />
+                        <span>{title} Balance</span>
                     </DialogTitle>
                 </DialogHeader>
                 <div className="py-6 space-y-6">
-                    <div className="bg-slate-50 rounded-xl p-8 border border-slate-100 flex flex-col items-center justify-center text-center">
-                        <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mb-1">Current Credits</p>
-                        <p className="text-5xl font-bold text-slate-900">
-                            {balance !== null ? (typeof balance === 'number' ? `$${balance.toFixed(2)}` : balance) : "N/A"}
-                        </p>
+                    <div className="bg-slate-50 rounded-xl p-4 sm:p-6 border border-slate-100 flex flex-col gap-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="flex flex-col text-center bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Left Credits </span>
+                                <span className={limit ? "text-xl font-bold text-emerald-600" : "text-xl font-bold text-slate-400"}>
+                                    {typeof left === 'number' ? left.toLocaleString() : "---"}
+                                </span>
+                            </div>
+                            <div className="flex flex-col text-center bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Used Credits</span>
+                                <span className={limit ? "text-xl font-bold text-rose-600" : "text-xl font-bold text-slate-400"}>
+                                    {typeof used === 'number' ? used.toLocaleString() : "---"}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="flex flex-col text-center bg-white p-4 rounded-lg border border-slate-100 shadow-sm content-center items-center justify-center">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Max Credits</span>
+                            <span className={limit ? "text-3xl font-bold text-slate-800" : "text-2xl font-bold text-slate-400"}>
+                                {typeof limit === 'number' ? limit.toLocaleString() : "Api Key Undetected"}
+                            </span>
+                        </div>
                     </div>
 
                     <Button
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 font-bold shadow-lg shadow-blue-500/20 gap-2"
+                        className={`w-full text-white h-12 font-bold shadow-lg gap-2 ${isVapi ? 'bg-yellow-600 hover:bg-yellow-700 shadow-yellow-500/20' : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-500/20'}`}
                         onClick={() => {
-                            if (type === 'vapi') window.open('https://dashboard.vapi.ai/billing', '_blank');
+                            if (isVapi) window.open('https://elevenlabs.io/app/subscription', '_blank');
                             else window.open('https://maqsam.com/billing', '_blank');
                             onClose();
                         }}
                     >
                         <ExternalLink className="h-4 w-4" />
-                        Add Funds
+                        Manage Subscription
                     </Button>
                 </div>
             </DialogContent>
@@ -133,10 +157,32 @@ export default function DashboardLayout({
 
     const activeConfig = (dashboardConfig as any)[currentContext];
 
-    // Vapi Balance State (Space reserved for real data fetching)
-    const [vapiBalance, setVapiBalance] = useState<number | null>(null);
-    const [loadingVapi, setLoadingVapi] = useState(false); // Set to false since it's "N/A" for now
+    // ElevenLabs Balance State
+    const [voiceBalance, setVoiceBalance] = useState<any>(null);
+    const [maqsamBalance, setMaqsamBalance] = useState<any>(null);
+    const [loadingVoice, setLoadingVoice] = useState(false);
+    const [loadingMaqsam, setLoadingMaqsam] = useState(false);
     const [walletModal, setWalletModal] = useState<{ isOpen: boolean, type: 'vapi' | 'maqsam' }>({ isOpen: false, type: 'vapi' });
+
+    useEffect(() => {
+        const fetchBalance = async () => {
+            setLoadingVoice(true);
+            setLoadingMaqsam(true);
+            try {
+                // Fetch ElevenLabs
+                fetch('/api/vapi/balance').then(res => res.json()).then(data => setVoiceBalance(data)).catch(() => { });
+
+                // Fetch Maqsam
+                fetch('/api/maqsam/balance').then(res => res.json()).then(data => setMaqsamBalance(data)).catch(() => { });
+            } catch (err) {
+                console.error("Error fetching balance:", err);
+            } finally {
+                setLoadingVoice(false);
+                setLoadingMaqsam(false);
+            }
+        };
+        fetchBalance();
+    }, []);
 
     return (
         <div className="flex h-screen overflow-hidden bg-zinc-50 text-slate-900">
@@ -236,13 +282,16 @@ export default function DashboardLayout({
                                     onClick={() => setWalletModal({ isOpen: true, type: 'vapi' })}
                                 >
                                     <div className="p-1.5 bg-yellow-100 rounded-md">
-                                        <Wallet className="h-4 w-4" />
+                                        <Mic className="h-4 w-4" />
                                     </div>
                                     <div className="flex flex-col items-start leading-[1.1]">
-                                        <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">Vapi Bal</span>
-                                        <span className="text-sm font-bold">{loadingVapi ? "..." : (vapiBalance !== null ? `$${vapiBalance.toFixed(2)}` : "N/A")}</span>
+                                        <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">11Labs Credits</span>
+                                        <span className="text-sm font-bold">
+                                            {loadingVoice ? "..." : (voiceBalance !== null ? (voiceBalance.character_limit - voiceBalance.character_count).toLocaleString() : "N/A")}
+                                        </span>
                                     </div>
                                 </Button>
+
 
                                 {/* Maqsam Wallet Button */}
                                 <Button
@@ -255,7 +304,9 @@ export default function DashboardLayout({
                                     </div>
                                     <div className="flex flex-col items-start leading-[1.1]">
                                         <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">Maqsam Bal</span>
-                                        <span className="text-sm font-bold">N/A</span>
+                                        <span className="text-sm font-bold">
+                                            {loadingMaqsam ? "..." : (maqsamBalance && typeof maqsamBalance.limit === 'number' && typeof maqsamBalance.used === 'number' ? (maqsamBalance.limit - maqsamBalance.used).toLocaleString() : "N/A")}
+                                        </span>
                                     </div>
                                 </Button>
                             </div>
@@ -266,7 +317,7 @@ export default function DashboardLayout({
                 <WalletModal
                     isOpen={walletModal.isOpen}
                     type={walletModal.type}
-                    balance={walletModal.type === 'vapi' ? vapiBalance : "N/A"}
+                    details={walletModal.type === 'vapi' ? voiceBalance : (walletModal.type === 'maqsam' ? maqsamBalance : null)}
                     onClose={() => setWalletModal({ ...walletModal, isOpen: false })}
                 />
 

@@ -1,39 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const VAPI_BASE_URL = 'https://api.vapi.ai';
+const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
 
 export async function GET(
     request: NextRequest,
     context: { params: Promise<{ id: string }> }
 ) {
     try {
-        const apiKey = process.env.VAPI_PUBLIC_KEY;
+        const apiKey = process.env.ELEVENLABS_API_KEY;
         const { id } = await context.params;
-        const callId = id;
+        const conversationId = id;
 
         if (!apiKey) {
             return NextResponse.json({ error: "Configuration error" }, { status: 500 });
         }
 
-        const response = await fetch(`${VAPI_BASE_URL}/call/${callId}`, {
+        const response = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${conversationId}`, {
             headers: {
-                'Authorization': `Bearer ${apiKey}`,
+                'xi-api-key': apiKey,
                 'Content-Type': 'application/json'
             }
         });
 
         if (!response.ok) {
             if (response.status === 404) {
-                return NextResponse.json({ error: "Call not found" }, { status: 404 });
+                return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
             }
-            throw new Error(`Vapi API error: ${response.status}`);
+            throw new Error(`ElevenLabs API error: ${response.status}`);
         }
 
         const data = await response.json();
-        return NextResponse.json(data);
+
+        const dynamicVars = data.conversation_initiation_client_data?.dynamic_variables || {};
+
+        // Normalize for frontend
+        const normalized = {
+            ...data,
+            id: data.conversation_id,
+            startedAt: data.metadata?.start_time_unix_secs ? new Date(data.metadata.start_time_unix_secs * 1000).toISOString() : null,
+            durationSeconds: data.metadata?.call_duration_secs || data.call_duration_secs || data.analysis?.call_duration_secs || 0,
+            cost: data.metadata?.cost ? `${data.metadata.cost} credits` : '$0.00',
+            // Let the frontend know exact charges if needed
+            llm_charge: data.metadata?.charging?.llm_charge || 0,
+            llm_price: data.metadata?.charging?.llm_price || 0,
+            // Fallback parsing from dynamic vars if missing in standard fields
+            caller_number: data.metadata?.caller_number || dynamicVars.caller_number || dynamicVars.caller || "Unknown",
+            callee_number: data.metadata?.callee_number || dynamicVars.callee_number || dynamicVars.callee || "Unknown",
+            // The real direction stored deeply by ElevenLabs
+            type: dynamicVars.direction || dynamicVars.type || data.metadata?.direction || "Unknown",
+            audio_url: `${ELEVENLABS_BASE_URL}/convai/conversations/${conversationId}/audio` // frontend will need to pass xi-api-key normally, since this requires auth, we should proxy it or pass URL
+        };
+
+        return NextResponse.json(normalized);
 
     } catch (error) {
-        console.error("Error fetching call details:", error);
-        return NextResponse.json({ error: "Failed to fetch call details" }, { status: 500 });
+        console.error("Error fetching conversation details:", error);
+        return NextResponse.json({ error: "Failed to fetch conversation details" }, { status: 500 });
     }
 }
