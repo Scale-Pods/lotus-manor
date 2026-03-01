@@ -153,13 +153,13 @@ export default function CredentialsPage() {
                                     <ShieldCheck className="h-5 w-5 text-emerald-600" />
                                 </div>
                                 <div>
-                                    <p className="text-sm font-bold text-slate-900">Status</p>
-                                    <p className="text-xs text-slate-500">Connected</p>
+                                    <p className="text-sm font-bold text-slate-900">Total Balance</p>
+                                    <p className="text-xs text-slate-500">$300</p>
                                 </div>
                             </div>
                             <div className="text-right">
                                 <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Current Balance</p>
-                                <p className="text-xl font-bold text-slate-900">$50.00</p>
+                                <p className="text-xl font-bold text-slate-900">$268.91</p>
                             </div>
                         </div>
                     </div>
