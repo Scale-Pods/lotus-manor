@@ -21,48 +21,67 @@ export async function GET() {
     };
 
     const fetchTable = async (tableName: string) => {
-        // Construct URL without potential double slashes
-        const url = `${baseUrl}/${tableName}?select=*`;
+        let allData: any[] = [];
+        let offset = 0;
+        const limit = 1000;
+        let hasMore = true;
 
-        // Legacy AbortController for Node 22 compatibility
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        while (hasMore) {
+            // Construct URL without potential double slashes, including pagination
+            const url = `${baseUrl}/${tableName}?select=*&offset=${offset}&limit=${limit}`;
 
-        try {
-            const response = await fetch(url, {
-                headers,
-                cache: 'no-store',
-                redirect: 'follow',
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
+            // Legacy AbortController for Node 22 compatibility
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-            const contentType = response.headers.get("content-type");
+            try {
+                const response = await fetch(url, {
+                    headers,
+                    cache: 'no-store',
+                    redirect: 'follow',
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
 
-            if (contentType && contentType.includes("text/html")) {
-                const htmlSnippet = (await response.text()).substring(0, 200);
-                console.error(`Error: HTML returned from ${tableName}. Snippet: ${htmlSnippet}`);
-                return [];
+                const contentType = response.headers.get("content-type");
+
+                if (contentType && contentType.includes("text/html")) {
+                    const htmlSnippet = (await response.text()).substring(0, 200);
+                    console.error(`Error: HTML returned from ${tableName}. Snippet: ${htmlSnippet}`);
+                    break;
+                }
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`Error fetching ${tableName} (${response.status}):`, errorText);
+                    break;
+                }
+
+                const data = await response.json();
+
+                if (Array.isArray(data)) {
+                    allData = allData.concat(data);
+                    if (data.length < limit) {
+                        hasMore = false;
+                    } else {
+                        offset += limit;
+                    }
+                } else {
+                    hasMore = false;
+                }
+            } catch (err: any) {
+                clearTimeout(timeoutId);
+                if (err.name === 'AbortError') {
+                    console.error(`Timeout error for ${tableName}: Request aborted after 60s.`);
+                } else {
+                    console.error(`Fetch error for ${tableName}:`, err);
+                }
+                break;
             }
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`Error fetching ${tableName} (${response.status}):`, errorText);
-                return [];
-            }
-
-            const data = await response.json();
-            console.log(`Successfully fetched ${tableName}: ${Array.isArray(data) ? data.length : 0} records`);
-            return Array.isArray(data) ? data : [];
-        } catch (err: any) {
-            clearTimeout(timeoutId);
-            if (err.name === 'AbortError') {
-                console.error(`Timeout error for ${tableName}: Request aborted after 60s.`);
-            } else {
-                console.error(`Fetch error for ${tableName}:`, err);
-            }
-            return [];
         }
+
+        console.log(`Successfully fetched ${tableName}: ${allData.length} records`);
+        return allData;
     };
 
     try {
