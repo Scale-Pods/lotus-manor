@@ -33,8 +33,7 @@ export default function EmailDashboardPage() {
         }
     });
 
-    const [unsubscribedLeads, setUnsubscribedLeads] = useState<any[]>([]);
-    const [isUnsubscribedExpanded, setIsUnsubscribedExpanded] = useState(false);
+
 
     useEffect(() => {
         const calculateStats = async () => {
@@ -126,7 +125,6 @@ export default function EmailDashboardPage() {
                         nurture: nurture.reduce((a, b) => a + b, 0)
                     }
                 });
-                setUnsubscribedLeads(unsubsLeads);
 
             } catch (e) {
                 console.error("Dashboard fetch error", e);
@@ -223,63 +221,9 @@ export default function EmailDashboardPage() {
                     value={data.totalUnsubscribed}
                     icon={<UserMinus className="h-6 w-6 text-rose-600" />}
                     bg="bg-rose-50"
-                    onClick={() => setIsUnsubscribedExpanded(!isUnsubscribedExpanded)}
-                    extra={isUnsubscribedExpanded ? <ChevronUp className="h-4 w-4 ml-2" /> : <ChevronDown className="h-4 w-4 ml-2" />}
+                    onClick={() => router.push('/dashboard/email/unsubscribed')}
                 />
             </div>
-
-            {/* Expandable Unsubscribed List */}
-            {isUnsubscribedExpanded && (
-                <Card className="border-rose-100 bg-rose-50/30 overflow-hidden animate-in slide-in-from-top-4 duration-300">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-bold flex items-center gap-2">
-                            <UserMinus className="h-4 w-4 text-rose-600" />
-                            Unsubscribed Leads Details
-                        </CardTitle>
-                        <CardDescription>
-                            Showing {unsubscribedLeads.length} leads who have unsubscribed
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                                <thead>
-                                    <tr className="border-b border-rose-100 text-rose-900 font-semibold">
-                                        <th className="text-left py-3 px-4">Name</th>
-                                        <th className="text-left py-3 px-4">Email ID</th>
-                                        <th className="text-left py-3 px-4">Status</th>
-                                        <th className="text-left py-3 px-4">Date</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {unsubscribedLeads.length > 0 ? (
-                                        unsubscribedLeads.map((lead, idx) => (
-                                            <tr key={lead.id || idx} className="border-b border-rose-50/50 hover:bg-rose-50/50 transition-colors">
-                                                <td className="py-3 px-4 font-medium">{lead.name}</td>
-                                                <td className="py-3 px-4 text-slate-600">{lead.email}</td>
-                                                <td className="py-3 px-4">
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
-                                                        Unsubscribed
-                                                    </span>
-                                                </td>
-                                                <td className="py-3 px-4 text-slate-500">
-                                                    {lead.created_at ? new Date(lead.created_at).toLocaleDateString() : 'N/A'}
-                                                </td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan={4} className="py-8 text-center text-slate-500">
-                                                No unsubscribed leads found for the selected range.
-                                            </td>
-                                        </tr>
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
 
             {/* Campaign Breakdown with Tabs */}
             <div className="space-y-4">

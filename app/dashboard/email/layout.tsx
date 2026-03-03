@@ -15,7 +15,8 @@ import {
     MessageCircle,
     Mic,
     ChevronDown,
-    Mail
+    Mail,
+    UserMinus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,11 +49,16 @@ const emailSidebarItems = [
         icon: AlertCircle,
     },
     {
+        title: "Unsubscribed",
+        href: "/dashboard/email/unsubscribed",
+        icon: UserMinus,
+    },
+    {
         title: "Analytics",
         href: "/dashboard/email/analytics",
         icon: BarChart3,
     },
-
+    
 ];
 
 export default function EmailLayout({
