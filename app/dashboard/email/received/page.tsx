@@ -1,5 +1,7 @@
 "use client";
 
+import { LMLoader } from "@/components/lm-loader";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -222,9 +224,13 @@ export default function ReceivedEmailsPage() {
 
             {/* Email Reply List */}
             <div className="space-y-4">
-                {filteredReplies.map((reply) => (
-                    <EmailReplyCard key={reply.id} reply={reply} />
-                ))}
+                {loading ? (
+                    <LMLoader />
+                ) : (
+                    filteredReplies.map((reply) => (
+                        <EmailReplyCard key={reply.id} reply={reply} />
+                    ))
+                )}
                 {!loading && filteredReplies.length === 0 && (
                     <div className="p-10 text-center text-slate-500">No replies found.</div>
                 )}

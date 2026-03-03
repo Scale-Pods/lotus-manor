@@ -44,6 +44,8 @@ import { consolidateLeads } from "@/lib/leads-utils";
 
 const ITEMS_PER_PAGE = 7;
 
+import { LMLoader } from "@/components/lm-loader";
+
 export default function SentEmailsPage() {
     const [page, setPage] = useState(1);
     const [dateRange, setDateRange] = useState<any>(undefined);
@@ -55,6 +57,7 @@ export default function SentEmailsPage() {
         sender: "all",
         type: "all"
     });
+
 
     useEffect(() => {
         const fetchData = async () => {
@@ -362,10 +365,7 @@ export default function SentEmailsPage() {
             {/* Email List Items */}
             <div className="space-y-4 min-h-[400px]">
                 {loading ? (
-                    <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                        <Loader2 className="h-8 w-8 animate-spin mb-2" />
-                        <p>Loading sent emails...</p>
-                    </div>
+                    <LMLoader />
                 ) : paginatedEmails.length > 0 ? (
                     paginatedEmails.map((email) => (
                         <SentEmailCard key={email.id} email={email} />

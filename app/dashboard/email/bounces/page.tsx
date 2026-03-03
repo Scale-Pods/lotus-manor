@@ -1,5 +1,7 @@
 "use client";
 
+import { LMLoader } from "@/components/lm-loader";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -172,13 +174,7 @@ export default function BouncedEmailsPage() {
                         ))
                     )}
 
-                    {loading && (
-                        <div className="space-y-4">
-                            {[1, 2, 3].map(i => (
-                                <div key={i} className="h-20 bg-slate-100 rounded-xl animate-pulse" />
-                            ))}
-                        </div>
-                    )}
+                    {loading && <LMLoader />}
                 </div>
             </div>
         </TooltipProvider>

@@ -3,6 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Phone, Clock, DollarSign, TrendingUp, Calendar as CalendarIcon, Timer, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LMLoader } from "@/components/lm-loader";
 import React, { useEffect, useState } from "react";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
@@ -167,11 +168,7 @@ export default function VoiceDashboardPage() {
     }, [allCalls, dateRange]);
 
     if (loading) {
-        return (
-            <div className="flex h-[50vh] w-full items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
-        );
+        return <LMLoader />;
     }
 
     return (

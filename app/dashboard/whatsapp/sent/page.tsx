@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import React, { useState, useEffect } from "react";
 import { consolidateLeads } from "@/lib/leads-utils";
+import { LMLoader } from "@/components/lm-loader";
 
 export default function WhatsappSentPage() {
     const [dateRange, setDateRange] = useState<any>(undefined);
@@ -96,6 +97,10 @@ export default function WhatsappSentPage() {
         msg.recipient.toLowerCase().includes(searchQuery.toLowerCase()) ||
         msg.message.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    if (loading) {
+        return <LMLoader />;
+    }
 
     return (
         <div className="space-y-6">

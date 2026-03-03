@@ -38,6 +38,8 @@ import {
 } from "@/components/ui/sheet";
 import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
 
+import { LMLoader } from "@/components/lm-loader";
+
 export default function WhatsappDashboardPage() {
     const router = useRouter();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
@@ -301,6 +303,10 @@ export default function WhatsappDashboardPage() {
             return false;
         });
     }, [leads]);
+
+    if (loading) {
+        return <LMLoader />;
+    }
 
     return (
         <div className="space-y-8 pb-10">

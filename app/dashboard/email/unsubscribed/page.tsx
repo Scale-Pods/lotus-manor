@@ -1,5 +1,7 @@
 "use client";
 
+import { LMLoader } from "@/components/lm-loader";
+
 import { useEffect, useState } from "react";
 import { consolidateLeads } from "@/lib/leads-utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -132,10 +134,7 @@ export default function UnsubscribedPage() {
                 </CardHeader>
                 <CardContent className="p-0">
                     {loading ? (
-                        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
-                            <Loader2 className="h-8 w-8 animate-spin text-rose-600 mb-4" />
-                            <p>Loading unsubscribed data...</p>
-                        </div>
+                        <LMLoader />
                     ) : (
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">

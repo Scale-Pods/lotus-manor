@@ -41,6 +41,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { consolidateLeads } from "@/lib/leads-utils";
 import { calculateDuration, formatDuration } from "@/lib/utils";
+import { LMLoader } from "@/components/lm-loader";
 
 
 
@@ -327,6 +328,10 @@ export default function MasterDashboard() {
         { name: 'WhatsApp', value: stats.totalWhatsApp, color: '#10b981' },
         { name: 'Voice', value: stats.totalVoice, color: '#8b5cf6' },
     ];
+
+    if (loading && leads.length === 0) {
+        return <LMLoader />;
+    }
 
     return (
         <div className="space-y-8 pb-10">

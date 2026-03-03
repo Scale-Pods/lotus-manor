@@ -1,5 +1,7 @@
 "use client";
 
+import { LMLoader } from "@/components/lm-loader";
+
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -28,6 +30,7 @@ import {
 } from "recharts";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { DateRange } from "react-day-picker";
+import { consolidateLeads } from "@/lib/leads-utils";
 import { subDays } from "date-fns";
 
 interface HistoryData {
@@ -56,6 +59,7 @@ export default function EmailAnalyticsPage() {
     const [generalData, setGeneralData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [unsubscribedCount, setUnsubscribedCount] = useState(0);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 30),
         to: new Date(),
@@ -93,6 +97,27 @@ export default function EmailAnalyticsPage() {
             setWarmupData(warmupJson);
             setGeneralData(generalJson);
 
+            // Fetch Leads for accurate Unsubscribed count
+            const leadsRes = await fetch('/api/leads');
+            if (leadsRes.ok) {
+                const leadsRaw = await leadsRes.json();
+                const leads = consolidateLeads(leadsRaw);
+                const unsub = leads.filter((lead: any) => {
+                    const isUnsub = lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes");
+                    if (!isUnsub) return false;
+
+                    if (!start) return true;
+                    if (!lead.created_at) return false;
+                    const leadDate = new Date(lead.created_at);
+                    const from = new Date(start);
+                    from.setHours(0, 0, 0, 0);
+                    const to = end ? new Date(end) : from;
+                    to.setHours(23, 59, 59, 999);
+                    return leadDate >= from && leadDate <= to;
+                }).length;
+                setUnsubscribedCount(unsub);
+            }
+
         } catch (e: any) {
             console.error("Analytics fetch error", e);
             setError(e.message);
@@ -127,7 +152,6 @@ export default function EmailAnalyticsPage() {
                 totalDelivered += (Number(day.total_delivered) || Number(day.delivered) || 0);
                 totalOpens += (Number(day.total_opens) || Number(day.opens) || 0);
                 totalClicks += (Number(day.total_clicks) || Number(day.clicks) || 0);
-                totalUnsubscribed += (Number(day.total_unsubscribed) || Number(day.unsubscribed) || 0);
                 totalReplies += (Number(day.replies) || 0);
             });
         } else {
@@ -136,10 +160,11 @@ export default function EmailAnalyticsPage() {
             totalDelivered = Number(generalData.total_delivered) || 0;
             totalOpens = Number(generalData.total_opens) || 0;
             totalClicks = Number(generalData.total_clicks) || 0;
-            totalUnsubscribed = Number(generalData.total_unsubscribed) || 0;
             totalReplies = Number(generalData.replies) || 0;
         }
     }
+
+    totalUnsubscribed = unsubscribedCount;
 
     const ctr = totalSent > 0 ? ((totalClicks / totalSent) * 100).toFixed(2) : "0.00";
     const openRate = totalSent > 0 ? ((totalOpens / totalSent) * 100).toFixed(2) : "0.00";
@@ -373,21 +398,7 @@ export default function EmailAnalyticsPage() {
             </div>
 
             {loading && (
-                <div className="grid gap-6">
-                    {[1, 2].map((i) => (
-                        <Card key={i} className="animate-pulse">
-                            <div className="h-20 bg-slate-100 border-b border-slate-200" />
-                            <CardContent className="p-6">
-                                <div className="grid grid-cols-6 gap-4 mb-8">
-                                    {[1, 2, 3, 4, 5, 6].map(j => (
-                                        <div key={j} className="h-16 bg-slate-100 rounded-lg" />
-                                    ))}
-                                </div>
-                                <div className="h-[300px] bg-slate-100 rounded-lg" />
-                            </CardContent>
-                        </Card>
-                    ))}
-                </div>
+                <LMLoader />
             )}
         </div>
     );

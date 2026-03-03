@@ -20,10 +20,14 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Users, AlertCircle, Loader2, RefreshCw, Mail, MessageCircle, ChevronRight } from "lucide-react";
+import { Users, AlertCircle, Loader2, RefreshCw, Mail, MessageCircle, ChevronLeft, ChevronRight, Search, Filter } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { consolidateLeads } from "@/lib/leads-utils";
+import { LMLoader } from "@/components/lm-loader";
+import { useMemo } from "react";
 
 interface Lead {
     id?: string;
@@ -211,6 +215,21 @@ export default function LeadsPage() {
     const [view, setView] = useState<"leads" | "templates">("leads");
     const [templateFilter, setTemplateFilter] = useState<"email" | "whatsapp">("email");
     const [error, setError] = useState<string | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+
+    // Filter States
+    const [searchQuery, setSearchQuery] = useState("");
+    const [loopFilter, setLoopFilter] = useState("all");
+    const [statusFilter, setStatusFilter] = useState("all");
+    const [regionFilter, setRegionFilter] = useState("all");
+    const [channelFilter, setChannelFilter] = useState("all");
+
+    // Reset page on view or filter change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [view, templateFilter, searchQuery, loopFilter, statusFilter, regionFilter, channelFilter]);
+
 
     const fetchLeads = async () => {
         setLoading(true);
@@ -262,12 +281,53 @@ export default function LeadsPage() {
         }
     }, [view]);
 
-    if (loading) {
-        return (
-            <div className="flex h-[50vh] w-full items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-            </div>
-        );
+    // Filtering Logic
+    const filteredLeads = useMemo(() => {
+        return leads.filter(lead => {
+            // Search Query
+            if (searchQuery) {
+                const search = searchQuery.toLowerCase();
+                const matches =
+                    lead.name?.toLowerCase().includes(search) ||
+                    lead.email?.toLowerCase().includes(search) ||
+                    lead.phone?.toLowerCase().includes(search);
+                if (!matches) return false;
+            }
+
+            // Loop Filter
+            if (loopFilter !== "all") {
+                const source = (lead.source_loop === 'nr_wf' || lead.source_loop === 'Intro') ? 'intro' : lead.source_loop;
+                if (source !== loopFilter) return false;
+            }
+
+            // Status Filter
+            if (statusFilter !== "all") {
+                const isReplied = (lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No"));
+                if (statusFilter === "replied" && !isReplied) return false;
+                if (statusFilter === "sent" && isReplied) return false;
+            }
+
+            // Region Filter
+            if (regionFilter !== "all") {
+                const isUSA = isUSALead(lead.phone);
+                if (regionFilter === "usa" && !isUSA) return false;
+                if (regionFilter === "global" && isUSA) return false;
+            }
+
+            // Channel Filter
+            if (channelFilter !== "all") {
+                const hasEmail = lead.email && lead.email !== "No Email";
+                const hasWP = !!lead.phone;
+                if (channelFilter === "email" && !hasEmail) return false;
+                if (channelFilter === "whatsapp" && !hasWP) return false;
+            }
+
+            return true;
+        });
+    }, [leads, searchQuery, loopFilter, statusFilter, regionFilter, channelFilter]);
+
+    if (loading && leads.length === 0) {
+        return <LMLoader />;
     }
 
     if (error) {
@@ -324,79 +384,166 @@ export default function LeadsPage() {
                         {view === "leads" ? "Real-time data from your Intro and Follow-up loops." : "Manage your messaging templates."}
                     </CardDescription>
                 </CardHeader>
+
+                {view === "leads" && (
+                    <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex flex-wrap items-center gap-4">
+                        <div className="relative flex-1 min-w-[240px]">
+                            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                            <Input
+                                placeholder="Search by name, email, or phone..."
+                                className="pl-10 h-10 bg-white"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <Select value={loopFilter} onValueChange={setLoopFilter}>
+                                <SelectTrigger className="w-[140px] h-10 bg-white">
+                                    <SelectValue placeholder="Loop Type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Loops</SelectItem>
+                                    <SelectItem value="intro">Intro Loop</SelectItem>
+                                    <SelectItem value="followup">Follow Up</SelectItem>
+                                    <SelectItem value="nurture">Nurture Loop</SelectItem>
+                                    
+                                </SelectContent>
+                            </Select>
+
+                            <Select value={statusFilter} onValueChange={setStatusFilter}>
+                                <SelectTrigger className="w-[140px] h-10 bg-white">
+                                    <SelectValue placeholder="Reply Status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Status</SelectItem>
+                                    <SelectItem value="replied">Replied</SelectItem>
+                                    <SelectItem value="sent">Sent Only</SelectItem>
+                                </SelectContent>
+                            </Select>
+
+                            <Select value={regionFilter} onValueChange={setRegionFilter}>
+                                <SelectTrigger className="w-[140px] h-10 bg-white">
+                                    <SelectValue placeholder="Region" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Regions</SelectItem>
+                                    <SelectItem value="usa">USA Leads</SelectItem>
+                                    <SelectItem value="global">Global Leads</SelectItem>
+                                </SelectContent>
+                            </Select>
+
+                            <Select value={channelFilter} onValueChange={setChannelFilter}>
+                                <SelectTrigger className="w-[140px] h-10 bg-white">
+                                    <SelectValue placeholder="Channel" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Channels</SelectItem>
+                                    <SelectItem value="email">Email</SelectItem>
+                                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                                </SelectContent>
+                            </Select>
+
+                            {(searchQuery || loopFilter !== "all" || statusFilter !== "all" || regionFilter !== "all" || channelFilter !== "all") && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-slate-500 hover:text-rose-600 h-10 px-3"
+                                    onClick={() => {
+                                        setSearchQuery("");
+                                        setLoopFilter("all");
+                                        setStatusFilter("all");
+                                        setRegionFilter("all");
+                                        setChannelFilter("all");
+                                    }}
+                                >
+                                    Clear
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 <CardContent className="p-0">
                     {view === "leads" ? (
-                        <Table>
-                            <TableHeader>
-                                <TableRow className="bg-slate-50/50">
-                                    <TableHead className="w-[200px]">Name</TableHead>
-                                    <TableHead>Phone</TableHead>
-                                    <TableHead className="text-center">Channel</TableHead>
-                                    <TableHead>Email</TableHead>
-                                    <TableHead>Current Loop</TableHead>
-                                    <TableHead>Reply Status</TableHead>
-                                    <TableHead className="w-[250px]">Progress</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {loading && leads.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} className="h-24 text-center">
-                                            <div className="flex items-center justify-center gap-2 text-slate-500">
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                                Loading leads...
-                                            </div>
-                                        </TableCell>
+                        <>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="bg-slate-50/50">
+                                        <TableHead className="w-[200px]">Name</TableHead>
+                                        <TableHead>Phone</TableHead>
+                                        <TableHead className="text-center">Channel</TableHead>
+                                        <TableHead>Email</TableHead>
+                                        <TableHead>Current Loop</TableHead>
+                                        <TableHead>Reply Status</TableHead>
+                                        <TableHead className="w-[250px]">Progress</TableHead>
                                     </TableRow>
-                                ) : leads.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} className="h-24 text-center text-slate-500">
-                                            No leads found.
-                                        </TableCell>
-                                    </TableRow>
-                                ) : (
-                                    leads.map((lead, index) => {
-                                        return (
-                                            <TableRow key={index} className="hover:bg-slate-50/50 transition-colors">
-                                                <TableCell className="font-medium text-slate-900">{lead.name}</TableCell>
-                                                <TableCell className="text-slate-600">{lead.phone}</TableCell>
-                                                <TableCell className="text-center">
-                                                    <div className="flex flex-col items-center gap-1.5">
-                                                        {lead.email && lead.email !== "No Email" && (
-                                                            <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-100 text-[12px] font-medium h-5 px-1.5 w-full justify-center">
-                                                                Email
-                                                            </Badge>
-                                                        )}
-                                                        {lead.phone && (
-                                                            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-100 text-[12px] font-medium h-5 px-1.5 w-full justify-center">
-                                                                WhatsApp
-                                                            </Badge>
-                                                        )}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className={`text-sm ${lead.email === "No Email" ? "text-slate-300 italic" : "text-slate-600"}`}>
-                                                    {lead.email === "No Email" ? "No Email" : lead.email}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200 uppercase text-[10px] font-bold tracking-wider">
-                                                        {lead.source_loop === 'followup' ? 'FOLLOW UP' : lead.source_loop === 'nr_wf' || lead.source_loop === 'Intro' ? 'INTRO' : (lead.display_loop || lead.current_loop || lead.source_loop || "").toUpperCase()}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "default" : "secondary"}
-                                                        className={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 shadow-none font-bold capitalize" : "capitalize text-slate-500 bg-slate-100"}>
-                                                        {(lead.email_replied && lead.email_replied !== "No") ? "Replied" : (lead.whatsapp_replied && lead.whatsapp_replied !== "No") ? "Replied" : lead.replied === "No" ? "Sent" : lead.replied}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <ProgressBreakdown lead={lead} />
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })
-                                )}
-                            </TableBody>
-                        </Table>
+                                </TableHeader>
+                                <TableBody>
+                                    {loading && leads.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={7} className="h-24 text-center">
+                                                <div className="flex items-center justify-center gap-2 text-slate-500">
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                    Loading leads...
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : filteredLeads.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={7} className="h-24 text-center text-slate-500">
+                                                No leads matching these filters.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        filteredLeads.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((lead, index) => {
+                                            return (
+                                                <TableRow key={index} className="hover:bg-slate-50/50 transition-colors">
+                                                    <TableCell className="font-medium text-slate-900">{lead.name}</TableCell>
+                                                    <TableCell className="text-slate-600">{lead.phone}</TableCell>
+                                                    <TableCell className="text-center">
+                                                        <div className="flex flex-col items-center gap-1.5">
+                                                            {lead.email && lead.email !== "No Email" && (
+                                                                <Badge variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-100 text-[12px] font-medium h-5 px-1.5 w-full justify-center">
+                                                                    Email
+                                                                </Badge>
+                                                            )}
+                                                            {lead.phone && (
+                                                                <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-100 text-[12px] font-medium h-5 px-1.5 w-full justify-center">
+                                                                    WhatsApp
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className={`text-sm ${lead.email === "No Email" ? "text-slate-300 italic" : "text-slate-600"}`}>
+                                                        {lead.email === "No Email" ? "No Email" : lead.email}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 hover:bg-blue-50 border-blue-200 uppercase text-[10px] font-bold tracking-wider">
+                                                            {lead.source_loop === 'followup' ? 'FOLLOW UP' : lead.source_loop === 'nr_wf' || lead.source_loop === 'Intro' ? 'INTRO' : (lead.display_loop || lead.current_loop || lead.source_loop || "").toUpperCase()}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "default" : "secondary"}
+                                                            className={(lead.replied === "Yes" || (lead.email_replied && lead.email_replied !== "No") || (lead.whatsapp_replied && lead.whatsapp_replied !== "No")) ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 shadow-none font-bold capitalize" : "capitalize text-slate-500 bg-slate-100"}>
+                                                            {(lead.email_replied && lead.email_replied !== "No") ? "Replied" : (lead.whatsapp_replied && lead.whatsapp_replied !== "No") ? "Replied" : lead.replied === "No" ? "Sent" : lead.replied}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <ProgressBreakdown lead={lead} />
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
+                                    )}
+                                </TableBody>
+                            </Table>
+                            <PaginationFooter
+                                totalItems={filteredLeads.length}
+                                currentPage={currentPage}
+                                itemsPerPage={itemsPerPage}
+                                onPageChange={setCurrentPage}
+                            />
+                        </>
                     ) : (
                         <div className="p-6 space-y-6">
                             {/* Template Type Toggles */}
@@ -429,39 +576,105 @@ export default function LeadsPage() {
                             ) : templates.filter(t => t.type === templateFilter).length === 0 ? (
                                 <div className="text-center text-slate-500 py-10">No {templateFilter} templates found.</div>
                             ) : (
-                                <div className="grid grid-cols-1 gap-6 max-w-4xl mx-auto">
-                                    {templates.filter(t => t.type === templateFilter).map((template: any, idx) => (
-                                        <Card key={template.id || idx} className="border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-                                            <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-3 px-4 flex flex-row items-center justify-between">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`p-2 rounded-md ${template.type === 'email' ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                                                        {template.type === 'email' ? <Mail className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />}
-                                                    </div>
-                                                    <div className="font-semibold text-slate-700">
-                                                        {template.name || `Template ${idx + 1}`}
-                                                    </div>
-                                                </div>
-                                                {template.category && (
-                                                    <Badge variant="secondary" className="text-xs bg-white border border-slate-200">
-                                                        {template.category}
-                                                    </Badge>
-                                                )}
-                                            </CardHeader>
-                                            <CardContent className="p-6 bg-white prose prose-slate max-w-none">
-                                                <div className="whitespace-pre-wrap text-slate-700 font-sans leading-relaxed">
-                                                    {typeof template.body === 'string' ? template.body :
-                                                        typeof template.components === 'object' ? JSON.stringify(template.components, null, 2) :
-                                                            JSON.stringify(template, null, 2)}
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    ))}
-                                </div>
+                                <>
+                                    <div className="grid grid-cols-1 gap-6 max-w-4xl mx-auto">
+                                        {templates
+                                            .filter(t => t.type === templateFilter)
+                                            .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                                            .map((template: any, idx) => (
+                                                <Card key={template.id || idx} className="border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                                                    <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-3 px-4 flex flex-row items-center justify-between">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`p-2 rounded-md ${template.type === 'email' ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'}`}>
+                                                                {template.type === 'email' ? <Mail className="h-4 w-4" /> : <MessageCircle className="h-4 w-4" />}
+                                                            </div>
+                                                            <div className="font-semibold text-slate-700">
+                                                                {template.name || `Template ${idx + 1}`}
+                                                            </div>
+                                                        </div>
+                                                        {template.category && (
+                                                            <Badge variant="secondary" className="text-xs bg-white border border-slate-200">
+                                                                {template.category}
+                                                            </Badge>
+                                                        )}
+                                                    </CardHeader>
+                                                    <CardContent className="p-6 bg-white prose prose-slate max-w-none">
+                                                        <div className="whitespace-pre-wrap text-slate-700 font-sans leading-relaxed">
+                                                            {typeof template.body === 'string' ? template.body :
+                                                                typeof template.components === 'object' ? JSON.stringify(template.components, null, 2) :
+                                                                    JSON.stringify(template, null, 2)}
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            ))}
+                                    </div>
+                                    <PaginationFooter
+                                        totalItems={templates.filter(t => t.type === templateFilter).length}
+                                        currentPage={currentPage}
+                                        itemsPerPage={itemsPerPage}
+                                        onPageChange={setCurrentPage}
+                                    />
+                                </>
                             )}
                         </div>
                     )}
                 </CardContent>
             </Card>
+        </div>
+    );
+}
+
+function PaginationFooter({ totalItems, currentPage, itemsPerPage, onPageChange }: any) {
+    if (totalItems <= itemsPerPage) return null;
+
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+    return (
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+            <p className="text-sm text-slate-500">
+                Showing <span className="font-bold text-slate-900">{totalItems > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}-{Math.min(currentPage * itemsPerPage, totalItems)}</span> of {totalItems} items
+            </p>
+            <div className="flex items-center gap-2">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                    disabled={currentPage === 1}
+                >
+                    <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum;
+                        if (totalPages <= 5) pageNum = i + 1;
+                        else if (currentPage <= 3) pageNum = i + 1;
+                        else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                        else pageNum = currentPage - 2 + i;
+
+                        return (
+                            <Button
+                                key={pageNum}
+                                variant={currentPage === pageNum ? "default" : "outline"}
+                                size="sm"
+                                className="h-8 w-8 p-0 text-xs"
+                                onClick={() => onPageChange(pageNum)}
+                            >
+                                {pageNum}
+                            </Button>
+                        );
+                    })}
+                </div>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                    disabled={currentPage >= totalPages}
+                >
+                    <ChevronRight className="h-4 w-4" />
+                </Button>
+            </div>
         </div>
     );
 }

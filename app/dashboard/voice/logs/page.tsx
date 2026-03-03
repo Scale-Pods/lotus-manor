@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { RefreshCw, Play, ChevronLeft, ChevronRight, User, Loader2, Download, ExternalLink, Search } from "lucide-react";
+import { LMLoader } from "@/components/lm-loader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import React, { useState, useEffect } from "react";
@@ -187,6 +188,10 @@ export default function VoiceLogsPage() {
     // Calculate paginated calls
     const paginatedCalls = calls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+    if (loading && allCalls.length === 0) {
+        return <LMLoader />;
+    }
+
     return (
         <div className="space-y-6 pb-10">
             <div className="flex flex-col gap-4">
@@ -196,7 +201,7 @@ export default function VoiceLogsPage() {
                         <p className="text-slate-500">View and manage your voice agent call history.</p>
                     </div>
                     <div className="flex items-center gap-3">
-                    <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
+                        <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
                         <Button variant="outline" onClick={handleRefresh} disabled={loading}>
                             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                             Refresh Dashboard
@@ -234,7 +239,7 @@ export default function VoiceLogsPage() {
                             <SelectItem value="failed">Failed / Error</SelectItem>
                         </SelectContent>
                     </Select>
-                    
+
                 </div>
             </div>
 

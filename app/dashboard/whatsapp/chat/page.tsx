@@ -29,6 +29,7 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { LMLoader } from "@/components/lm-loader";
 
 export default function WhatsappChatPage() {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
@@ -230,6 +231,10 @@ export default function WhatsappChatPage() {
     useEffect(() => {
         setCurrentPage(1);
     }, [searchQuery, activeFilters]);
+
+    if (loading) {
+        return <LMLoader />;
+    }
 
     return (
         <div className="space-y-6 pb-10">

@@ -10,6 +10,8 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { consolidateLeads } from "@/lib/leads-utils";
 import { useRouter } from "next/navigation";
 
+import { LMLoader } from "@/components/lm-loader";
+
 export default function EmailDashboardPage() {
     const router = useRouter();
     const [selectedLoopMetric, setSelectedLoopMetric] = useState("intro");
@@ -152,6 +154,10 @@ export default function EmailDashboardPage() {
         nurture: { value: data.loopTotals.nurture, label: "Nurture Loop Emails", iconColor: "text-purple-600", bgColor: "bg-purple-50" },
     };
     const currentMetric = loopMetricData[selectedLoopMetric as keyof typeof loopMetricData];
+
+    if (loading) {
+        return <LMLoader />;
+    }
 
     return (
         <div className="space-y-8 pb-10">

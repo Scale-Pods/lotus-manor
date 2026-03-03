@@ -36,6 +36,7 @@ import {
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
 import { WhatsAppChatDetail } from "@/components/dashboard/whatsapp-chat-detail";
+import { LMLoader } from "@/components/lm-loader";
 
 export default function WhatsappLeadsPage() {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
@@ -150,6 +151,10 @@ export default function WhatsappLeadsPage() {
             setSelectedLeads([...selectedLeads, id]);
         }
     };
+
+    if (loading) {
+        return <LMLoader />;
+    }
 
     return (
         <div className="space-y-6 pb-10">

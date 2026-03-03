@@ -19,6 +19,7 @@ import { TrendingUp, Users, MessageSquare, Send, RefreshCw, BarChart3 } from "lu
 import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { LMLoader } from "@/components/lm-loader";
 
 export default function WhatsappAnalyticsPage() {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
@@ -191,12 +192,7 @@ export default function WhatsappAnalyticsPage() {
     }, [filteredLeads]);
 
     if (loading) {
-        return (
-            <div className="h-[400px] flex flex-col items-center justify-center gap-4 text-slate-400">
-                <RefreshCw className="h-8 w-8 animate-spin text-emerald-500" />
-                <p className="font-medium">Loading Analytics...</p>
-            </div>
-        );
+        return <LMLoader />;
     }
 
     return (
