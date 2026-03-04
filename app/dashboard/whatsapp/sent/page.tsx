@@ -8,11 +8,13 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import React, { useState, useEffect } from "react";
 import { consolidateLeads } from "@/lib/leads-utils";
 import { LMLoader } from "@/components/lm-loader";
+import { useData } from "@/context/DataContext";
 
 export default function WhatsappSentPage() {
+    const { leads: allLeads, loadingLeads } = useData();
     const [dateRange, setDateRange] = useState<any>(undefined);
     const [messages, setMessages] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");
     const [stats, setStats] = useState({
         total: 0,
@@ -23,21 +25,15 @@ export default function WhatsappSentPage() {
 
     useEffect(() => {
         const fetchData = async () => {
-            setLoading(true);
+            if (loadingLeads) return;
             try {
-                const [leadsRes, templatesRes] = await Promise.all([
-                    fetch('/api/leads'),
-                    fetch('/api/templates')
-                ]);
-
-                if (!leadsRes.ok) throw new Error("Failed to fetch leads");
-                const rawData = await leadsRes.json();
-                const allLeads = consolidateLeads(rawData);
+                // We still fetch templates as they're small and not in global context yet
+                const templatesRes = await fetch('/api/templates');
                 const templates = templatesRes.ok ? await templatesRes.json() : [];
 
                 const waMessages: any[] = [];
-                let delivered = 0;
-                let read = 0;
+                let deliveredCount = 0;
+                let readCount = 0;
 
                 // Apply Date Filtering
                 const leads = allLeads.filter((lead: any) => {
@@ -53,7 +49,8 @@ export default function WhatsappSentPage() {
                     return leadDate >= from && leadDate <= to;
                 });
 
-                leads.forEach((lead: any) => {
+                leads.forEach((l: any) => {
+                    const lead = l as any;
                     const stages = lead.stages_passed || [];
                     stages.forEach((stage: string) => {
                         if (stage.toLowerCase().includes("whatsapp")) {
@@ -62,17 +59,19 @@ export default function WhatsappSentPage() {
                                 t.type === 'whatsapp' && (t.name === stage || stage.includes(t.name))
                             );
 
+                            const hasReplied = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
+
                             waMessages.push({
                                 id: `${lead.id}-${stage}-${Math.random()}`,
-                                recipient: lead.phoneNumber || lead.phone || lead.name || "Unknown",
+                                recipient: lead.phone || lead.name || "Unknown",
                                 message: template ? template.body : `WhatsApp Message: ${stage}`,
-                                status: lead.replied && lead.replied !== "No" ? "Read" : "Delivered",
+                                status: hasReplied ? "Read" : "Delivered",
                                 time: lead.created_at ? new Date(lead.created_at).toLocaleTimeString() : "Unknown",
                                 rawDate: lead.created_at
                             });
 
-                            if (lead.replied && lead.replied !== "No") read++;
-                            delivered++;
+                            if (hasReplied) readCount++;
+                            deliveredCount++;
                         }
                     });
                 });
@@ -80,18 +79,16 @@ export default function WhatsappSentPage() {
                 setMessages(waMessages);
                 setStats({
                     total: waMessages.length,
-                    delivered: delivered,
-                    read: read,
+                    delivered: deliveredCount,
+                    read: readCount,
                     failed: 0
                 });
             } catch (e) {
-                console.error("WhatsApp sent fetch error", e);
-            } finally {
-                setLoading(false);
+                console.error("WhatsApp sent processing error", e);
             }
         };
         fetchData();
-    }, [dateRange]);
+    }, [dateRange, allLeads, loadingLeads]);
 
     const filteredMessages = messages.filter(msg =>
         msg.recipient.toLowerCase().includes(searchQuery.toLowerCase()) ||

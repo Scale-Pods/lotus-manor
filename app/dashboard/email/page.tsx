@@ -7,8 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
-import { consolidateLeads } from "@/lib/leads-utils";
 import { useRouter } from "next/navigation";
+import { useData } from "@/context/DataContext";
 
 import { LMLoader } from "@/components/lm-loader";
 
@@ -17,8 +17,9 @@ export default function EmailDashboardPage() {
     const [selectedLoopMetric, setSelectedLoopMetric] = useState("intro");
     const [dateSubtitle, setDateSubtitle] = useState("all time");
 
+    const { leads: allLeads, loadingLeads } = useData();
     const [dateRange, setDateRange] = useState<any>(undefined);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads;
     const [data, setData] = useState({
         totalEmails: 0,
         firstEmail: 0,
@@ -39,15 +40,11 @@ export default function EmailDashboardPage() {
 
     useEffect(() => {
         const calculateStats = async () => {
-            setLoading(true);
-            try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed");
-                const rawData = await res.json();
-                const allLeads = consolidateLeads(rawData);
+            if (loadingLeads) return;
 
+            try {
                 // Apply Date Filtering if dateRange is set
-                const leads = allLeads.filter((lead: any) => {
+                const filteredLeads = allLeads.filter((lead: any) => {
                     if (!dateRange?.from) return true;
                     if (!lead.created_at) return false;
 
@@ -69,7 +66,7 @@ export default function EmailDashboardPage() {
                 const followUp = [0, 0, 0];
                 const nurture = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-                leads.forEach((lead: any) => {
+                filteredLeads.forEach((lead: any) => {
                     const stages = lead.stages_passed || [];
 
                     // Count Stages
@@ -115,7 +112,7 @@ export default function EmailDashboardPage() {
                 setData({
                     totalEmails: totalEmails,
                     firstEmail: intro[0],
-                    responseRate: leads.length > 0 ? ((replyCount / leads.length) * 100).toFixed(1) + "%" : "0%",
+                    responseRate: filteredLeads.length > 0 ? ((replyCount / filteredLeads.length) * 100).toFixed(1) + "%" : "0%",
                     totalReplies: replyCount,
                     totalUnsubscribed: unsubscribedCount,
                     introCounts: intro,
@@ -129,14 +126,12 @@ export default function EmailDashboardPage() {
                 });
 
             } catch (e) {
-                console.error("Dashboard fetch error", e);
-            } finally {
-                setLoading(false);
+                console.error("Dashboard calculation error", e);
             }
         };
 
         calculateStats();
-    }, [dateRange]); // Recalculate when dateRange changes
+    }, [dateRange, allLeads, loadingLeads]); // Recalculate when dateRange or context changes
 
     const handleDateUpdate = (range: any) => {
         setDateRange(range.range);

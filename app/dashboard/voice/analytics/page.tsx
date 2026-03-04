@@ -21,15 +21,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useState, useEffect } from "react";
 import { format, parseISO } from "date-fns";
-import { calculateDuration } from "@/lib/utils";
-
 import { startOfDay } from "date-fns";
+import { useData } from "@/context/DataContext";
 
 export default function VoiceAnalyticsPage() {
+    const { calls: globalCalls, loadingCalls } = useData();
     const [statusFilter, setStatusFilter] = useState("all");
-    const [allCalls, setAllCalls] = useState<any[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loadingLocal, setLoadingLocal] = useState(true);
+    const loading = loadingLocal || loadingCalls;
     const [dateRange, setDateRange] = useState<any>(undefined);
 
     // Processed Data States
@@ -47,19 +47,10 @@ export default function VoiceAnalyticsPage() {
     });
 
     useEffect(() => {
-        const fetchAllData = async () => {
-            setLoading(true);
+        const fetchBalance = async () => {
+            setLoadingLocal(true);
             try {
-                const [callsRes, balanceRes] = await Promise.all([
-                    fetch('/api/calls'),
-                    fetch('/api/vapi/balance')
-                ]);
-
-                if (!callsRes.ok) throw new Error("Failed");
-
-                const fetchedCalls = await callsRes.json();
-                setAllCalls(fetchedCalls);
-
+                const balanceRes = await fetch('/api/vapi/balance');
                 if (balanceRes.ok) {
                     const balance = await balanceRes.json();
                     setStats(prev => ({
@@ -69,17 +60,19 @@ export default function VoiceAnalyticsPage() {
                     }));
                 }
             } catch (err) {
-                console.error("Fetch error", err);
+                console.error("Balance fetch error", err);
             } finally {
-                setLoading(false);
+                setLoadingLocal(false);
             }
         };
-        fetchAllData();
+        fetchBalance();
     }, []);
 
     useEffect(() => {
+        if (loadingCalls) return;
+
         // Filter by date range if set
-        const filteredCalls = allCalls.filter((call: any) => {
+        const filteredCalls = globalCalls.filter((call: any) => {
             if (!dateRange?.from) return true;
 
             // Normalize startedAt for filtering
@@ -96,7 +89,7 @@ export default function VoiceAnalyticsPage() {
 
         setCalls(filteredCalls);
         processAnalytics(filteredCalls);
-    }, [allCalls, dateRange]);
+    }, [globalCalls, loadingCalls, dateRange]);
 
     const processAnalytics = (data: any[]) => {
         // Quick Stats

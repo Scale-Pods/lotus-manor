@@ -36,15 +36,16 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
-import { consolidateLeads } from "@/lib/leads-utils";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { useData } from "@/context/DataContext";
 
 // Mock data removed
 
 
 export default function ReceivedEmailsPage() {
+    const { leads: allLeads, loadingLeads } = useData();
     const [replies, setReplies] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads;
     const [loopFilter, setLoopFilter] = useState("all");
     const [searchQuery, setSearchQuery] = useState("");
     const [dateRange, setDateRange] = useState<any>(undefined);
@@ -52,15 +53,11 @@ export default function ReceivedEmailsPage() {
 
     useEffect(() => {
         const fetchReplies = async () => {
-            setLoading(true);
-            try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed");
-                const rawData = await res.json();
-                const leads = consolidateLeads(rawData);
+            if (loadingLeads) return;
 
+            try {
                 const realReplies: any[] = [];
-                leads.forEach((lead: any, index: number) => {
+                allLeads.forEach((lead: any, index: number) => {
                     // Check if lead replied specifically via email
                     const emailReply = lead.email_replied || lead.Email_Replied || lead.replied;
 
@@ -100,13 +97,11 @@ export default function ReceivedEmailsPage() {
                 });
                 setReplies(realReplies);
             } catch (e) {
-                console.error("Received emails fetch error", e);
-            } finally {
-                setLoading(false);
+                console.error("Received emails processing error", e);
             }
         };
         fetchReplies();
-    }, []);
+    }, [allLeads, loadingLeads]);
 
     const filteredReplies = useMemo(() => {
         let result = replies.filter(reply => {

@@ -25,9 +25,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { consolidateLeads } from "@/lib/leads-utils";
 import { LMLoader } from "@/components/lm-loader";
 import { useMemo } from "react";
+import { useData } from "@/context/DataContext";
 
 interface Lead {
     id?: string;
@@ -209,9 +209,9 @@ function ProgressBreakdown({ lead }: { lead: Lead }) {
 
 // Restore LeadsPage component
 export default function LeadsPage() {
-    const [leads, setLeads] = useState<Lead[]>([]);
+    const { leads, loadingLeads, refreshLeads } = useData();
     const [templates, setTemplates] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loadingTemplates = useState(false)[0]; // Placeholder for template loading if needed
     const [view, setView] = useState<"leads" | "templates">("leads");
     const [templateFilter, setTemplateFilter] = useState<"email" | "whatsapp">("email");
     const [error, setError] = useState<string | null>(null);
@@ -231,32 +231,9 @@ export default function LeadsPage() {
     }, [view, templateFilter, searchQuery, loopFilter, statusFilter, regionFilter, channelFilter]);
 
 
-    const fetchLeads = async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const response = await fetch("/api/leads");
-            if (!response.ok) {
-                throw new Error(`Failed to fetch leads: ${response.statusText}`);
-            }
-            const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            const flattenedLeads = consolidateLeads(data);
-            setLeads(flattenedLeads);
-        } catch (err: any) {
-            console.error("Leads fetch error:", err);
-            setError(err.message || "Could not load leads data. Please try again later.");
-        } finally {
-            setLoading(false);
-        }
-    };
+    const loading = view === "leads" ? loadingLeads : false;
 
     const fetchTemplates = async () => {
-        setLoading(true);
         setError(null);
         try {
             const response = await fetch("/api/templates");
@@ -268,15 +245,11 @@ export default function LeadsPage() {
         } catch (err) {
             console.error(err);
             setError("Could not load templates. Please try again later.");
-        } finally {
-            setLoading(false);
         }
     };
 
     useEffect(() => {
-        if (view === "leads") {
-            fetchLeads();
-        } else {
+        if (view === "templates") {
             fetchTemplates();
         }
     }, [view]);
@@ -362,7 +335,7 @@ export default function LeadsPage() {
                     >
                         Templates
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => view === "leads" ? fetchLeads() : fetchTemplates()} disabled={loading}>
+                    <Button variant="outline" size="sm" onClick={() => view === "leads" ? refreshLeads() : fetchTemplates()}>
                         <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                         Refresh
                     </Button>

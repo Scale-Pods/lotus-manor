@@ -16,41 +16,31 @@ import {
 } from "recharts";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { TrendingUp, Users, MessageSquare, Send, RefreshCw, BarChart3 } from "lucide-react";
-import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
+import { ConsolidatedLead } from "@/lib/leads-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LMLoader } from "@/components/lm-loader";
+import { useData } from "@/context/DataContext";
 
 export default function WhatsappAnalyticsPage() {
+    const { leads: allLeads, loadingLeads } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads;
     const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
         from: undefined,
         to: undefined
     });
 
     useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed to fetch");
-                const rawData = await res.json();
-                const allLeads = consolidateLeads(rawData);
-                setLeads(allLeads);
-            } catch (err) {
-                console.error("Analytics fetch error:", err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, []);
+        if (!loadingLeads) {
+            setLeads(allLeads);
+        }
+    }, [allLeads, loadingLeads]);
 
     const filteredLeads = useMemo(() => {
         return leads.filter(l => {
             // First, identify if it's a WhatsApp lead
-            let hasWP = l.stages_passed.some(s => s.toLowerCase().includes("whatsapp")) ||
+            let hasWP = l.stages_passed.some((s: string) => s.toLowerCase().includes("whatsapp")) ||
                 (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") ||
                 [1, 2, 3, 4, 5, 6].some(i => l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) ||
                 l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"];
@@ -98,33 +88,34 @@ export default function WhatsappAnalyticsPage() {
         };
 
         filteredLeads.forEach(l => {
-            const loopName = l.source_loop?.toLowerCase().includes("follow up") ? "Follow Up" :
-                l.source_loop?.toLowerCase().includes("nurture") ? "Nurture" : "Intro";
+            const lead = l as any;
+            const loopName = lead.source_loop?.toLowerCase().includes("follow up") ? "Follow Up" :
+                lead.source_loop?.toLowerCase().includes("nurture") ? "Nurture" : "Intro";
 
             // Count total outgoing messages from this lead
             let leadSentCount = 0;
             for (let i = 1; i <= 6; i++) {
-                if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSentCount++;
+                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) leadSentCount++;
             }
-            if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSentCount++;
+            if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) leadSentCount++;
 
             // Extended FollowUps
             for (let i = 1; i <= 10; i++) {
-                if (l[`W.P_FollowUp_${i}`]) leadSentCount++;
+                if (lead[`W.P_FollowUp_${i}`]) leadSentCount++;
             }
 
             totalSent += leadSentCount;
 
             // Count replies based on rules
             let hasReplied = false;
-            if (l.whatsapp_replied &&
-                l.whatsapp_replied !== "No" &&
-                l.whatsapp_replied !== "none" &&
-                String(l.whatsapp_replied).trim() !== "") {
+            if (lead.whatsapp_replied &&
+                lead.whatsapp_replied !== "No" &&
+                lead.whatsapp_replied !== "none" &&
+                String(lead.whatsapp_replied).trim() !== "") {
                 hasReplied = true;
             } else {
                 for (let i = 1; i <= 10; i++) {
-                    const r = l[`W.P_Replied_${i}`];
+                    const r = lead[`W.P_Replied_${i}`];
                     if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
                         hasReplied = true;
                         break;
@@ -152,7 +143,8 @@ export default function WhatsappAnalyticsPage() {
     const trendData = useMemo(() => {
         const groups: Record<string, { date: string, sent: number, replied: number }> = {};
         filteredLeads.forEach(l => {
-            const dateRef = l.last_contacted || l.updated_at || l.created_at;
+            const lead = l as any;
+            const dateRef = lead.last_contacted || lead.updated_at || lead.created_at;
             if (!dateRef) return;
 
             const d = new Date(dateRef).toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -160,23 +152,23 @@ export default function WhatsappAnalyticsPage() {
 
             let leadSent = 0;
             for (let i = 1; i <= 6; i++) {
-                if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSent++;
+                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) leadSent++;
             }
-            if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSent++;
+            if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) leadSent++;
 
             // Extended FollowUps
             for (let i = 1; i <= 10; i++) {
-                if (l[`W.P_FollowUp_${i}`]) leadSent++;
+                if (lead[`W.P_FollowUp_${i}`]) leadSent++;
             }
 
             groups[d].sent += leadSent;
 
             let hasReplied = false;
-            if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") {
+            if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
                 hasReplied = true;
             } else {
                 for (let i = 1; i <= 10; i++) {
-                    const r = l[`W.P_Replied_${i}`];
+                    const r = lead[`W.P_Replied_${i}`];
                     if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
                         hasReplied = true;
                         break;

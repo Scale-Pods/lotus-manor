@@ -39,18 +39,18 @@ import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { getEmailDetailsFromTemplates } from "@/lib/email-content";
-import { consolidateLeads } from "@/lib/leads-utils";
+import { useData } from "@/context/DataContext";
 
 const ITEMS_PER_PAGE = 7;
 
 import { LMLoader } from "@/components/lm-loader";
 
 export default function SentEmailsPage() {
+    const { leads: allLeads, loadingLeads } = useData();
     const [page, setPage] = useState(1);
     const [dateRange, setDateRange] = useState<any>(undefined);
     const [sentEmails, setSentEmails] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");
     const [filters, setFilters] = useState({
         campaign: "all",
@@ -61,19 +61,13 @@ export default function SentEmailsPage() {
 
     useEffect(() => {
         const fetchData = async () => {
-            setLoading(true);
+            if (loadingLeads) return;
+
             try {
-                // Fetch leads
-                const leadsRes = await fetch('/api/leads');
-
-                if (!leadsRes.ok) throw new Error("Failed to fetch leads");
-                const rawData = await leadsRes.json();
-                const leads = consolidateLeads(rawData);
-
                 const emails: any[] = [];
-                const uniqueSenders = new Set<string>();
+                const uniqueSendersSet = new Set<string>();
 
-                leads.forEach((lead: any, leadIndex: number) => {
+                allLeads.forEach((lead: any, leadIndex: number) => {
                     const stages = lead.stages_passed || [];
 
                     let sEmail = (lead.sender_email || lead["Sender Email"] || "").trim();
@@ -113,7 +107,7 @@ export default function SentEmailsPage() {
                         fullSender = fullSender.replace('("")', "").trim();
                     }
 
-                    uniqueSenders.add(fullSender);
+                    uniqueSendersSet.add(fullSender);
 
                     stages.forEach((stage: string) => {
                         if (stage.toLowerCase().includes("email")) {
@@ -173,13 +167,11 @@ export default function SentEmailsPage() {
 
                 setSentEmails(emails);
             } catch (err) {
-                console.error("Sent emails fetch error", err);
-            } finally {
-                setLoading(false);
+                console.error("Sent emails processing error", err);
             }
         };
         fetchData();
-    }, []);
+    }, [allLeads, loadingLeads]);
 
     // Get unique senders for filter
     const uniqueSenders = Array.from(new Set(sentEmails.map(e => e.sender))).sort();

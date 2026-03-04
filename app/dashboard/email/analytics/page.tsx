@@ -30,8 +30,8 @@ import {
 } from "recharts";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { DateRange } from "react-day-picker";
-import { consolidateLeads } from "@/lib/leads-utils";
 import { subDays } from "date-fns";
+import { useData } from "@/context/DataContext";
 
 interface HistoryData {
     date: string;
@@ -55,9 +55,10 @@ interface WarmupData {
 }
 
 export default function EmailAnalyticsPage() {
+    const { leads: allLeads, loadingLeads } = useData();
     const [warmupData, setWarmupData] = useState<WarmupData[]>([]);
     const [generalData, setGeneralData] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
+    const [loadingLocal, setLoadingLocal] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [unsubscribedCount, setUnsubscribedCount] = useState(0);
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
@@ -65,8 +66,10 @@ export default function EmailAnalyticsPage() {
         to: new Date(),
     });
 
+    const loading = loadingLocal || loadingLeads;
+
     const fetchData = async (start?: Date, end?: Date) => {
-        setLoading(true);
+        setLoadingLocal(true);
         setError(null);
         try {
             const startDate = start ? start.toISOString().split('T')[0] : '';
@@ -97,12 +100,9 @@ export default function EmailAnalyticsPage() {
             setWarmupData(warmupJson);
             setGeneralData(generalJson);
 
-            // Fetch Leads for accurate Unsubscribed count
-            const leadsRes = await fetch('/api/leads');
-            if (leadsRes.ok) {
-                const leadsRaw = await leadsRes.json();
-                const leads = consolidateLeads(leadsRaw);
-                const unsub = leads.filter((lead: any) => {
+            // Calculate Unsubscribed from Global Leads
+            if (!loadingLeads) {
+                const unsub = allLeads.filter((lead: any) => {
                     const isUnsub = lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes");
                     if (!isUnsub) return false;
 
@@ -122,13 +122,13 @@ export default function EmailAnalyticsPage() {
             console.error("Analytics fetch error", e);
             setError(e.message);
         } finally {
-            setLoading(false);
+            setLoadingLocal(false);
         }
     };
 
     useEffect(() => {
         fetchData(dateRange?.from, dateRange?.to);
-    }, []);
+    }, [allLeads, loadingLeads]);
 
     const handleDateUpdate = ({ range }: { range: DateRange | undefined }) => {
         setDateRange(range);

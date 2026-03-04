@@ -37,13 +37,17 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
 import { WhatsAppChatDetail } from "@/components/dashboard/whatsapp-chat-detail";
 import { LMLoader } from "@/components/lm-loader";
+import { useData } from "@/context/DataContext";
 
 export default function WhatsappLeadsPage() {
+    const { leads: allLeads, loadingLeads } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads;
     const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedLeadIdForChat, setSelectedLeadIdForChat] = useState<string | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const leadsPerPage = 10;
 
     // Filter State
     const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
@@ -60,27 +64,15 @@ export default function WhatsappLeadsPage() {
     });
 
     useEffect(() => {
-        const fetchLeads = async () => {
-            setLoading(true);
-            try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed to fetch");
-                const rawData = await res.json();
-                const allLeads = consolidateLeads(rawData);
-
-                // Filter: only show if last_contacted is NOT empty
-                const filtered = allLeads.filter(l => l.last_contacted && String(l.last_contacted).trim() !== "");
-                setLeads(filtered);
-            } catch (err) {
-                console.error("Error fetching leads:", err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchLeads();
-    }, []);
+        if (!loadingLeads) {
+            // Filter: only show if last_contacted is NOT empty
+            const filtered = allLeads.filter(l => l.last_contacted && String(l.last_contacted).trim() !== "");
+            setLeads(filtered);
+        }
+    }, [allLeads, loadingLeads]);
 
     const filteredLeads = useMemo(() => {
+        setCurrentPage(1); // Reset to first page on filter change
         return leads.filter(l => {
             // Search filter
             const matchesSearch = l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -151,6 +143,13 @@ export default function WhatsappLeadsPage() {
             setSelectedLeads([...selectedLeads, id]);
         }
     };
+
+    // Pagination Logic
+    const totalPages = Math.ceil(filteredLeads.length / leadsPerPage);
+    const paginatedLeads = filteredLeads.slice(
+        (currentPage - 1) * leadsPerPage,
+        currentPage * leadsPerPage
+    );
 
     if (loading) {
         return <LMLoader />;
@@ -282,7 +281,7 @@ export default function WhatsappLeadsPage() {
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredLeads.map((lead, index) => (
+                                    paginatedLeads.map((lead, index) => (
                                         <tr
                                             key={`${lead.id}-${index}`}
                                             className="hover:bg-slate-50 transition-colors group cursor-pointer"
@@ -327,11 +326,54 @@ export default function WhatsappLeadsPage() {
                         </table>
                     </div>
                     {/* Footer */}
-                    <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                    <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-4">
                         <p className="text-sm text-slate-500">
-                            Showing <span className="font-bold text-slate-900">{filteredLeads.length}</span> contacted leads
+                            Showing <span className="font-bold text-slate-900">{paginatedLeads.length}</span> of <span className="font-bold text-slate-900">{filteredLeads.length}</span> contacted leads
                         </p>
 
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={currentPage === 1}
+                                onClick={() => setCurrentPage(prev => prev - 1)}
+                                className="h-8 w-8 p-0"
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                            </Button>
+
+                            <div className="flex items-center gap-1 mx-2">
+                                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                    let pageNum: number;
+                                    if (totalPages <= 5) pageNum = i + 1;
+                                    else if (currentPage <= 3) pageNum = i + 1;
+                                    else if (currentPage >= totalPages - 2) pageNum = totalPages - 4 + i;
+                                    else pageNum = currentPage - 2 + i;
+
+                                    return (
+                                        <Button
+                                            key={pageNum}
+                                            variant={currentPage === pageNum ? "default" : "outline"}
+                                            size="sm"
+                                            onClick={() => setCurrentPage(pageNum)}
+                                            className={`h-8 w-8 p-0 ${currentPage === pageNum ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
+                                        >
+                                            {pageNum}
+                                        </Button>
+                                    );
+                                })}
+                            </div>
+
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={currentPage === totalPages || totalPages === 0}
+                                onClick={() => setCurrentPage(prev => prev + 1)}
+                                className="h-8 w-8 p-0"
+                            >
+                                <ChevronRight className="h-4 w-4" />
+                            </Button>
+                        </div>
                     </div>
                 </CardContent>
             </Card>

@@ -13,6 +13,7 @@ import { CallDetailsModal } from "@/components/voice/call-details-modal";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { format, parseISO } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
+import { useData } from "@/context/DataContext";
 
 // Progressively fetches deep call details for purely visible rows since ElevenLabs List API censors `type`/`direction` properties and deeper numeric variables
 const DynamicRowCells = ({ call }: { call: any }) => {
@@ -72,9 +73,10 @@ const DynamicRowCells = ({ call }: { call: any }) => {
 };
 
 export default function VoiceLogsPage() {
-    const [allCalls, setAllCalls] = useState<any[]>([]);
+    const { calls: globalCalls, loadingCalls, refreshAll } = useData();
+    const [allCallsMapped, setAllCallsMapped] = useState<any[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingCalls;
     const [selectedCall, setSelectedCall] = useState<any>(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [dateRange, setDateRange] = useState<any>(undefined);
@@ -86,69 +88,56 @@ export default function VoiceLogsPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
 
-    const fetchAllCalls = async () => {
-        setLoading(true);
-        try {
-            const res = await fetch('/api/calls');
-            if (!res.ok) throw new Error("Failed");
-            const data = await res.json();
-
-            // Map ElevenLabs/Vapi data to our table structure
-            const mappedCalls = data.map((call: any) => {
-                const id = call.id;
-                const startedAt = call.startedAt;
-                const durationVal = call.durationSeconds || 0;
-
-                const rawDynamicVars = call.conversation_initiation_client_data?.dynamic_variables || {};
-                const rawType = call.type || call.metadata?.type || rawDynamicVars.direction || rawDynamicVars.type || "unknown";
-                const isInbound = rawType === 'inbound';
-                const typeLabel = isInbound ? "Inbound" : "Outbound";
-
-                let callerNumber = call.phone || call.caller_number || call.metadata?.caller_number || rawDynamicVars.caller_number || rawDynamicVars.caller || "Unknown";
-                let calleeNumber = call.callee_number || call.metadata?.callee_number || rawDynamicVars.callee_number || rawDynamicVars.callee || "Unknown";
-                const centralNumber = "97148714150";
-
-                let guestNumber = "Unknown";
-                if (isInbound) {
-                    guestNumber = callerNumber;
-                } else {
-                    guestNumber = calleeNumber !== "Unknown" && calleeNumber !== centralNumber ? calleeNumber : callerNumber;
-                }
-
-                let finalGuestNum = "Unknown";
-                if (guestNumber !== "Unknown" && guestNumber !== "Website/API") {
-                    finalGuestNum = `+${guestNumber.replace(/\+/g, '')}`;
-                } else if (guestNumber === "Website/API") {
-                    finalGuestNum = "Website/API";
-                }
-
-                return {
-                    id: id,
-                    status: call.status,
-                    type: typeLabel,
-                    startedAt: startedAt,
-                    guestNumber: finalGuestNum,
-                    duration: formatDuration(durationVal),
-                    date: startedAt ? new Date(startedAt).toLocaleString() : 'N/A',
-                    raw: call
-                };
-            });
-
-            setAllCalls(mappedCalls);
-        } catch (error) {
-            console.error("Error fetching logs:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     useEffect(() => {
-        fetchAllCalls();
-    }, []);
+        if (loadingCalls) return;
+
+        // Map ElevenLabs/Vapi data to our table structure
+        const mappedCalls = globalCalls.map((call: any) => {
+            const id = call.id;
+            const startedAt = call.startedAt;
+            const durationVal = call.durationSeconds || 0;
+
+            const rawDynamicVars = call.conversation_initiation_client_data?.dynamic_variables || {};
+            const rawType = call.type || call.metadata?.type || rawDynamicVars.direction || rawDynamicVars.type || "unknown";
+            const isInbound = rawType === 'inbound';
+            const typeLabel = isInbound ? "Inbound" : "Outbound";
+
+            let callerNumber = call.phone || call.caller_number || call.metadata?.caller_number || rawDynamicVars.caller_number || rawDynamicVars.caller || "Unknown";
+            let calleeNumber = call.callee_number || call.metadata?.callee_number || rawDynamicVars.callee_number || rawDynamicVars.callee || "Unknown";
+            const centralNumber = "97148714150";
+
+            let guestNumber = "Unknown";
+            if (isInbound) {
+                guestNumber = callerNumber;
+            } else {
+                guestNumber = calleeNumber !== "Unknown" && calleeNumber !== centralNumber ? calleeNumber : callerNumber;
+            }
+
+            let finalGuestNum = "Unknown";
+            if (guestNumber !== "Unknown" && guestNumber !== "Website/API") {
+                finalGuestNum = `+${guestNumber.replace(/\+/g, '')}`;
+            } else if (guestNumber === "Website/API") {
+                finalGuestNum = "Website/API";
+            }
+
+            return {
+                id: id,
+                status: call.status,
+                type: typeLabel,
+                startedAt: startedAt,
+                guestNumber: finalGuestNum,
+                duration: formatDuration(durationVal),
+                date: startedAt ? new Date(startedAt).toLocaleString() : 'N/A',
+                raw: call
+            };
+        });
+
+        setAllCallsMapped(mappedCalls);
+    }, [globalCalls, loadingCalls]);
 
     useEffect(() => {
         // Filter locally
-        const filteredCalls = allCalls.filter((call: any) => {
+        const filteredCalls = allCallsMapped.filter((call: any) => {
             if (dateRange?.from) {
                 if (!call.startedAt) return false;
                 const callDate = new Date(call.startedAt);
@@ -174,10 +163,10 @@ export default function VoiceLogsPage() {
         // Sort by date desc
         setCalls(filteredCalls.sort((a: any, b: any) => new Date(b.raw.startedAt).getTime() - new Date(a.raw.startedAt).getTime()));
         setCurrentPage(1);
-    }, [allCalls, dateRange, statusFilter, typeFilter, phoneFilter]);
+    }, [allCallsMapped, dateRange, statusFilter, typeFilter, phoneFilter]);
 
     const handleRefresh = () => {
-        fetchAllCalls();
+        refreshAll();
     };
 
     const handleRowClick = (call: any) => {
@@ -190,7 +179,7 @@ export default function VoiceLogsPage() {
 
     return (
         <div className="space-y-6 pb-10 relative min-h-[500px]">
-            {loading && allCalls.length === 0 && <LMLoader />}
+            {loading && allCallsMapped.length === 0 && <LMLoader />}
             <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                     <div>

@@ -11,7 +11,8 @@ import {
     User,
     Bot,
 } from "lucide-react";
-import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
+import { ConsolidatedLead } from "@/lib/leads-utils";
+import { useData } from "@/context/DataContext";
 
 interface WhatsAppChatDetailProps {
     customerId: string;
@@ -19,121 +20,121 @@ interface WhatsAppChatDetailProps {
 }
 
 export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailProps) {
+    const { leads: allLeads, loadingLeads } = useData();
     const [lead, setLead] = useState<ConsolidatedLead | null>(null);
     const [loading, setLoading] = useState(true);
     const [messages, setMessages] = useState<any[]>([]);
 
     useEffect(() => {
-        const fetchLead = async () => {
+        if (loadingLeads) {
             setLoading(true);
-            try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed");
-                const rawData = await res.json();
-                const allLeads = consolidateLeads(rawData);
-                const found = allLeads.find(l => l.id === customerId);
+            return;
+        }
 
-                if (found) {
-                    setLead(found);
-                    const timeline: any[] = [];
+        const found = allLeads.find(l => String(l.id) === String(customerId));
 
-                    const parseMsg = (raw: any, label: string, type: 'bot' | 'user', sequence: number) => {
-                        if (!raw || !String(raw).trim()) return null;
-                        const content = String(raw).trim();
+        if (found) {
+            setLead(found);
+            const timeline: any[] = [];
 
-                        // Look for ISO timestamp at the end of the message (bot messages often have this)
-                        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
-                        const isoMatch = content.match(isoRegex);
+            const parseMsg = (raw: any, label: string, type: 'bot' | 'user', sequence: number) => {
+                if (!raw || !String(raw).trim()) return null;
+                const content = String(raw).trim();
 
-                        if (isoMatch) {
-                            return {
-                                type,
-                                content: content.replace(isoRegex, '').trim(),
-                                label: label,
-                                date: isoMatch[1],
-                                sequence
-                            };
-                        }
+                // Look for ISO timestamp at the end of the message (bot messages often have this)
+                const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+                const isoMatch = content.match(isoRegex);
 
-                        // Special handling for W.P_Replied which sometimes has format: "message\n2026-01-29 15:30:00"
-                        const lines = content.split('\n');
-                        const lastLine = lines[lines.length - 1].trim();
-                        const lastLineDate = new Date(lastLine.replace(' ', 'T')); // Handle space between date and time
+                if (isoMatch) {
+                    return {
+                        type,
+                        content: content.replace(isoRegex, '').trim(),
+                        label: label,
+                        date: isoMatch[1],
+                        sequence
+                    };
+                }
 
-                        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-                            return {
-                                type,
-                                content: lines.slice(0, -1).join('\n').trim() || "Message Received",
-                                label: label,
-                                date: lastLineDate.toISOString(),
-                                sequence
-                            };
-                        }
+                // Special handling for W.P_Replied which sometimes has format: "message\n2026-01-29 15:30:00"
+                const lines = content.split('\n');
+                if (lines.length > 1) {
+                    const lastLine = lines[lines.length - 1].trim();
+                    const lastLineDate = new Date(lastLine.replace(' ', 'T')); // Handle space between date and time
 
+                    if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
                         return {
                             type,
-                            content: content,
+                            content: lines.slice(0, -1).join('\n').trim() || "Message Received",
                             label: label,
-                            date: found.created_at,
+                            date: lastLineDate.toISOString(),
                             sequence
                         };
-                    };
-
-                    // 1. Outgoing W.P_1 to W.P_6
-                    for (let i = 1; i <= 6; i++) {
-                        const raw = found[`W.P_${i}`] || found.stage_data?.[`WhatsApp ${i}`];
-                        const msg = parseMsg(raw, `WhatsApp ${i}`, 'bot', i * 100);
-                        if (msg) timeline.push(msg);
                     }
-
-                    // 2. Incoming W.P_Replied
-                    const replyRaw = found.whatsapp_replied || found.stage_data?.["WhatsApp Replied"];
-                    if (replyRaw && String(replyRaw).toLowerCase() !== "no" && String(replyRaw).toLowerCase() !== "none") {
-                        const msg = parseMsg(replyRaw, 'Reply Received', 'user', 700);
-                        if (msg) timeline.push(msg);
-                    }
-
-                    // 3. Outgoing W.P_FollowUp (Original Single Field)
-                    const followupRaw = found.stage_data?.["WhatsApp FollowUp"] || found["W.P_FollowUp"];
-                    const fMsg = parseMsg(followupRaw, 'WhatsApp FollowUp', 'bot', 701);
-                    if (fMsg) timeline.push(fMsg);
-
-                    // 4. Extended History: W.P_Replied_1 to 10
-                    for (let i = 1; i <= 10; i++) {
-                        const raw = found[`W.P_Replied_${i}`];
-                        if (raw && String(raw).toLowerCase() !== "no" && String(raw).toLowerCase() !== "none") {
-                            // Sequence: 1000 + (1 * 20) = 1020, 1040, etc.
-                            const msg = parseMsg(raw, `Reply ${i}`, 'user', 1000 + (i * 20));
-                            if (msg) timeline.push(msg);
-                        }
-                    }
-
-                    // 5. Extended History: W.P_FollowUp_1 to 10
-                    for (let i = 1; i <= 10; i++) {
-                        const raw = found[`W.P_FollowUp_${i}`];
-                        // Sequence: 1000 + (1 * 20) + 1 = 1021, 1041, etc.
-                        const msg = parseMsg(raw, `FollowUp ${i}`, 'bot', 1000 + (i * 20) + 1);
-                        if (msg) timeline.push(msg);
-                    }
-
-                    // Sort timeline by date, then by sequence
-                    timeline.sort((a, b) => {
-                        const timeA = new Date(a.date).getTime();
-                        const timeB = new Date(b.date).getTime();
-                        if (timeA !== timeB) return timeA - timeB;
-                        return a.sequence - b.sequence;
-                    });
-
-                    setMessages(timeline);
                 }
-            } catch (err) {
-                console.error("Fetch lead detail error:", err);
-            } finally {
-                setLoading(false);
+
+                return {
+                    type,
+                    content: content,
+                    label: label,
+                    date: found.created_at,
+                    sequence
+                };
+            };
+
+            const f = found as any;
+
+            // 1. Outgoing W.P_1 to W.P_6
+            for (let i = 1; i <= 6; i++) {
+                const raw = f[`W.P_${i}`] || f.stage_data?.[`WhatsApp ${i}`];
+                const msg = parseMsg(raw, `WhatsApp ${i}`, 'bot', i * 100);
+                if (msg) timeline.push(msg);
             }
-        };
-        fetchLead();
-    }, [customerId]);
+
+            // 2. Incoming W.P_Replied
+            const replyRaw = f.whatsapp_replied || f.stage_data?.["WhatsApp Replied"];
+            if (replyRaw && String(replyRaw).toLowerCase() !== "no" && String(replyRaw).toLowerCase() !== "none") {
+                const msg = parseMsg(replyRaw, 'Reply Received', 'user', 700);
+                if (msg) timeline.push(msg);
+            }
+
+            // 3. Outgoing W.P_FollowUp (Original Single Field)
+            const followupRaw = f.stage_data?.["WhatsApp FollowUp"] || f["W.P_FollowUp"];
+            const fMsg = parseMsg(followupRaw, 'WhatsApp FollowUp', 'bot', 701);
+            if (fMsg) timeline.push(fMsg);
+
+            // 4. Extended History: W.P_Replied_1 to 10
+            for (let i = 1; i <= 10; i++) {
+                const raw = f[`W.P_Replied_${i}`];
+                if (raw && String(raw).toLowerCase() !== "no" && String(raw).toLowerCase() !== "none") {
+                    // Sequence: 1000 + (1 * 20) = 1020, 1040, etc.
+                    const msg = parseMsg(raw, `Reply ${i}`, 'user', 1000 + (i * 20));
+                    if (msg) timeline.push(msg);
+                }
+            }
+
+            // 5. Extended History: W.P_FollowUp_1 to 10
+            for (let i = 1; i <= 10; i++) {
+                const raw = f[`W.P_FollowUp_${i}`];
+                // Sequence: 1000 + (1 * 20) + 1 = 1021, 1041, etc.
+                const msg = parseMsg(raw, `FollowUp ${i}`, 'bot', 1000 + (i * 20) + 1);
+                if (msg) timeline.push(msg);
+            }
+
+            // Sort timeline by date, then by sequence
+            timeline.sort((a, b) => {
+                const timeA = new Date(a.date).getTime();
+                const timeB = new Date(b.date).getTime();
+                if (timeA !== timeB) return timeA - timeB;
+                return a.sequence - b.sequence;
+            });
+
+            setMessages(timeline);
+        } else {
+            setLead(null);
+            setMessages([]);
+        }
+        setLoading(false);
+    }, [customerId, allLeads, loadingLeads]);
 
     if (loading) {
         return (

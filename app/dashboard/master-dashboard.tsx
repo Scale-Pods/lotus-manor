@@ -39,9 +39,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { consolidateLeads } from "@/lib/leads-utils";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { LMLoader } from "@/components/lm-loader";
+import { useData } from "@/context/DataContext";
 
 
 
@@ -51,7 +51,7 @@ export default function MasterDashboard() {
     const [dateLabel, setDateLabel] = useState("Last 7 days");
     const [dateRange, setDateRange] = useState<any>(undefined);
 
-    // Real Data State
+    const { leads: allLeads, calls: allCalls, loadingLeads, loadingCalls, refreshAll } = useData();
     const [leads, setLeads] = useState<any[]>([]);
     const [acquisitionChartData, setAcquisitionChartData] = useState<any[]>([]);
     const [stats, setStats] = useState({
@@ -63,7 +63,7 @@ export default function MasterDashboard() {
         voiceMinutes: 0,
         totalVoiceCalls: 0
     });
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads || loadingCalls;
 
     const handleDateUpdate = ({ range, label }: { range: any, label?: string }) => {
         if (label) {
@@ -74,15 +74,11 @@ export default function MasterDashboard() {
 
     useEffect(() => {
         const calculateStats = async () => {
-            setLoading(true);
-            try {
-                // Fetch Leads
-                const leadsRes = await fetch('/api/leads');
-                const rawLeads = await leadsRes.json();
-                const flattenedLeads = consolidateLeads(rawLeads);
+            if (loadingLeads) return;
 
+            try {
                 // Apply Date Filtering for Leads
-                const filteredLeads = flattenedLeads.filter((lead: any) => {
+                const filteredLeads = allLeads.filter((lead: any) => {
                     if (!dateRange?.from) return true;
 
                     // Extract best available date (created_at, last_contacted, or embedded reply timestamp)
@@ -98,7 +94,6 @@ export default function MasterDashboard() {
                         }
                     }
 
-                    // Apply same logic for WhatsApp interaction if needed
                     // Apply same logic for WhatsApp interaction if needed
                     let hasWPReply = false;
                     if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") hasWPReply = true;
@@ -124,19 +119,6 @@ export default function MasterDashboard() {
                                 foundDate = true;
                             }
                         }
-                        if (!foundDate) {
-                            for (let i = 1; i <= 10; i++) {
-                                const r = lead[`W.P_Replied_${i}`];
-                                if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                                    // Attempt to parse date from extended reply if format allows (usually contains date in text or we fallback to updated_at)
-                                    // For now, if we match an extended reply, we assume the lead relies on created_at/last_contacted if parsed date fails.
-                                    // However, to be consistent with 'Received Emails', we try.
-                                    // But extended replies might just be text.
-                                    // New Logic: If has extended reply, and no other date, stick with created_at/last_contacted from line 87.
-                                    break;
-                                }
-                            }
-                        }
                     }
 
                     if (!leadDateStr) return false;
@@ -160,7 +142,6 @@ export default function MasterDashboard() {
                 let endDate = dateRange?.to ? new Date(dateRange.to) : new Date();
 
                 if (!startDate && filteredLeads.length > 0) {
-                    // Fallback: find oldest lead but limit to 30 days back
                     const oldest = new Date(Math.min(...filteredLeads.map(l => new Date(l.created_at || Date.now()).getTime())));
                     const thirtyDaysAgo = new Date();
                     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -170,7 +151,6 @@ export default function MasterDashboard() {
                     startDate.setDate(startDate.getDate() - 7);
                 }
 
-                // Initialize map with all dates in range to avoid gaps
                 const current = new Date(startDate);
                 current.setHours(0, 0, 0, 0);
                 const end = new Date(endDate);
@@ -193,42 +173,29 @@ export default function MasterDashboard() {
                 const chartData = Object.entries(acquisitionMap).map(([name, leads]) => ({
                     name,
                     leads
-                })).sort((a, b) => {
-                    // Already semi-sorted by insertion if range is continuous, 
-                    // but safety first: parse back to Date for strict ordering if needed 
-                    // (though Map insertion order is usually enough here)
-                    return 0; // Insertion order is correct due to while loop
-                });
+                })).sort((a, b) => 0);
 
                 setAcquisitionChartData(chartData);
 
-                // Fetch Vapi Calls for real minutes and total actual calls
+                // Process Vapi Calls from Global Data
                 let totalVoiceSeconds = 0;
                 let totalVoiceCallsCount = 0;
-                try {
-                    const callsRes = await fetch('/api/calls');
-                    if (callsRes.ok) {
-                        const callsData = await callsRes.json();
-                        if (Array.isArray(callsData)) {
-                            // Apply Date Filtering for Calls
-                            const filteredCalls = callsData.filter((call: any) => {
-                                if (!dateRange?.from) return true;
-                                if (!call.startedAt) return false;
 
-                                const callDate = new Date(call.startedAt);
-                                const from = new Date(dateRange.from);
-                                from.setHours(0, 0, 0, 0);
-                                const to = dateRange.to ? new Date(dateRange.to) : from;
-                                to.setHours(23, 59, 59, 999);
+                if (!loadingCalls && Array.isArray(allCalls)) {
+                    const filteredCalls = allCalls.filter((call: any) => {
+                        if (!dateRange?.from) return true;
+                        if (!call.startedAt) return false;
 
-                                return callDate >= from && callDate <= to;
-                            });
-                            totalVoiceSeconds = filteredCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
-                            totalVoiceCallsCount = filteredCalls.length;
-                        }
-                    }
-                } catch (err) {
-                    console.error("Vapi fetch error:", err);
+                        const callDate = new Date(call.startedAt);
+                        const from = new Date(dateRange.from);
+                        from.setHours(0, 0, 0, 0);
+                        const to = dateRange.to ? new Date(dateRange.to) : from;
+                        to.setHours(23, 59, 59, 999);
+
+                        return callDate >= from && callDate <= to;
+                    });
+                    totalVoiceSeconds = filteredCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
+                    totalVoiceCallsCount = filteredCalls.length;
                 }
 
                 let emailCount = 0;
@@ -237,7 +204,6 @@ export default function MasterDashboard() {
                 let replyCount = 0;
 
                 filteredLeads.forEach((lead: any) => {
-                    // 1. Email Count
                     const stages = lead.stages_passed || [];
                     let hasEmail = false;
                     stages.forEach((stage: string) => {
@@ -245,22 +211,18 @@ export default function MasterDashboard() {
                     });
                     if (hasEmail) emailCount++;
 
-                    // 2. WhatsApp Count (Check legacy stages + extended history)
                     let hasWhatsApp = false;
                     stages.forEach((stage: string) => {
                         if (stage.toLowerCase().includes("whatsapp")) hasWhatsApp = true;
                     });
                     if (!hasWhatsApp) {
-                        // Check legacy replied
                         if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") hasWhatsApp = true;
-                        // Check extended replied/followup
                         for (let i = 1; i <= 10; i++) {
                             if (lead[`W.P_Replied_${i}`] || lead[`W.P_FollowUp_${i}`]) {
                                 hasWhatsApp = true;
                                 break;
                             }
                         }
-                        // Check legacy sent
                         if (!hasWhatsApp) {
                             for (let i = 1; i <= 6; i++) {
                                 if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) {
@@ -273,16 +235,13 @@ export default function MasterDashboard() {
                     }
                     if (hasWhatsApp) whatsappCount++;
 
-                    // 3. Voice Count
                     let hasVoice = false;
                     stages.forEach((stage: string) => {
                         if (stage.toLowerCase().includes("voice")) hasVoice = true;
                     });
                     if (hasVoice) voiceCount++;
 
-                    // 4. Replies Count
                     const hasEmailReply = lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none";
-
                     let hasWPReply = lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none";
                     if (!hasWPReply) {
                         for (let i = 1; i <= 10; i++) {
@@ -296,7 +255,6 @@ export default function MasterDashboard() {
 
                     if (hasEmailReply) replyCount++;
                     if (hasWPReply) replyCount++;
-                    // If neither above but has general replied flag, count as 1 if not already counted
                     if (!hasEmailReply && !hasWPReply && lead.replied === "Yes") replyCount++;
                 });
 
@@ -311,14 +269,12 @@ export default function MasterDashboard() {
                 } as any);
 
             } catch (e) {
-                console.error("Dashboard fetch error", e);
-            } finally {
-                setLoading(false);
+                console.error("Dashboard calculation error", e);
             }
         };
 
         calculateStats();
-    }, [dateRange]);
+    }, [dateRange, allLeads, allCalls, loadingLeads, loadingCalls]);
 
     const router = useRouter();
 

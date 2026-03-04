@@ -3,7 +3,7 @@
 import { LMLoader } from "@/components/lm-loader";
 
 import { useEffect, useState } from "react";
-import { consolidateLeads } from "@/lib/leads-utils";
+import { useData } from "@/context/DataContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { UserMinus, Search, Mail, Loader2, Calendar } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -11,8 +11,9 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function UnsubscribedPage() {
+    const { leads: allLeads, loadingLeads } = useData();
     const [leads, setLeads] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads;
 
     // Filters
     const [searchTerm, setSearchTerm] = useState("");
@@ -22,12 +23,8 @@ export default function UnsubscribedPage() {
 
     useEffect(() => {
         const fetchUnsubscribed = async () => {
+            if (loadingLeads) return;
             try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed");
-                const rawData = await res.json();
-                const allLeads = consolidateLeads(rawData);
-
                 const unsubscribed = allLeads.filter((lead: any) =>
                     lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes")
                 );
@@ -37,13 +34,11 @@ export default function UnsubscribedPage() {
 
                 setLeads(unsubscribed);
             } catch (err) {
-                console.error("Error fetching leads:", err);
-            } finally {
-                setLoading(false);
+                console.error("Error processing leads:", err);
             }
         };
         fetchUnsubscribed();
-    }, []);
+    }, [allLeads, loadingLeads]);
 
     const filteredLeads = leads.filter(l => {
         // Search Filter

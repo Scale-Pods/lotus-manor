@@ -19,8 +19,10 @@ import {
 } from "recharts";
 import { format, parseISO, startOfDay, getHours } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
+import { useData } from "@/context/DataContext";
 
 export default function VoiceDashboardPage() {
+    const { calls: globalCalls, loadingCalls } = useData();
     const [stats, setStats] = useState({
         totalCalls: 0,
         totalDuration: 0,
@@ -32,27 +34,18 @@ export default function VoiceDashboardPage() {
         characterCount: 0,
         characterLimit: 0
     });
-    const [allCalls, setAllCalls] = useState<any[]>([]);
     const [dailyVolume, setDailyVolume] = useState<any[]>([]);
     const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loadingLocal, setLoadingLocal] = useState(true);
     const [dateRange, setDateRange] = useState<any>(undefined);
 
+    const loading = loadingLocal || loadingCalls;
+
     useEffect(() => {
-        const fetchAllData = async () => {
-            setLoading(true);
+        const fetchBalance = async () => {
+            setLoadingLocal(true);
             try {
-                // Fetch calls and exact balance simultaneously
-                const [callsRes, balanceRes] = await Promise.all([
-                    fetch('/api/calls'),
-                    fetch('/api/vapi/balance') // Mapped to our ElevenLabs user endpoint
-                ]);
-
-                if (!callsRes.ok) throw new Error("Failed to fetch calls");
-
-                const calls = await callsRes.json();
-                setAllCalls(calls);
-
+                const balanceRes = await fetch('/api/vapi/balance'); // Mapped to our ElevenLabs user endpoint
                 // Update real-time capacity stats independently
                 if (balanceRes.ok) {
                     const balance = await balanceRes.json();
@@ -63,17 +56,17 @@ export default function VoiceDashboardPage() {
                     }));
                 }
             } catch (error) {
-                console.error("Error fetching voice data:", error);
+                console.error("Error fetching voice balance:", error);
             } finally {
-                setLoading(false);
+                setLoadingLocal(false);
             }
         };
 
-        fetchAllData();
+        fetchBalance();
     }, []);
 
     useEffect(() => {
-        if (loading && allCalls.length === 0) return;
+        if (loading) return;
 
         let totalDuration = 0;
         let totalCost = 0;
@@ -84,7 +77,7 @@ export default function VoiceDashboardPage() {
         const hourMap = new Array(24).fill(0);
 
         // Filter by date range if set
-        const filteredCalls = allCalls.filter((call: any) => {
+        const filteredCalls = globalCalls.filter((call: any) => {
             if (!dateRange?.from) return true;
 
             // Get date from Vapi or ElevenLabs
@@ -165,7 +158,7 @@ export default function VoiceDashboardPage() {
         })).filter((_, i) => i % 3 === 0); // Sample every 3 hours for cleaner chart
 
         setHourlyDistribution(hourlyData);
-    }, [allCalls, dateRange]);
+    }, [globalCalls, dateRange, loading]);
 
     return (
         <div className="space-y-8 pb-10 relative min-h-[500px]">

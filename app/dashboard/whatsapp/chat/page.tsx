@@ -7,6 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { WhatsAppChatDetail } from "@/components/dashboard/whatsapp-chat-detail";
+import { ConsolidatedLead } from "@/lib/leads-utils";
+import {
     Dialog,
     DialogContent,
     DialogHeader,
@@ -21,23 +29,17 @@ import {
     MessageSquare,
     RefreshCw
 } from "lucide-react";
-import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
-import { WhatsAppChatDetail } from "@/components/dashboard/whatsapp-chat-detail";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { LMLoader } from "@/components/lm-loader";
+import { useData } from "@/context/DataContext";
 
 export default function WhatsappChatPage() {
+    const { leads: allLeads, loadingLeads } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
-    const [loading, setLoading] = useState(true);
+    const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
-    const leadsPerPage = 4;
+    const leadsPerPage = 10;
 
     // Filter State
     const [pendingFilters, setPendingFilters] = useState<{
@@ -69,106 +71,95 @@ export default function WhatsappChatPage() {
     });
 
     useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const res = await fetch('/api/leads');
-                if (!res.ok) throw new Error("Failed to fetch leads");
-                const rawData = await res.json();
-                const allLeads = consolidateLeads(rawData);
+        if (loadingLeads) return;
 
-                // Only include leads with some WhatsApp activity
-                const wpLeads = allLeads.filter(l => {
-                    // 1. Check legacy stages
-                    if (l.stages_passed.some(s => s.toLowerCase().includes("whatsapp"))) return true;
+        // Only include leads with some WhatsApp activity
+        const wpLeads = allLeads.filter(l => {
+            const lead = l as any;
+            // 1. Check legacy stages
+            if (lead.stages_passed.some((s: string) => s.toLowerCase().includes("whatsapp"))) return true;
 
-                    // 2. Check legacy replied field
-                    if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") return true;
+            // 2. Check legacy replied field
+            if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") return true;
 
-                    // 3. Check extended history (Replied 1-10)
-                    for (let i = 1; i <= 10; i++) {
-                        const r = l[`W.P_Replied_${i}`];
-                        if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
-                    }
-
-                    // 4. Check extended history (FollowUp 1-10)
-                    for (let i = 1; i <= 10; i++) {
-                        if (l[`W.P_FollowUp_${i}`]) return true;
-                    }
-
-                    return false;
-                });
-
-                setLeads(wpLeads);
-
-                // Calculate real metrics
-                let totalSent = 0;
-                let repliedCount = 0;
-
-                wpLeads.forEach(l => {
-                    // Count all outgoing W.P_1-6
-                    let leadSent = 0;
-                    for (let i = 1; i <= 6; i++) {
-                        if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSent++;
-                    }
-
-                    // Count legacy FollowUp
-                    if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSent++;
-
-                    // Count extended FollowUp 1-10
-                    for (let i = 1; i <= 10; i++) {
-                        if (l[`W.P_FollowUp_${i}`]) leadSent++;
-                    }
-
-                    totalSent += leadSent;
-
-                    // Check for ANY reply
-                    let hasReplied = false;
-                    if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") {
-                        hasReplied = true;
-                    } else {
-                        // Check extended replies
-                        for (let i = 1; i <= 10; i++) {
-                            const r = l[`W.P_Replied_${i}`];
-                            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                                hasReplied = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (hasReplied) repliedCount++;
-                });
-
-                setStats({
-                    totalLeads: wpLeads.length,
-                    sentCount: totalSent,
-                    deliveredCount: Math.round(totalSent * 0.96),
-                    readCount: Math.round(totalSent * 0.82),
-                    repliedCount: repliedCount
-                });
-
-            } catch (err) {
-                console.error("WhatsApp list error:", err);
-            } finally {
-                setLoading(false);
+            // 3. Check extended history (Replied 1-10)
+            for (let i = 1; i <= 10; i++) {
+                const r = lead[`W.P_Replied_${i}`];
+                if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
             }
-        };
-        fetchData();
-    }, []);
 
-    const filteredLeads = useMemo(() => {
-        return leads.filter(l => {
-            const matchesSearch = l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                l.phone.includes(searchQuery);
+            // 4. Check extended history (FollowUp 1-10)
+            for (let i = 1; i <= 10; i++) {
+                if (lead[`W.P_FollowUp_${i}`]) return true;
+            }
+
+            return false;
+        });
+
+        setLeads(wpLeads);
+
+        // Calculate real metrics
+        let totalSent = 0;
+        let repliedCount = 0;
+
+        wpLeads.forEach(l => {
+            const lead = l as any;
+            // Count all outgoing W.P_1-6
+            let leadSent = 0;
+            for (let i = 1; i <= 6; i++) {
+                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) leadSent++;
+            }
+
+            // Count legacy FollowUp
+            if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) leadSent++;
+
+            // Count extended FollowUp 1-10
+            for (let i = 1; i <= 10; i++) {
+                if (lead[`W.P_FollowUp_${i}`]) leadSent++;
+            }
+
+            totalSent += leadSent;
 
             // Check for ANY reply
             let hasReplied = false;
-            if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") {
+            if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
+                hasReplied = true;
+            } else {
+                // Check extended replies
+                for (let i = 1; i <= 10; i++) {
+                    const r = lead[`W.P_Replied_${i}`];
+                    if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
+                        hasReplied = true;
+                        break;
+                    }
+                }
+            }
+
+            if (hasReplied) repliedCount++;
+        });
+
+        setStats({
+            totalLeads: wpLeads.length,
+            sentCount: totalSent,
+            deliveredCount: Math.round(totalSent * 0.96),
+            readCount: Math.round(totalSent * 0.82),
+            repliedCount: repliedCount
+        });
+    }, [allLeads, loadingLeads]);
+
+    const filteredLeads = useMemo(() => {
+        return leads.filter(l => {
+            const lead = l as any;
+            const matchesSearch = lead.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                lead.phone.includes(searchQuery);
+
+            // Check for ANY reply
+            let hasReplied = false;
+            if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
                 hasReplied = true;
             } else {
                 for (let i = 1; i <= 10; i++) {
-                    const r = l[`W.P_Replied_${i}`];
+                    const r = lead[`W.P_Replied_${i}`];
                     if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
                         hasReplied = true;
                         break;
@@ -183,13 +174,18 @@ export default function WhatsappChatPage() {
 
             // Loop Filter
             const matchesLoop = activeFilters.loops.length === 0 ||
-                activeFilters.loops.includes(l.source_loop);
+                activeFilters.loops.some(loop => {
+                    const lName = (lead.source_loop || "").toLowerCase();
+                    const target = loop.toLowerCase();
+                    if (target === "follow up") return lName.includes("follow up") || lName.includes("followup");
+                    return lName.includes(target);
+                });
 
             // Message Status Filter
             const matchesMessageStatus = activeFilters.messageStatus.length === 0 ||
                 activeFilters.messageStatus.some(status => {
-                    const s1 = (l["W.P_1 TS"] || "").toLowerCase();
-                    const s2 = (l["W.P_2 TS"] || "").toLowerCase();
+                    const s1 = (lead["W.P_1 TS"] || "").toLowerCase();
+                    const s2 = (lead["W.P_2 TS"] || "").toLowerCase();
                     const target = status.toLowerCase();
                     return s1.includes(target) || s2.includes(target);
                 });
@@ -530,7 +526,8 @@ function FilterOption({ label, checked, onCheckedChange }: any) {
     );
 }
 
-function CustomerRow({ lead, onClick }: { lead: ConsolidatedLead; onClick: () => void }) {
+function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onClick: () => void }) {
+    const lead = leadRaw as any;
     // 1. Calculate Sent Count (Outgoing)
     let sentCount = 0;
     for (let i = 1; i <= 6; i++) {
