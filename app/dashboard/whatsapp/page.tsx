@@ -304,12 +304,9 @@ export default function WhatsappDashboardPage() {
         });
     }, [leads]);
 
-    if (loading) {
-        return <LMLoader />;
-    }
-
     return (
-        <div className="space-y-8 pb-10">
+        <div className="space-y-8 pb-10 relative min-h-[500px]">
+            {loading && <LMLoader />}
             {/* Header & Actions */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>

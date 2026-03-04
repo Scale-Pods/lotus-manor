@@ -155,12 +155,9 @@ export default function EmailDashboardPage() {
     };
     const currentMetric = loopMetricData[selectedLoopMetric as keyof typeof loopMetricData];
 
-    if (loading) {
-        return <LMLoader />;
-    }
-
     return (
-        <div className="space-y-8 pb-10">
+        <div className="space-y-8 pb-10 relative min-h-[500px]">
+            {loading && <LMLoader />}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold">Email Marketing Center</h1>

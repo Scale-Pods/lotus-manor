@@ -100,7 +100,8 @@ export default function BouncedEmailsPage() {
 
     return (
         <TooltipProvider>
-            <div className="space-y-6 pb-10">
+            <div className="space-y-6 pb-10 relative min-h-[500px]">
+                {loading && <LMLoader />}
                 {/* Page Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
@@ -173,8 +174,6 @@ export default function BouncedEmailsPage() {
                             <BounceCard key={index} bounce={bounce} />
                         ))
                     )}
-
-                    {loading && <LMLoader />}
                 </div>
             </div>
         </TooltipProvider>

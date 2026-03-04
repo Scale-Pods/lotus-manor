@@ -326,9 +326,6 @@ export default function LeadsPage() {
         });
     }, [leads, searchQuery, loopFilter, statusFilter, regionFilter, channelFilter]);
 
-    if (loading && leads.length === 0) {
-        return <LMLoader />;
-    }
 
     if (error) {
         return (
@@ -343,7 +340,8 @@ export default function LeadsPage() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 relative min-h-[500px]">
+            {loading && leads.length === 0 && <LMLoader />}
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Leads</h1>
@@ -406,7 +404,7 @@ export default function LeadsPage() {
                                     <SelectItem value="intro">Intro Loop</SelectItem>
                                     <SelectItem value="followup">Follow Up</SelectItem>
                                     <SelectItem value="nurture">Nurture Loop</SelectItem>
-                                    
+
                                 </SelectContent>
                             </Select>
 

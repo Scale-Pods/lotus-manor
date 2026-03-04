@@ -188,12 +188,9 @@ export default function VoiceLogsPage() {
     // Calculate paginated calls
     const paginatedCalls = calls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-    if (loading && allCalls.length === 0) {
-        return <LMLoader />;
-    }
-
     return (
-        <div className="space-y-6 pb-10">
+        <div className="space-y-6 pb-10 relative min-h-[500px]">
+            {loading && allCalls.length === 0 && <LMLoader />}
             <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                     <div>

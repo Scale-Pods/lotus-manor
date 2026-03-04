@@ -2,9 +2,13 @@
 
 import React from "react";
 
-export const LMLoader = () => {
+interface LMLoaderProps {
+    fullScreen?: boolean;
+}
+
+export const LMLoader = ({ fullScreen = false }: LMLoaderProps) => {
     return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-md transition-all duration-500">
+        <div className={`${fullScreen ? 'fixed inset-0' : 'absolute inset-0 min-h-[400px]'} z-[50] flex items-center justify-center bg-zinc-50/50 backdrop-blur-[2px] transition-all duration-500`}>
             <div className="relative flex flex-col items-center justify-center">
 
                 {/* Animated Background Glow */}
@@ -57,12 +61,12 @@ export const LMLoader = () => {
                     <div className="flex flex-col items-center">
                         <h2 className="text-3xl font-black italic tracking-tighter uppercase">
                             <span className="text-yellow-500">LOTUS</span>
-                            <span className="text-white ml-2">MANOR</span>
+                            <span className="text-slate-900 ml-2">MANOR</span>
                         </h2>
                         <div className="h-[2px] w-24 bg-gradient-to-r from-transparent via-yellow-500 to-transparent mt-1"></div>
                     </div>
 
-                    <p className="text-[10px] font-bold tracking-[0.4em] text-yellow-500/60 uppercase">
+                    <p className="text-[10px] font-bold tracking-[0.4em] text-yellow-600 uppercase">
                         Real Estate Excellence
                     </p>
 

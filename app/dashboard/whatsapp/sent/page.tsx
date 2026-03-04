@@ -132,13 +132,10 @@ export default function WhatsappSentPage() {
                         />
                     </div>
                 </CardHeader>
-                <CardContent className="p-0">
-                    <div className="divide-y divide-slate-100 min-h-[200px]">
+                <CardContent className="p-0 relative min-h-[300px]">
+                    <div className="divide-y divide-slate-100">
                         {loading ? (
-                            <div className="flex items-center justify-center p-12 text-slate-400">
-                                <Loader2 className="h-8 w-8 animate-spin mr-2" />
-                                Loading history...
-                            </div>
+                            <LMLoader />
                         ) : filteredMessages.length > 0 ? (
                             filteredMessages.map((msg) => (
                                 <div key={msg.id} className="p-4 hover:bg-slate-50 transition-colors flex items-start justify-between">

@@ -132,9 +132,9 @@ export default function UnsubscribedPage() {
                         </Select>
                     </div>
                 </CardHeader>
-                <CardContent className="p-0">
+                <CardContent className="p-0 relative min-h-[400px]">
                     {loading ? (
-                        <LMLoader />
+                        <LMLoader fullScreen={false} />
                     ) : (
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm text-left">

@@ -142,7 +142,8 @@ export default function ReceivedEmailsPage() {
     }, [replies, loopFilter, searchQuery, dateRange, sortBy]);
 
     return (
-        <div className="space-y-6 pb-10 max-w-5xl mx-auto">
+        <div className="space-y-6 pb-10 max-w-5xl mx-auto relative min-h-[500px]">
+            {loading && <LMLoader />}
             {/* Page Header */}
             <div className="flex items-center justify-between">
                 <div>
@@ -224,13 +225,9 @@ export default function ReceivedEmailsPage() {
 
             {/* Email Reply List */}
             <div className="space-y-4">
-                {loading ? (
-                    <LMLoader />
-                ) : (
-                    filteredReplies.map((reply) => (
-                        <EmailReplyCard key={reply.id} reply={reply} />
-                    ))
-                )}
+                {!loading && filteredReplies.map((reply) => (
+                    <EmailReplyCard key={reply.id} reply={reply} />
+                ))}
                 {!loading && filteredReplies.length === 0 && (
                     <div className="p-10 text-center text-slate-500">No replies found.</div>
                 )}

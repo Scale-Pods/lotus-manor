@@ -172,7 +172,7 @@ export default function EmailAnalyticsPage() {
 
 
     return (
-        <div className="space-y-8 pb-10">
+        <div className="space-y-8 pb-10 relative min-h-[500px]">
             {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
@@ -398,7 +398,7 @@ export default function EmailAnalyticsPage() {
             </div>
 
             {loading && (
-                <LMLoader />
+                <LMLoader fullScreen={false} />
             )}
         </div>
     );

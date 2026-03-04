@@ -191,12 +191,9 @@ export default function WhatsappAnalyticsPage() {
         return Object.values(groups).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).slice(-7);
     }, [filteredLeads]);
 
-    if (loading) {
-        return <LMLoader />;
-    }
-
     return (
-        <div className="space-y-6 pb-10">
+        <div className="space-y-6 pb-10 relative min-h-[500px]">
+            {loading && <LMLoader />}
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>

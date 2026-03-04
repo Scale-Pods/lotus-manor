@@ -262,7 +262,8 @@ export default function SentEmailsPage() {
     const paginatedEmails = filteredEmails.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
     return (
-        <div className="space-y-6 pb-10 max-w-5xl mx-auto">
+        <div className="space-y-6 pb-10 max-w-5xl mx-auto relative min-h-[500px]">
+            {loading && <LMLoader />}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-slate-900">Sent Emails</h1>
@@ -362,15 +363,12 @@ export default function SentEmailsPage() {
                 </div>
             </div>
 
-            {/* Email List Items */}
-            <div className="space-y-4 min-h-[400px]">
-                {loading ? (
-                    <LMLoader />
-                ) : paginatedEmails.length > 0 ? (
+            <div className="space-y-4">
+                {!loading && paginatedEmails.length > 0 ? (
                     paginatedEmails.map((email) => (
                         <SentEmailCard key={email.id} email={email} />
                     ))
-                ) : (
+                ) : !loading && (
                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
                         <Mail className="h-8 w-8 mb-2 opacity-50" />
                         <p>No emails found matching your filters</p>

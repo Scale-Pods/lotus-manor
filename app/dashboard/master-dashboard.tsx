@@ -329,12 +329,9 @@ export default function MasterDashboard() {
         { name: 'Voice', value: stats.totalVoice, color: '#8b5cf6' },
     ];
 
-    if (loading && leads.length === 0) {
-        return <LMLoader />;
-    }
-
     return (
-        <div className="space-y-8 pb-10">
+        <div className="space-y-8 pb-10 relative min-h-[500px]">
+            {loading && leads.length === 0 && <LMLoader />}
             {/* Header Section */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>

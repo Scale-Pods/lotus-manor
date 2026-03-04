@@ -232,12 +232,9 @@ export default function WhatsappChatPage() {
         setCurrentPage(1);
     }, [searchQuery, activeFilters]);
 
-    if (loading) {
-        return <LMLoader />;
-    }
-
     return (
-        <div className="space-y-6 pb-10">
+        <div className="space-y-6 pb-10 relative min-h-[500px]">
+            {loading && <LMLoader />}
             {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
