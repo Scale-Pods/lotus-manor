@@ -17,6 +17,7 @@ import { DataProvider, useData } from "@/context/DataContext";
 import { MaqsamBalanceDetail } from "@/components/dashboard/maqsam-balance-detail";
 import { calculateDuration } from "@/lib/utils";
 import { useMemo } from "react";
+import { logout } from "@/app/actions/auth";
 
 const sidebarItems = [
     {
@@ -268,11 +269,17 @@ function DashboardContent({
                         })}
                     </nav>
                     <div className="mt-auto p-4 mb-4 space-y-3">
-                        <Button variant="ghost" className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 hover:bg-zinc-100" asChild>
-                            <Link href="/">
-                                <LogOut className="h-4 w-4" />
-                                Logout
-                            </Link>
+                        <Button
+                            variant="ghost"
+                            className="w-full justify-start gap-2 text-slate-500 hover:text-slate-900 hover:bg-zinc-100"
+                            onClick={async () => {
+                                await logout();
+                                router.push('/');
+                                router.refresh();
+                            }}
+                        >
+                            <LogOut className="h-4 w-4" />
+                            Logout
                         </Button>
                     </div>
                 </aside>

@@ -1,16 +1,28 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, CheckCircle2, Mail, MessageCircle, Mic } from "lucide-react";
+import { AuthModal } from "@/components/auth/auth-modal";
 
 export default function LandingPage() {
+    const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+    const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
+
+    const openAuth = (mode: 'login' | 'signup') => {
+        setAuthMode(mode);
+        setIsAuthModalOpen(true);
+    };
+
     return (
         <div className="min-h-screen bg-black text-white font-sans selection:bg-emerald-500/30">
             {/* Header */}
             <header className="fixed top-0 w-full z-50 border-b border-white/5 bg-black/50 backdrop-blur-xl">
                 <div className="container mx-auto px-6 h-16 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="relative w-40 h-12">
+                        <div className="relative w-40 h-12 text-white">
                             <Image
                                 src="/logo.png"
                                 alt="Lotus Manor Logo"
@@ -27,12 +39,19 @@ export default function LandingPage() {
 
 
                     <div className="flex items-center gap-4">
-
-                        <Link href="/dashboard">
-                            <Button className="bg-white text-black hover:bg-zinc-200 font-bold rounded-full px-6">
-                                Get Started
-                            </Button>
-                        </Link>
+                        <Button
+                            variant="ghost"
+                            className="text-zinc-400 hover:text-white font-bold text-sm"
+                            onClick={() => openAuth('login')}
+                        >
+                            Sign In
+                        </Button>
+                        <Button
+                            className="bg-white text-black hover:bg-zinc-200 font-bold rounded-full px-6"
+                            onClick={() => openAuth('signup')}
+                        >
+                            Get Started
+                        </Button>
                     </div>
                 </div>
             </header>
@@ -92,14 +111,22 @@ export default function LandingPage() {
                     </div>
 
                     <div className="mt-16 text-center">
-                        <Link href="/dashboard">
-                            <Button className="h-12 px-8 bg-white text-black hover:bg-zinc-200 font-bold rounded-full gap-2 text-base shadow-[0_0_20px_-5px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_-5px_rgba(255,255,255,0.4)] transition-all">
-                                Get Started Now <ArrowRight className="h-4 w-4" />
-                            </Button>
-                        </Link>
+                        <Button
+                            className="h-12 px-8 bg-white text-black hover:bg-zinc-200 font-bold rounded-full gap-2 text-base shadow-[0_0_20px_-5px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_-5px_rgba(255,255,255,0.4)] transition-all"
+                            onClick={() => openAuth('signup')}
+                        >
+                            Get Started Now <ArrowRight className="h-4 w-4" />
+                        </Button>
                     </div>
                 </div>
             </main>
+
+            {/* Auth Modal */}
+            <AuthModal
+                isOpen={isAuthModalOpen}
+                onClose={() => setIsAuthModalOpen(false)}
+                defaultMode={authMode}
+            />
         </div>
     );
 }
