@@ -15,57 +15,84 @@ import { format, parseISO } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
-// Progressively fetches deep call details for purely visible rows since ElevenLabs List API censors `type`/`direction` properties and deeper numeric variables
+// Progressive fetch for missing metadata (phone numbers/direction)
 const DynamicRowCells = ({ call }: { call: any }) => {
     const [realType, setRealType] = useState(call.type);
     const [guestNum, setGuestNum] = useState(call.guestNumber);
+    const [isFetching, setIsFetching] = useState(false);
 
     useEffect(() => {
-        // If we lack deep metadata and might need to pull hidden types or numbers
-        if (!call.raw?.metadata && (call.type === 'Outbound' || guestNum === '+Website/API' || guestNum === 'Website/API' || guestNum === 'Unknown')) {
-            fetch(`/api/calls/${call.id}`).then(res => res.json()).then(data => {
-                const dynamicVars = data.conversation_initiation_client_data?.dynamic_variables || {};
-                const deepType = data.type || data.metadata?.type || dynamicVars.direction || dynamicVars.type || "unknown";
-
-                const deepIsInbound = deepType === 'inbound';
-                if (deepIsInbound) {
-                    setRealType("Inbound");
-                }
-
-                // Deep extract phone
-                const callerNumber = data.phone || data.caller_number || data.metadata?.caller_number || dynamicVars.caller_number || dynamicVars.caller || "Unknown";
-                const calleeNumber = data.callee_number || data.metadata?.callee_number || dynamicVars.callee_number || dynamicVars.callee || "Unknown";
-                const centralNumber = "97148714150";
-
-                let newGuestNum = "Unknown";
-                if (deepIsInbound) {
-                    newGuestNum = callerNumber;
-                } else {
-                    newGuestNum = calleeNumber !== "Unknown" && calleeNumber !== centralNumber ? calleeNumber : callerNumber;
-                }
-
-                if (newGuestNum !== "Unknown" && newGuestNum !== "Website/API") {
-                    setGuestNum(`+${newGuestNum.replace(/\+/g, '')}`);
-                } else if (newGuestNum === "Website/API") {
-                    setGuestNum("Website/API");
-                } else {
-                    setGuestNum(newGuestNum);
-                }
-
-                // Keep the row's raw data enriched for the Modal on click
-                call.raw = data;
-            }).catch(() => { });
+        // Stop if already identified
+        if (call.isInbound === true || call.type === 'Inbound' || realType === 'Web Call') {
+            if (realType !== 'Inbound' && realType !== 'Web Call') setRealType('Inbound');
+            return;
         }
-    }, [call.id, call.type, guestNum, call.raw?.metadata]);
 
-    const displayGuestNum = guestNum === "+Website/API" ? "Website/API" : guestNum;
+        const isUnknown = !guestNum || guestNum === 'Unknown' || guestNum === 'Website/API';
+        const isUnknownType = realType === 'unknown' || !realType;
+
+        if ((isUnknown || isUnknownType) && !isFetching && call.id) {
+            setIsFetching(true);
+            fetch(`/api/calls/${call.id}`)
+                .then(res => res.json())
+                .then(data => {
+                    const dv = data.conversation_initiation_client_data?.dynamic_variables || {};
+                    const metadata = data.metadata || {};
+                    const tel = data.telephony || {};
+                    const initType = (data.conversation_initiation_type || "").toLowerCase();
+
+                    // Deep Direction
+                    const directionStr = (tel.direction || data.direction || metadata.direction || dv.direction || "").toLowerCase();
+                    const deepIsInbound = directionStr === 'inbound' || initType.includes('inbound');
+
+                    if (deepIsInbound) setRealType("Inbound");
+                    else if (directionStr === 'outbound') setRealType("Outbound");
+
+                    // Deep Phone
+                    const caller = tel.caller_number || metadata.caller_number || dv.caller_number || dv.caller || "Unknown";
+                    const callee = tel.callee_number || metadata.callee_number || dv.callee_number || dv.callee || "Unknown";
+                    const centralNumber = "97148714150";
+
+                    let newNum = "Unknown";
+                    if (deepIsInbound) {
+                        newNum = caller;
+                    } else {
+                        newNum = (callee !== "Unknown" && !callee.toString().includes(centralNumber)) ? callee : caller;
+                    }
+
+                    // Handle Web Call scenario
+                    if (newNum === "Unknown" && !initType.includes('telephony')) {
+                        setGuestNum("Website/API");
+                        setRealType("Web Call");
+                        call.type = "Web Call";
+                    } else if (newNum !== "Unknown" && newNum !== "Website/API") {
+                        const formatted = `+${String(newNum).replace(/\+/g, '')}`;
+                        setGuestNum(formatted);
+                        call.guestNumber = formatted;
+                    } else {
+                        setGuestNum("Website/API");
+                    }
+
+                    if (deepIsInbound) call.type = "Inbound";
+                    call.raw = { ...call.raw, ...data };
+                })
+                .catch(() => { })
+                .finally(() => setIsFetching(false));
+        }
+    }, [call.id, guestNum, realType, isFetching]);
 
     return (
         <>
-            <TableCell className="font-medium text-slate-700">{displayGuestNum}</TableCell>
+            <TableCell className="font-medium text-slate-700">
+                {guestNum === "Unknown" && isFetching ? (
+                    <span className="text-slate-400 animate-pulse text-xs italic">Detecting...</span>
+                ) : (
+                    guestNum
+                )}
+            </TableCell>
             <TableCell>
                 <span className={`font-semibold ${realType === 'Inbound' ? 'text-blue-600' : 'text-slate-700'}`}>
-                    {realType}
+                    {realType || "..."}
                 </span>
             </TableCell>
         </>
@@ -93,41 +120,38 @@ export default function VoiceLogsPage() {
 
         // Map ElevenLabs/Vapi data to our table structure
         const mappedCalls = globalCalls.map((call: any) => {
-            const id = call.id;
-            const startedAt = call.startedAt;
-            const durationVal = call.durationSeconds || 0;
+            const metadata = call.metadata || call.raw?.metadata || {};
+            const dv = call.conversation_initiation_client_data?.dynamic_variables || call.raw?.conversation_initiation_client_data?.dynamic_variables || {};
 
-            const rawDynamicVars = call.conversation_initiation_client_data?.dynamic_variables || {};
-            const rawType = call.type || call.metadata?.type || rawDynamicVars.direction || rawDynamicVars.type || "unknown";
-            const isInbound = rawType === 'inbound';
+            const isInbound =
+                call.isInbound === true ||
+                (typeof call.type === 'string' && call.type.toLowerCase() === "inbound") ||
+                (metadata.direction === "inbound") ||
+                (dv.direction === "inbound");
+
             const typeLabel = isInbound ? "Inbound" : "Outbound";
 
-            let callerNumber = call.phone || call.caller_number || call.metadata?.caller_number || rawDynamicVars.caller_number || rawDynamicVars.caller || "Unknown";
-            let calleeNumber = call.callee_number || call.metadata?.callee_number || rawDynamicVars.callee_number || rawDynamicVars.callee || "Unknown";
-            const centralNumber = "97148714150";
+            // Aggressive phone extraction
+            let guestNumber = call.phone || call.callerNumber || metadata.caller_number || metadata.caller_id || dv.caller_number || dv.caller || "Unknown";
 
-            let guestNumber = "Unknown";
-            if (isInbound) {
-                guestNumber = callerNumber;
-            } else {
-                guestNumber = calleeNumber !== "Unknown" && calleeNumber !== centralNumber ? calleeNumber : callerNumber;
+            // if it's outbound, guest is probably callee
+            if (!isInbound && (guestNumber === "Unknown" || guestNumber === "Website/API")) {
+                guestNumber = call.calleeNumber || metadata.callee_number || metadata.callee_id || dv.callee_number || dv.callee || "Unknown";
             }
 
-            let finalGuestNum = "Unknown";
+            let finalGuestNum = guestNumber;
             if (guestNumber !== "Unknown" && guestNumber !== "Website/API") {
-                finalGuestNum = `+${guestNumber.replace(/\+/g, '')}`;
-            } else if (guestNumber === "Website/API") {
-                finalGuestNum = "Website/API";
+                finalGuestNum = `+${String(guestNumber).replace(/\+/g, '')}`;
             }
 
             return {
-                id: id,
+                id: call.id,
                 status: call.status,
                 type: typeLabel,
-                startedAt: startedAt,
+                startedAt: call.startedAt,
                 guestNumber: finalGuestNum,
-                duration: formatDuration(durationVal),
-                date: startedAt ? new Date(startedAt).toLocaleString() : 'N/A',
+                duration: formatDuration(call.durationSeconds || 0),
+                date: call.startedAt ? new Date(call.startedAt).toLocaleString() : 'N/A',
                 raw: call
             };
         });
@@ -213,6 +237,7 @@ export default function VoiceLogsPage() {
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="inbound">Inbound</SelectItem>
                             <SelectItem value="outbound">Outbound</SelectItem>
+                            <SelectItem value="web call">Web Call</SelectItem>
                         </SelectContent>
                     </Select>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>

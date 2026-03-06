@@ -17,7 +17,7 @@ export async function GET() {
         let cursor = null;
         let hasMore = true;
 
-        while (hasMore && allConversations.length < 1000) {
+        while (hasMore && allConversations.length < 5000) {
             let url = agentId
                 ? `${ELEVENLABS_BASE_URL}/convai/conversations?agent_id=${agentId}&page_size=100`
                 : `${ELEVENLABS_BASE_URL}/convai/conversations?page_size=100`;
@@ -49,20 +49,83 @@ export async function GET() {
         // Normalize conversations for the dashboard table
         const normalized = allConversations.map((c: any) => {
             const dynamicVars = c.conversation_initiation_client_data?.dynamic_variables || {};
-            const rawType = dynamicVars.direction || dynamicVars.type || c.metadata?.direction || c.type || c.metadata?.call_type || "unknown";
-            const isInbound = rawType === 'inbound';
-            const callType = isInbound ? "Inbound" : "Outbound";
+            const metadata = c.metadata || {};
+            const telephony = c.telephony || {};
+
+            // Detailed Number Extraction - Check every possible location including telephony sub-object
+            const callerNumber =
+                telephony.caller_number ||
+                metadata.caller_number ||
+                metadata.caller_id ||
+                c.caller_number ||
+                c.caller_id ||
+                dynamicVars.caller_number ||
+                dynamicVars.caller ||
+                "Unknown";
+
+            const calleeNumber =
+                telephony.callee_number ||
+                metadata.callee_number ||
+                metadata.callee_id ||
+                c.callee_number ||
+                c.callee_id ||
+                dynamicVars.callee_number ||
+                dynamicVars.callee ||
+                "Unknown";
+
+            const centralNumber = "97148714150";
+
+            // Direction Detection Heuristics
+            const initiationType = (c.conversation_initiation_type || "").toString().toLowerCase();
+            const rawType = (
+                telephony.direction ||
+                c.direction ||
+                metadata.direction ||
+                metadata.type ||
+                metadata.call_type ||
+                dynamicVars.direction ||
+                dynamicVars.type ||
+                c.type ||
+                "unknown"
+            ).toString().toLowerCase();
+
+            let isInbound = rawType.includes('inbound') || initiationType.includes('inbound');
+
+            // heuristic: if it's telephony and initiation type is not specified, but callee is central, it's inbound
+            if (!isInbound && calleeNumber.toString().replace(/\D/g, '').includes(centralNumber)) {
+                isInbound = true;
+            }
+
+            // heuristic: if the caller is our central number, it's definitely outbound
+            if (isInbound && callerNumber.toString().replace(/\D/g, '').includes(centralNumber)) {
+                isInbound = false;
+            }
+
+            const callType = isInbound ? "Inbound" : (rawType.includes('outbound') ? "Outbound" : "unknown");
+
+            // Final fallback for Web Call
+            let finalPhone = callerNumber !== "Unknown" ? callerNumber : (calleeNumber !== "Unknown" ? calleeNumber : "Website/API");
+            let finalType = callType;
+
+            if (finalPhone === "Website/API" && !initiationType.includes('telephony') && callType === "unknown") {
+                finalType = "Web Call";
+            } else if (callType === "unknown") {
+                finalType = "Outbound"; // Default to outbound if still unknown but has numbers
+            }
 
             return {
                 ...c,
                 id: c.conversation_id, // Alias for frontend consistency
                 startedAt: c.start_time_unix_secs ? new Date(c.start_time_unix_secs * 1000).toISOString() : null,
-                durationSeconds: c.call_duration_secs || c.metadata?.call_duration_secs || 0,
-                cost: c.metadata?.cost ? `${c.metadata.cost} credits` : (c.cost ? `${c.cost} credits` : '$0.00'),
-                type: callType,
-                // Try to find a phone number in metadata
-                phone: c.metadata?.caller_number || dynamicVars.caller_number || dynamicVars.caller || "Website/API",
-                customerName: c.metadata?.caller_id || "Guest"
+                durationSeconds: c.call_duration_secs || metadata.call_duration_secs || 0,
+                cost: metadata.cost ? `${metadata.cost} credits` : (c.cost ? `${c.cost} credits` : '$0.00'),
+                type: finalType,
+                isInbound: isInbound,
+                calleeNumber: calleeNumber,
+                callerNumber: callerNumber,
+                // Try to find a phone number for display
+                phone: finalPhone,
+                customerName: metadata.caller_name || metadata.caller_id || c.agent_name || "Guest"
             };
         });
 

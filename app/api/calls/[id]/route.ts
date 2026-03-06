@@ -47,7 +47,8 @@ export async function GET(
             caller_number: data.metadata?.caller_number || dynamicVars.caller_number || dynamicVars.caller || "Unknown",
             callee_number: data.metadata?.callee_number || dynamicVars.callee_number || dynamicVars.callee || "Unknown",
             // The real direction stored deeply by ElevenLabs
-            type: dynamicVars.direction || dynamicVars.type || data.metadata?.direction || "Unknown",
+            type: data.direction || dynamicVars.direction || dynamicVars.type || data.metadata?.direction || "Unknown",
+            isInbound: (data.direction || dynamicVars.direction || dynamicVars.type || data.metadata?.direction || "").toLowerCase() === 'inbound',
             audio_url: `${ELEVENLABS_BASE_URL}/convai/conversations/${conversationId}/audio` // frontend will need to pass xi-api-key normally, since this requires auth, we should proxy it or pass URL
         };
 

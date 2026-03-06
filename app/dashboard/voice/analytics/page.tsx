@@ -1,7 +1,8 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Phone, Clock, DollarSign, CheckCircle, Search, Loader2 } from "lucide-react";
+import { Phone, Clock, DollarSign, CheckCircle, Search, Loader2, PhoneIncoming, PhoneOutgoing } from "lucide-react";
+import { formatDuration } from "@/lib/utils";
 import { LMLoader } from "@/components/lm-loader";
 import {
     BarChart,
@@ -43,7 +44,9 @@ export default function VoiceAnalyticsPage() {
         successRate: 0,
         typesData: [],
         characterCount: 0,
-        characterLimit: 0
+        characterLimit: 0,
+        inboundDuration: 0,
+        outboundDuration: 0,
     });
 
     useEffect(() => {
@@ -103,6 +106,9 @@ export default function VoiceAnalyticsPage() {
         const durationBuckets = { '0-30s': 0, '30s-1m': 0, '1m-2m': 0, '2m-5m': 0, '5m+': 0 };
         const typesMap = new Map();
 
+        let inboundSum = 0;
+        let outboundSum = 0;
+
         data.forEach(call => {
             const dateStr = call.startedAt || null;
             const time = dateStr ? format(new Date(dateStr), 'MMM dd') : 'N/A';
@@ -123,9 +129,19 @@ export default function VoiceAnalyticsPage() {
             totalDuration += dur;
             totalCredits += cost;
 
-            // Types mapping
-            const rawType = call.type || call.call_type || call.metadata?.call_type;
-            const typeLabel = rawType === 'inbound' ? 'Inbound' : (rawType === 'outbound' || rawType === 'campaign' ? 'Outbound' : 'Web Call');
+            // Types mapping - use normalized properties from DataContext
+            const isInbound =
+                call.isInbound === true ||
+                (typeof call.type === 'string' && call.type.toLowerCase() === 'inbound') ||
+                (call.conversation_initiation_type && call.conversation_initiation_type.toLowerCase().includes('inbound'));
+
+            if (isInbound) {
+                inboundSum += dur;
+            } else {
+                outboundSum += dur;
+            }
+
+            const typeLabel = isInbound ? 'Inbound' : 'Outbound';
             typesMap.set(typeLabel, (typesMap.get(typeLabel) || 0) + 1);
 
             // Chart maps
@@ -148,7 +164,9 @@ export default function VoiceAnalyticsPage() {
             avgDuration: totalCalls > 0 ? totalDuration / totalCalls : 0,
             totalCost: totalCredits,
             successRate: totalCalls > 0 ? Math.round((successCount / totalCalls) * 100) : 0,
-            typesData: Array.from(typesMap.entries()) as any
+            typesData: Array.from(typesMap.entries()) as any,
+            inboundDuration: inboundSum,
+            outboundDuration: outboundSum
         }));
 
         // Ensure chronological sort for charts
@@ -186,9 +204,11 @@ export default function VoiceAnalyticsPage() {
             </div>
 
             {/* Key Metric Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
                 <StatCard title="Total Calls" value={stats.totalCalls} change="Historical" icon={<Phone className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
                 <StatCard title="Avg Duration" value={`${Math.round(stats.avgDuration)}s`} change="All Time" icon={<Clock className="h-5 w-5" />} color="text-purple-600" bg="bg-purple-50" />
+                <StatCard title="Inbound Duration" value={formatDuration(stats.inboundDuration)} change="Total Inbound" icon={<Phone className="h-5 w-5" />} color="text-cyan-600" bg="bg-cyan-50" />
+                <StatCard title="Outbound Duration" value={formatDuration(stats.outboundDuration)} change="Total Outbound" icon={<Phone className="h-5 w-5" />} color="text-amber-600" bg="bg-amber-50" />
                 <StatCard title="Real-Time Credits Used" value={stats.characterCount.toLocaleString()} change={`Max: ${stats.characterLimit.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} color="text-emerald-600" bg="bg-emerald-50" />
             </div>
 
