@@ -128,7 +128,7 @@ export default function CredentialsPage() {
                     iconColor="text-cyan-600"
                     iconBg="bg-cyan-50"
                     action={
-                        <Button className="bg-cyan-600 hover:bg-cyan-700 text-white gap-2" onClick={() => window.open('https://maqsam.com/billing', '_blank')}>
+                        <Button className="bg-cyan-600 hover:bg-cyan-700 text-white gap-2" onClick={() => window.open('https://maqsam.com', '_blank')}>
                             <Wallet className="h-4 w-4" />
                             Manage Billing
                         </Button>

@@ -91,7 +91,7 @@ function WalletModal({ isOpen, onClose, type, details }: { isOpen: boolean, onCl
                         className={`w-full text-white h-12 font-bold shadow-lg gap-2 ${isVapi ? 'bg-yellow-600 hover:bg-yellow-700 shadow-yellow-500/20' : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-500/20'}`}
                         onClick={() => {
                             if (isVapi) window.open('https://elevenlabs.io/app/subscription', '_blank');
-                            else window.open('https://maqsam.com/billing', '_blank');
+                            else window.open('https://maqsam.com', '_blank');
                             onClose();
                         }}
                     >
@@ -315,7 +315,7 @@ function DashboardContent({
                                             <Wallet className="h-4 w-4" />
                                         </div>
                                         <div className="flex flex-col items-start leading-[1.1]">
-                                            <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">Maqsam Balance</span>
+                                            <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">Maqsam Usage</span>
                                             <span className="text-sm font-bold">
                                                 {loadingCalls ? "..." : `$${calculatedTelephonyCost.toFixed(2)}`}
                                             </span>
