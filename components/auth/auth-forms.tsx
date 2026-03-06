@@ -8,26 +8,25 @@ import { Label } from '@/components/ui/label';
 import { Mail, Lock, User, ArrowRight, Loader2, KeyRound } from 'lucide-react';
 import { login, signup, forgotPassword } from '@/app/actions/auth';
 
-type AuthMode = 'login' | 'signup' | 'forgot';
+type AuthMode = 'login' | 'forgot';
 
 export function AuthForms({ defaultMode = 'login', onSuccess }: { defaultMode?: AuthMode, onSuccess?: () => void }) {
     const [mode, setMode] = useState<AuthMode>(defaultMode);
     const router = useRouter();
 
     const [loginState, loginAction, isLoginPending] = useActionState(login, null as any);
-    const [signupState, signupAction, isSignupPending] = useActionState(signup, null as any);
     const [forgotState, forgotAction, isForgotPending] = useActionState(forgotPassword, null as any);
 
     useEffect(() => {
-        if (loginState?.success || signupState?.success) {
+        if (loginState?.success) {
             router.push('/dashboard');
             onSuccess?.();
             router.refresh();
         }
-    }, [loginState, signupState, router, onSuccess]);
+    }, [loginState, router, onSuccess]);
 
-    const error = loginState?.error || signupState?.error || forgotState?.error;
-    const isPending = isLoginPending || isSignupPending || isForgotPending;
+    const error = loginState?.error || forgotState?.error;
+    const isPending = isLoginPending || isForgotPending;
     const successMessage = forgotState?.message;
 
     return (
@@ -35,12 +34,10 @@ export function AuthForms({ defaultMode = 'login', onSuccess }: { defaultMode?: 
             <div className="space-y-2 text-center">
                 <h1 className="text-3xl font-bold tracking-tighter text-white">
                     {mode === 'login' && 'Welcome Back'}
-                    {mode === 'signup' && 'Create Account'}
                     {mode === 'forgot' && 'Reset Password'}
                 </h1>
                 <p className="text-zinc-400 text-sm">
                     {mode === 'login' && 'Enter your credentials to access your dashboard'}
-                    {mode === 'signup' && 'Join Lotus Manor and scale your business'}
                     {mode === 'forgot' && 'Enter your email to receive reset instructions'}
                 </p>
             </div>
@@ -57,24 +54,7 @@ export function AuthForms({ defaultMode = 'login', onSuccess }: { defaultMode?: 
                 </div>
             )}
 
-            <form action={mode === 'login' ? loginAction : (mode === 'signup' ? signupAction : forgotAction)} className="space-y-4">
-                {mode === 'signup' && (
-                    <div className="space-y-2">
-                        <Label htmlFor="fullName" className="text-zinc-300 text-xs font-bold uppercase tracking-wider">Full Name</Label>
-                        <div className="relative group">
-                            <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500 group-focus-within:text-emerald-400 transition-colors" />
-                            <Input
-                                id="fullName"
-                                name="fullName"
-                                type="text"
-                                placeholder="John Doe"
-                                required
-                                className="pl-10 h-11 bg-white/5 border-white/10 text-white placeholder:text-zinc-600 focus:border-emerald-500/50 focus:ring-emerald-500/20 rounded-xl transition-all"
-                            />
-                        </div>
-                    </div>
-                )}
-
+            <form action={mode === 'login' ? loginAction : forgotAction} className="space-y-4">
                 <div className="space-y-2">
                     <Label htmlFor="email" className="text-zinc-300 text-xs font-bold uppercase tracking-wider">Email Address</Label>
                     <div className="relative group">
@@ -128,7 +108,6 @@ export function AuthForms({ defaultMode = 'login', onSuccess }: { defaultMode?: 
                     ) : (
                         <>
                             {mode === 'login' && 'Sign In'}
-                            {mode === 'signup' && 'Create Account'}
                             {mode === 'forgot' && 'Send Reset Links'}
                             <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
                         </>
@@ -136,31 +115,16 @@ export function AuthForms({ defaultMode = 'login', onSuccess }: { defaultMode?: 
                 </Button>
             </form>
 
-            <div className="text-center">
-                <p className="text-zinc-500 text-xs">
-                    {mode === 'login' ? (
-                        <>
-                            Don't have an account?{' '}
-                            <button
-                                onClick={() => setMode('signup')}
-                                className="text-emerald-400 font-bold hover:underline"
-                            >
-                                Sign Up
-                            </button>
-                        </>
-                    ) : (
-                        <>
-                            Already have an account?{' '}
-                            <button
-                                onClick={() => setMode('login')}
-                                className="text-emerald-400 font-bold hover:underline"
-                            >
-                                Sign In
-                            </button>
-                        </>
-                    )}
-                </p>
-            </div>
+            {mode === 'forgot' && (
+                <div className="text-center">
+                    <button
+                        onClick={() => setMode('login')}
+                        className="text-emerald-400 text-xs font-bold hover:underline"
+                    >
+                        Back to Login
+                    </button>
+                </div>
+            )}
         </div>
     );
 }

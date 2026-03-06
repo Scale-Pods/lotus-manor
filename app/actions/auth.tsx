@@ -56,56 +56,7 @@ export async function login(prevState: any, formData: FormData) {
 }
 
 export async function signup(prevState: any, formData: FormData) {
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
-    const fullName = formData.get('fullName') as string;
-
-    if (!email || !password || !fullName) {
-        return { error: 'All fields are required' };
-    }
-
-    try {
-        const passwordHash = await hashPassword(password);
-
-        const { data, error } = await supabaseAdmin
-            .from('users')
-            .insert([
-                {
-                    email,
-                    password_hash: passwordHash,
-                    full_name: fullName
-                }
-            ])
-            .select()
-            .single();
-
-        if (error) {
-            if (error.code === '23505') {
-                return { error: 'User already exists with this email' };
-            }
-            return { error: error.message };
-        }
-
-        // Auto login after signup
-        const token = await new SignJWT({ userId: data.id, email: data.email })
-            .setProtectedHeader({ alg: 'HS256' })
-            .setIssuedAt()
-            .setExpirationTime('24h')
-            .sign(secret);
-
-        (await cookies()).set('auth_token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 60 * 60 * 24, // 1 day
-            path: '/',
-        });
-
-        return { success: true };
-    } catch (err) {
-        console.error('Signup error:', err);
-        return { error: 'An unexpected error occurred' };
-    }
+    return { error: 'Signup is currently disabled. Please contact an administrator.' };
 }
 
 export async function logout() {

@@ -7,7 +7,7 @@ import Image from "next/image";
 interface AuthModalProps {
     isOpen: boolean;
     onClose: () => void;
-    defaultMode?: 'login' | 'signup';
+    defaultMode?: 'login' | 'forgot';
 }
 
 export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalProps) {

@@ -9,10 +9,8 @@ import { AuthModal } from "@/components/auth/auth-modal";
 
 export default function LandingPage() {
     const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-    const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
 
-    const openAuth = (mode: 'login' | 'signup') => {
-        setAuthMode(mode);
+    const openAuth = () => {
         setIsAuthModalOpen(true);
     };
 
@@ -37,18 +35,17 @@ export default function LandingPage() {
                         </span>
                     </div>
 
-
                     <div className="flex items-center gap-4">
                         <Button
                             variant="ghost"
                             className="text-zinc-400 hover:text-white font-bold text-sm"
-                            onClick={() => openAuth('login')}
+                            onClick={openAuth}
                         >
                             Sign In
                         </Button>
                         <Button
                             className="bg-white text-black hover:bg-zinc-200 font-bold rounded-full px-6"
-                            onClick={() => openAuth('signup')}
+                            onClick={openAuth}
                         >
                             Get Started
                         </Button>
@@ -113,7 +110,7 @@ export default function LandingPage() {
                     <div className="mt-16 text-center">
                         <Button
                             className="h-12 px-8 bg-white text-black hover:bg-zinc-200 font-bold rounded-full gap-2 text-base shadow-[0_0_20px_-5px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_-5px_rgba(255,255,255,0.4)] transition-all"
-                            onClick={() => openAuth('signup')}
+                            onClick={openAuth}
                         >
                             Get Started Now <ArrowRight className="h-4 w-4" />
                         </Button>
@@ -125,7 +122,7 @@ export default function LandingPage() {
             <AuthModal
                 isOpen={isAuthModalOpen}
                 onClose={() => setIsAuthModalOpen(false)}
-                defaultMode={authMode}
+                defaultMode="login"
             />
         </div>
     );
