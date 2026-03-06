@@ -76,57 +76,47 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                     type,
                     content: content,
                     label: label,
-                    date: found.created_at,
+                    date: null, // No fallback to found.created_at
                     sequence
                 };
             };
 
             const f = found as any;
+            let seq = 1;
 
-            // 1. Outgoing W.P_1 to W.P_6
-            for (let i = 1; i <= 6; i++) {
+            // Step 1: Add initial outreach (W.P_1)
+            const wp1Raw = f[`W.P_1`] || f.stage_data?.[`WhatsApp 1`];
+            const wp1Msg = parseMsg(wp1Raw, `WhatsApp 1`, 'bot', seq++);
+            if (wp1Msg) timeline.push(wp1Msg);
+
+            // Step 2: Add other initial drips (2-6)
+            for (let i = 2; i <= 6; i++) {
                 const raw = f[`W.P_${i}`] || f.stage_data?.[`WhatsApp ${i}`];
-                const msg = parseMsg(raw, `WhatsApp ${i}`, 'bot', i * 100);
+                const msg = parseMsg(raw, `WhatsApp ${i}`, 'bot', seq++);
                 if (msg) timeline.push(msg);
             }
 
-            // 2. Incoming W.P_Replied
-            const replyRaw = f.whatsapp_replied || f.stage_data?.["WhatsApp Replied"];
-            if (replyRaw && String(replyRaw).toLowerCase() !== "no" && String(replyRaw).toLowerCase() !== "none") {
-                const msg = parseMsg(replyRaw, 'Reply Received', 'user', 700);
-                if (msg) timeline.push(msg);
-            }
-
-            // 3. Outgoing W.P_FollowUp (Original Single Field)
-            const followupRaw = f.stage_data?.["WhatsApp FollowUp"] || f["W.P_FollowUp"];
-            const fMsg = parseMsg(followupRaw, 'WhatsApp FollowUp', 'bot', 701);
-            if (fMsg) timeline.push(fMsg);
-
-            // 4. Extended History: W.P_Replied_1 to 10
+            // Step 3: Interleave Replies and Followups
             for (let i = 1; i <= 10; i++) {
-                const raw = f[`W.P_Replied_${i}`];
-                if (raw && String(raw).toLowerCase() !== "no" && String(raw).toLowerCase() !== "none") {
-                    // Sequence: 1000 + (1 * 20) = 1020, 1040, etc.
-                    const msg = parseMsg(raw, `Reply ${i}`, 'user', 1000 + (i * 20));
-                    if (msg) timeline.push(msg);
+                // First: The Reply (User)
+                let rRaw = f[`W.P_Replied_${i}`];
+                if (i === 1 && (!rRaw || String(rRaw).toLowerCase() === 'no')) {
+                    rRaw = f.whatsapp_replied || f.stage_data?.["WhatsApp Replied"];
                 }
+                const rMsg = parseMsg(rRaw, i === 1 ? 'Initial Reply' : `Reply ${i}`, 'user', seq++);
+                if (rMsg) timeline.push(rMsg);
+
+                // Second: The FollowUp (Bot)
+                let fRaw = f[`W.P_FollowUp_${i}`];
+                if (i === 1 && !fRaw) {
+                    fRaw = f.stage_data?.["WhatsApp FollowUp"] || f["W.P_FollowUp"];
+                }
+                const fMsg = parseMsg(fRaw, i === 1 ? 'Initial FollowUp' : `FollowUp ${i}`, 'bot', seq++);
+                if (fMsg) timeline.push(fMsg);
             }
 
-            // 5. Extended History: W.P_FollowUp_1 to 10
-            for (let i = 1; i <= 10; i++) {
-                const raw = f[`W.P_FollowUp_${i}`];
-                // Sequence: 1000 + (1 * 20) + 1 = 1021, 1041, etc.
-                const msg = parseMsg(raw, `FollowUp ${i}`, 'bot', 1000 + (i * 20) + 1);
-                if (msg) timeline.push(msg);
-            }
-
-            // Sort timeline by date, then by sequence
-            timeline.sort((a, b) => {
-                const timeA = new Date(a.date).getTime();
-                const timeB = new Date(b.date).getTime();
-                if (timeA !== timeB) return timeA - timeB;
-                return a.sequence - b.sequence;
-            });
+            // Step 4: Strict priority sorting
+            timeline.sort((a, b) => a.sequence - b.sequence);
 
             setMessages(timeline);
         } else {
@@ -167,7 +157,6 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                         <span>{lead.source_loop} Loop</span>
                     </div>
                 </div>
-
             </div>
 
             {/* Content Area */}
@@ -201,9 +190,11 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                                             {msg.content}
                                         </p>
                                     </div>
-                                    <span className="text-[10px] text-slate-400 mt-1 px-1">
-                                        {new Date(msg.date).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
-                                    </span>
+                                    {msg.date && (
+                                        <span className="text-[10px] text-slate-400 mt-1 px-1">
+                                            {new Date(msg.date).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                                        </span>
+                                    )}
                                 </div>
                             ))
                         )}

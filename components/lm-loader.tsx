@@ -69,6 +69,9 @@ export const LMLoader = ({ fullScreen = false }: LMLoaderProps) => {
                     <p className="text-[10px] font-bold tracking-[0.4em] text-yellow-600 uppercase">
                         Real Estate Excellence
                     </p>
+                    <p className="text-[10px] font-bold tracking-[0.4em] text-red-600 uppercase">
+                        Please wait while we load your dashboard 
+                    </p>
 
                     {/* Loading Indicator */}
                     <div className="flex items-center justify-center gap-1.5 mt-4">
