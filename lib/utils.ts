@@ -15,9 +15,12 @@ export function calculateDuration(call: any): number {
     else if (typeof call.duration === 'number') seconds = call.duration;
 
     if (seconds === 0 && (call.endedAt || call.end_time_unix_secs) && (call.startedAt || call.start_time_unix_secs)) {
-        const start = call.start_time_unix_secs ? call.start_time_unix_secs * 1000 : new Date(call.startedAt).getTime();
-        const end = call.end_time_unix_secs ? call.end_time_unix_secs * 1000 : new Date(call.endedAt).getTime();
-        seconds = (end - start) / 1000;
+        const start = call.start_time_unix_secs ? call.start_time_unix_secs * 1000 : (call.startedAt ? new Date(call.startedAt).getTime() : null);
+        const end = call.end_time_unix_secs ? call.end_time_unix_secs * 1000 : (call.endedAt ? new Date(call.endedAt).getTime() : null);
+
+        if (start && end && !isNaN(start) && !isNaN(end)) {
+            seconds = (end - start) / 1000;
+        }
     }
 
     // If call is active

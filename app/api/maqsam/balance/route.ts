@@ -28,15 +28,19 @@ export async function GET() {
     });
 
     const text = await response.text();
-
-    return NextResponse.json({
-      status: response.status,
-      response: text,
-    });
+    try {
+      const data = JSON.parse(text);
+      return NextResponse.json(data);
+    } catch (e) {
+      return NextResponse.json({
+        status: response.status,
+        response: text,
+      });
+    }
 
   } catch (err: any) {
     return NextResponse.json({
       error: err.message,
-    });
+    }, { status: 500 });
   }
 }

@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Phone, Clock, DollarSign, CheckCircle, Search, Loader2, PhoneIncoming, PhoneOutgoing } from "lucide-react";
-import { formatDuration } from "@/lib/utils";
+import { calculateDuration, formatDuration } from "@/lib/utils";
 import { LMLoader } from "@/components/lm-loader";
 import {
     BarChart,
@@ -112,7 +112,7 @@ export default function VoiceAnalyticsPage() {
         data.forEach(call => {
             const dateStr = call.startedAt || null;
             const time = dateStr ? format(new Date(dateStr), 'MMM dd') : 'N/A';
-            const dur = call.durationSeconds || 0;
+            const dur = calculateDuration(call);
 
             // Parse credits correctly
             let cost = 0;
@@ -129,19 +129,36 @@ export default function VoiceAnalyticsPage() {
             totalDuration += dur;
             totalCredits += cost;
 
-            // Types mapping - use normalized properties from DataContext
+            // HYPER-AGGRESSIVE Inbound Detection
+            const raw = call.raw || call;
+            const metadata = raw.metadata || {};
+            const dv = raw.conversation_initiation_client_data?.dynamic_variables || {};
+            const telephony = raw.telephony || {};
+            const initType = (raw.conversation_initiation_type || "").toLowerCase();
+            const directionProp = (telephony.direction || raw.direction || metadata.direction || dv.direction || raw.type || "").toLowerCase();
+
             const isInbound =
                 call.isInbound === true ||
-                (typeof call.type === 'string' && call.type.toLowerCase() === 'inbound') ||
-                (call.conversation_initiation_type && call.conversation_initiation_type.toLowerCase().includes('inbound'));
+                (typeof call.type === 'string' && (call.type.toLowerCase() === 'inbound' || call.type === 'Inbound')) ||
+                directionProp.includes('inbound') ||
+                directionProp.includes('incoming') ||
+                initType.includes('inbound') ||
+                initType.includes('incoming') ||
+                (call.calleeNumber && call.calleeNumber.toString().replace(/\D/g, '').includes("97148714150"));
+
+            const isWebCall =
+                (typeof call.type === 'string' && call.type.toLowerCase() === 'web call') ||
+                (call.phone === 'Website/API') ||
+                (!initType.includes('telephony') && !directionProp.includes('telephony'));
 
             if (isInbound) {
                 inboundSum += dur;
             } else {
+                // Outbound includes both telephony-outbound AND Web Calls
                 outboundSum += dur;
             }
 
-            const typeLabel = isInbound ? 'Inbound' : 'Outbound';
+            const typeLabel = isInbound ? 'Inbound' : (isWebCall ? 'Web Call' : 'Outbound');
             typesMap.set(typeLabel, (typesMap.get(typeLabel) || 0) + 1);
 
             // Chart maps
@@ -204,11 +221,10 @@ export default function VoiceAnalyticsPage() {
             </div>
 
             {/* Key Metric Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard title="Total Calls" value={stats.totalCalls} change="Historical" icon={<Phone className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
+                <StatCard title="Total Call Duration" value={formatDuration(stats.inboundDuration + stats.outboundDuration)} change="All Inbound + Outbound" icon={<Clock className="h-5 w-5" />} color="text-cyan-600" bg="bg-cyan-50" />
                 <StatCard title="Avg Duration" value={`${Math.round(stats.avgDuration)}s`} change="All Time" icon={<Clock className="h-5 w-5" />} color="text-purple-600" bg="bg-purple-50" />
-                <StatCard title="Inbound Duration" value={formatDuration(stats.inboundDuration)} change="Total Inbound" icon={<Phone className="h-5 w-5" />} color="text-cyan-600" bg="bg-cyan-50" />
-                <StatCard title="Outbound Duration" value={formatDuration(stats.outboundDuration)} change="Total Outbound" icon={<Phone className="h-5 w-5" />} color="text-amber-600" bg="bg-amber-50" />
                 <StatCard title="Real-Time Credits Used" value={stats.characterCount.toLocaleString()} change={`Max: ${stats.characterLimit.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} color="text-emerald-600" bg="bg-emerald-50" />
             </div>
 

@@ -16,7 +16,8 @@ import {
     Maximize2,
     Minimize2,
     X,
-    Expand
+    Expand,
+    Wallet
 } from "lucide-react";
 import {
     AreaChart,
@@ -51,7 +52,7 @@ export default function MasterDashboard() {
     const [dateLabel, setDateLabel] = useState("Last 7 days");
     const [dateRange, setDateRange] = useState<any>(undefined);
 
-    const { leads: allLeads, calls: allCalls, loadingLeads, loadingCalls, refreshAll } = useData();
+    const { leads: allLeads, calls: allCalls, loadingLeads, loadingCalls, refreshAll, maqsamBalance, loadingBalances } = useData();
     const [leads, setLeads] = useState<any[]>([]);
     const [acquisitionChartData, setAcquisitionChartData] = useState<any[]>([]);
     const [stats, setStats] = useState({
@@ -264,6 +265,7 @@ export default function MasterDashboard() {
                     totalWhatsApp: whatsappCount,
                     totalVoice: voiceCount,
                     voiceMinutesString: formatDuration(totalVoiceSeconds),
+                    totalVoiceSeconds: totalVoiceSeconds,
                     totalVoiceCalls: totalVoiceCallsCount,
                     totalReplies: replyCount
                 } as any);
@@ -336,7 +338,7 @@ export default function MasterDashboard() {
                 <MetricCard
                     title="Total Voice Calls"
                     value={loading ? "..." : (stats as any).totalVoiceCalls?.toLocaleString() || "0"}
-                    change="Real-time"
+                    change={`${(stats as any).voiceMinutesString || "0m 0s"}`}
                     isUp={true}
                     icon={<Activity className="h-6 w-6" />}
                     color="text-orange-600"
@@ -344,6 +346,7 @@ export default function MasterDashboard() {
                     border="border-orange-100"
                     onClick={() => router.push('/dashboard/voice')}
                 />
+                
                 <MetricCard
                     title="Total Replies"
                     value={loading ? "..." : stats.totalReplies.toLocaleString()}

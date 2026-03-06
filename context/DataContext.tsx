@@ -9,9 +9,13 @@ interface DataContextType {
     calls: any[];
     loadingLeads: boolean;
     loadingCalls: boolean;
+    loadingBalances: boolean;
+    voiceBalance: any;
+    maqsamBalance: any;
     error: string | null;
     refreshLeads: () => Promise<void>;
     refreshCalls: () => Promise<void>;
+    refreshBalances: () => Promise<void>;
     refreshAll: () => Promise<void>;
 }
 
@@ -22,6 +26,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const [calls, setCalls] = useState<any[]>([]);
     const [loadingLeads, setLoadingLeads] = useState(true);
     const [loadingCalls, setLoadingCalls] = useState(true);
+    const [loadingBalances, setLoadingBalances] = useState(true);
+    const [voiceBalance, setVoiceBalance] = useState<any>(null);
+    const [maqsamBalance, setMaqsamBalance] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
 
     const fetchLeads = useCallback(async () => {
@@ -49,15 +56,37 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             setCalls(data);
         } catch (err: any) {
             console.error('DataProvider calls fetch error:', err);
-            // We don't block the whole app if calls fail
         } finally {
             setLoadingCalls(false);
         }
     }, []);
 
+    const fetchBalances = useCallback(async () => {
+        setLoadingBalances(true);
+        try {
+            const [vapiRes, maqsamRes] = await Promise.all([
+                fetch('/api/vapi/balance'),
+                fetch('/api/maqsam/balance')
+            ]);
+
+            if (vapiRes.ok) {
+                const vapiData = await vapiRes.json();
+                setVoiceBalance(vapiData);
+            }
+            if (maqsamRes.ok) {
+                const maqsamData = await maqsamRes.json();
+                setMaqsamBalance(maqsamData);
+            }
+        } catch (err) {
+            console.error('DataProvider balances fetch error:', err);
+        } finally {
+            setLoadingBalances(false);
+        }
+    }, []);
+
     const refreshAll = useCallback(async () => {
-        await Promise.all([fetchLeads(), fetchCalls()]);
-    }, [fetchLeads, fetchCalls]);
+        await Promise.all([fetchLeads(), fetchCalls(), fetchBalances()]);
+    }, [fetchLeads, fetchCalls, fetchBalances]);
 
     useEffect(() => {
         refreshAll();
@@ -103,9 +132,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             calls,
             loadingLeads,
             loadingCalls,
+            loadingBalances,
+            voiceBalance,
+            maqsamBalance,
             error,
             refreshLeads: fetchLeads,
             refreshCalls: fetchCalls,
+            refreshBalances: fetchBalances,
             refreshAll
         }}>
             {children}

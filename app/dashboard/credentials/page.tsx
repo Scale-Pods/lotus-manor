@@ -7,12 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Mail, MessageCircle, Mic, ExternalLink, Copy, Eye, EyeOff, ShieldCheck, Wallet, Phone } from "lucide-react";
 import React, { useState } from "react";
+import { MaqsamBalanceDetail } from "@/components/dashboard/maqsam-balance-detail";
+
+import { useData } from "@/context/DataContext";
 
 export default function CredentialsPage() {
+    const { voiceBalance, maqsamBalance, loadingBalances: loadingMaqsam } = useData();
     const [senderEmails, setSenderEmails] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
-
-    const [voiceBalance, setVoiceBalance] = useState<any>(null);
 
     React.useEffect(() => {
         const fetchEmails = async () => {
@@ -33,20 +35,7 @@ export default function CredentialsPage() {
             }
         };
 
-        const fetchVoiceBalance = async () => {
-            try {
-                const res = await fetch('/api/vapi/balance');
-                if (res.ok) {
-                    const data = await res.json();
-                    setVoiceBalance(data);
-                }
-            } catch (err) {
-                console.error("Error fetching voice balance:", err);
-            }
-        };
-
         fetchEmails();
-        fetchVoiceBalance();
     }, []);
 
     return (
@@ -132,7 +121,6 @@ export default function CredentialsPage() {
                     </div>
                 </CredentialSection>
 
-                {/* Maqsam Section */}
                 <CredentialSection
                     title="Maqsam Telephony"
                     description="VoIP and Telephony provider credentials."
@@ -140,29 +128,13 @@ export default function CredentialsPage() {
                     iconColor="text-cyan-600"
                     iconBg="bg-cyan-50"
                     action={
-                        <Button className="bg-cyan-600 hover:bg-cyan-700 text-white gap-2">
+                        <Button className="bg-cyan-600 hover:bg-cyan-700 text-white gap-2" onClick={() => window.open('https://maqsam.com/billing', '_blank')}>
                             <Wallet className="h-4 w-4" />
-                            Add Funds
+                            Manage Billing
                         </Button>
                     }
                 >
-                    <div className="grid gap-6 md:grid-cols-2">
-                        <div className="md:col-span-2 bg-slate-50 rounded-lg p-4 border border-slate-100 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-white rounded-md border border-slate-200">
-                                    <ShieldCheck className="h-5 w-5 text-emerald-600" />
-                                </div>
-                                <div>
-                                    <p className="text-sm font-bold text-slate-900">Total Balance</p>
-                                    <p className="text-xs text-slate-500">$300</p>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Current Balance</p>
-                                <p className="text-xl font-bold text-slate-900">$268.91</p>
-                            </div>
-                        </div>
-                    </div>
+                    <MaqsamBalanceDetail initialBalance={maqsamBalance} />
                 </CredentialSection>
             </div>
         </div>

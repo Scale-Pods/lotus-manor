@@ -89,19 +89,28 @@ export async function GET() {
                 "unknown"
             ).toString().toLowerCase();
 
-            let isInbound = rawType.includes('inbound') || initiationType.includes('inbound');
+            // Check for any mention of inbound/phone incoming
+            let isInbound =
+                rawType.includes('inbound') ||
+                rawType.includes('incoming') ||
+                initiationType.includes('inbound') ||
+                initiationType.includes('incoming');
 
-            // heuristic: if it's telephony and initiation type is not specified, but callee is central, it's inbound
-            if (!isInbound && calleeNumber.toString().replace(/\D/g, '').includes(centralNumber)) {
+            // Heuristic fallback using phone numbers
+            const cleanCallee = calleeNumber.toString().replace(/\D/g, '');
+            const cleanCaller = callerNumber.toString().replace(/\D/g, '');
+
+            // If the callee is our central line, it's inbound
+            if (!isInbound && (cleanCallee.includes(centralNumber) || cleanCallee === centralNumber)) {
                 isInbound = true;
             }
 
-            // heuristic: if the caller is our central number, it's definitely outbound
-            if (isInbound && callerNumber.toString().replace(/\D/g, '').includes(centralNumber)) {
+            // If the caller is our central line, it's outbound even if incorrectly tagged
+            if (isInbound && (cleanCaller.includes(centralNumber) || cleanCaller === centralNumber)) {
                 isInbound = false;
             }
 
-            const callType = isInbound ? "Inbound" : (rawType.includes('outbound') ? "Outbound" : "unknown");
+            const callType = isInbound ? "Inbound" : (rawType.includes('outbound') || initiationType.includes('outbound') ? "Outbound" : "unknown");
 
             // Final fallback for Web Call
             let finalPhone = callerNumber !== "Unknown" ? callerNumber : (calleeNumber !== "Unknown" ? calleeNumber : "Website/API");
@@ -109,8 +118,8 @@ export async function GET() {
 
             if (finalPhone === "Website/API" && !initiationType.includes('telephony') && callType === "unknown") {
                 finalType = "Web Call";
-            } else if (callType === "unknown") {
-                finalType = "Outbound"; // Default to outbound if still unknown but has numbers
+            } else if (finalType === "unknown") {
+                finalType = "Outbound"; // Default to outbound if still unknown
             }
 
             return {
