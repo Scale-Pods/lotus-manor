@@ -21,8 +21,7 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useState, useEffect } from "react";
-import { format, parseISO } from "date-fns";
-import { startOfDay } from "date-fns";
+import { format, parseISO, startOfDay, subDays } from "date-fns";
 import { useData } from "@/context/DataContext";
 
 export default function VoiceAnalyticsPage() {
@@ -31,7 +30,10 @@ export default function VoiceAnalyticsPage() {
     const [calls, setCalls] = useState<any[]>([]);
     const [loadingLocal, setLoadingLocal] = useState(true);
     const loading = loadingLocal || loadingCalls;
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date(),
+    });
 
     // Processed Data States
     const [volumeData, setVolumeData] = useState<any[]>([]);
@@ -84,7 +86,7 @@ export default function VoiceAnalyticsPage() {
 
             const callDate = new Date(dateStr);
             const from = startOfDay(new Date(dateRange.from));
-            const to = dateRange.to ? startOfDay(new Date(dateRange.to)) : from;
+            const to = startOfDay(new Date(dateRange.to || dateRange.from));
             to.setHours(23, 59, 59, 999);
 
             return callDate >= from && callDate <= to;

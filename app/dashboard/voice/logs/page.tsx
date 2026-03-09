@@ -12,7 +12,7 @@ import React, { useState, useEffect } from "react";
 import { CallDetailsModal } from "@/components/voice/call-details-modal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, subDays } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
@@ -113,7 +113,10 @@ export default function VoiceLogsPage() {
     const loading = loadingCalls;
     const [selectedCall, setSelectedCall] = useState<any>(null);
     const [modalOpen, setModalOpen] = useState(false);
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date(),
+    });
     const [statusFilter, setStatusFilter] = useState("all");
     const [typeFilter, setTypeFilter] = useState("all");
     const [phoneFilter, setPhoneFilter] = useState("");
@@ -145,7 +148,7 @@ export default function VoiceLogsPage() {
                 const callDate = new Date(call.startedAt);
                 const from = new Date(dateRange.from);
                 from.setHours(0, 0, 0, 0);
-                const to = dateRange.to ? new Date(dateRange.to) : from;
+                const to = new Date(dateRange.to || dateRange.from);
                 to.setHours(23, 59, 59, 999);
                 if (callDate < from || callDate > to) return false;
             }
