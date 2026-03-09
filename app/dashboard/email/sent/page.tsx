@@ -103,11 +103,25 @@ export default function SentEmailsPage() {
                     if (fullSender.includes("<>")) {
                         fullSender = fullSender.replace("<>", "").trim();
                     }
-                    if (fullSender.includes('("")')) {
-                        fullSender = fullSender.replace('("")', "").trim();
+                    uniqueSendersSet.add(fullSender);
+
+                    let replyTime = Infinity;
+                    const emailReply = lead.email_replied || lead.Email_Replied || lead.replied;
+                    if (emailReply && emailReply !== "No" && emailReply !== "none") {
+                        const trimmed = String(emailReply).trim();
+                        const lines = trimmed.split('\n');
+                        const lastLine = lines[lines.length - 1].trim();
+                        const replyDate = new Date(lastLine);
+                        if (!isNaN(replyDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                            replyTime = replyDate.getTime();
+                        } else if (trimmed !== "") {
+                            // If there is a reply but we can't parse the date, 
+                            // we might not know exactly when to cut off.
+                            // But usually they have a date.
+                        }
                     }
 
-                    uniqueSendersSet.add(fullSender);
+                    const leadEmails: any[] = [];
 
                     stages.forEach((stage: string) => {
                         if (stage.toLowerCase().includes("email")) {
@@ -150,19 +164,51 @@ export default function SentEmailsPage() {
                                 }
                             }
 
-                            emails.push({
+                            // Standardize naming
+                            let displayStageType = stage;
+                            const loopName = (lead.source_loop || "").toLowerCase();
+
+                            if (loopName.includes("follow")) {
+                                if (stage === "Email 4") displayStageType = "Email 1";
+                                else if (stage === "Email 5") displayStageType = "Email 2";
+                                else if (stage === "Email 6") displayStageType = "Email 3";
+                            } else if (loopName.includes("nurture")) {
+                                const match = stage.match(/Email (\d+)/);
+                                if (match) {
+                                    const num = parseInt(match[1]);
+                                    if (num >= 7 && num <= 15) {
+                                        displayStageType = `Email ${num - 6}`;
+                                    }
+                                }
+                            }
+
+                            leadEmails.push({
                                 id: `${lead.id || `lead-${leadIndex}`}-${stage.replace(/\s+/g, '-')}-${Math.random().toString(36).substr(2, 9)}`,
                                 recipient: lead.email || leadName,
                                 sender: fullSender,
-                                type: stage,
+                                type: displayStageType,
                                 sentDate: hasValidDateInColumn ? format(new Date(displayDate), 'MMM dd, yyyy • p') : null,
-                                subject: stage, // Use stage name (e.g. Email 1) as subject since we are not using templates
+                                subject: displayStageType, // Use normalized stage name
                                 content: emailBody,
                                 loop: lead.source_loop,
                                 rawDate: rawDateValue
                             });
                         }
                     });
+
+                    // Sort the lead's emails by date
+                    leadEmails.sort((a, b) => new Date(a.rawDate || 0).getTime() - new Date(b.rawDate || 0).getTime());
+
+                    // Commit emails until we hit the reply time
+                    let hasRepliedAlready = false;
+                    for (const em of leadEmails) {
+                        const emTime = new Date(em.rawDate).getTime();
+                        if (emTime > replyTime) {
+                            // Stop flow: an email reply was received before this scheduled drip was supposed to go out
+                            continue;
+                        }
+                        emails.push(em);
+                    }
                 });
 
                 setSentEmails(emails);
@@ -234,16 +280,6 @@ export default function SentEmailsPage() {
             if (filters.type === "email8" && !email.type.toLowerCase().includes("email 8")) return false;
             if (filters.type === "email9" && !email.type.toLowerCase().includes("email 9")) return false;
             if (filters.type === "email10" && !email.type.toLowerCase().includes("email 10")) return false;
-            if (filters.type === "email11" && !email.type.toLowerCase().includes("email 11")) return false;
-            if (filters.type === "email12" && !email.type.toLowerCase().includes("email 12")) return false;
-            if (filters.type === "email13" && !email.type.toLowerCase().includes("email 13")) return false;
-            if (filters.type === "email14" && !email.type.toLowerCase().includes("email 14")) return false;
-            if (filters.type === "email15" && !email.type.toLowerCase().includes("email 15")) return false;
-            if (filters.type === "email16" && !email.type.toLowerCase().includes("email 16")) return false;
-            if (filters.type === "email17" && !email.type.toLowerCase().includes("email 17")) return false;
-            if (filters.type === "email18" && !email.type.toLowerCase().includes("email 18")) return false;
-            if (filters.type === "email19" && !email.type.toLowerCase().includes("email 19")) return false;
-            if (filters.type === "email20" && !email.type.toLowerCase().includes("email 20")) return false;
             // Add other types as needed
         }
 
@@ -324,16 +360,6 @@ export default function SentEmailsPage() {
                             <SelectItem value="email8">Email 8</SelectItem>
                             <SelectItem value="email9">Email 9</SelectItem>
                             <SelectItem value="email10">Email 10</SelectItem>
-                            <SelectItem value="email11">Email 11</SelectItem>
-                            <SelectItem value="email12">Email 12</SelectItem>
-                            <SelectItem value="email13">Email 13</SelectItem>
-                            <SelectItem value="email14">Email 14</SelectItem>
-                            <SelectItem value="email15">Email 15</SelectItem>
-                            <SelectItem value="email16">Email 16</SelectItem>
-                            <SelectItem value="email17">Email 17</SelectItem>
-                            <SelectItem value="email18">Email 18</SelectItem>
-                            <SelectItem value="email19">Email 19</SelectItem>
-                            <SelectItem value="email20">Email 20</SelectItem>
                         </SelectContent>
                     </Select>
 

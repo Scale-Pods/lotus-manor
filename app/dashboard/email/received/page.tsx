@@ -76,16 +76,59 @@ export default function ReceivedEmailsPage() {
                             // If it's a timestamp, the rest is the content
                             cleanEmailReply = lines.slice(0, -1).join('\n').trim() || "Email Reply Received";
                         }
+
+                        let repliedTo = "";
+                        const replyTime = new Date(displayDate).getTime();
+                        if (!isNaN(replyTime) && lead.stages_passed) {
+                            let maxTime = -1;
+                            lead.stages_passed.forEach((stage: string) => {
+                                if (stage.toLowerCase().includes("email")) {
+                                    const raw = lead.stage_data?.[stage];
+                                    if (raw && typeof raw === 'string') {
+                                        const tStr = raw.trim();
+                                        const lDate = new Date(tStr.split('\n').pop()!.trim()).getTime();
+                                        const fDate = new Date(tStr).getTime();
+                                        const emTime = !isNaN(lDate) ? lDate : (!isNaN(fDate) ? fDate : -1);
+                                        if (emTime !== -1 && emTime <= replyTime + 60000 && emTime > maxTime) {
+                                            maxTime = emTime;
+                                            repliedTo = stage;
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
+                        // Normalize specific email loop step just like Sent page
+                        let displayStageType = "";
+                        if (repliedTo) {
+                            displayStageType = repliedTo;
+                            const loopName = (lead.source_loop || "").toLowerCase();
+                            if (loopName.includes("follow")) {
+                                if (repliedTo === "Email 4") displayStageType = "Email 1";
+                                else if (repliedTo === "Email 5") displayStageType = "Email 2";
+                                else if (repliedTo === "Email 6") displayStageType = "Email 3";
+                            } else if (loopName.includes("nurture")) {
+                                const match = repliedTo.match(/Email (\d+)/);
+                                if (match) {
+                                    const num = parseInt(match[1]);
+                                    if (num >= 7 && num <= 15) {
+                                        displayStageType = `Email ${num - 6}`;
+                                    }
+                                }
+                            }
+                        }
+
                         realReplies.push({
                             id: `${lead.id || index}-email-reply`,
                             sender: lead.email || "No Email Provided",
                             status: "Replied",
-                            subject: "Email Reply",
+                            subject: displayStageType ? `Reply to ${displayStageType}` : "Email Reply",
                             timestamp: displayDate ? format(new Date(displayDate), 'MMM dd, yyyy • p') : "Unknown Date",
                             senderName: lead.name || "Lead",
                             content: cleanEmailReply,
                             originalDate: displayDate,
-                            loop: lead.source_loop
+                            loop: lead.source_loop,
+                            repliedToStep: displayStageType
                         });
                     }
                 });
@@ -250,6 +293,12 @@ function EmailReplyCard({ reply }: { reply: any }) {
                                 <Badge variant="outline" className="text-purple-600 bg-purple-50 border-purple-100 text-[10px] uppercase font-bold">
                                     {reply.loop}
                                 </Badge>
+                                {reply.repliedToStep && (
+                                    <Badge variant="outline" className="text-indigo-600 bg-indigo-50 border-indigo-100 text-[10px] font-bold gap-1">
+                                        <Reply className="h-3 w-3" />
+                                        {reply.repliedToStep}
+                                    </Badge>
+                                )}
                                 {reply.timestamp && (
                                     <Badge variant="outline" className="text-cyan-600 bg-cyan-50 border-cyan-100 text-[10px] font-bold">{reply.timestamp}</Badge>
                                 )}
