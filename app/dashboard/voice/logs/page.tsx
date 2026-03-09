@@ -100,7 +100,7 @@ const DynamicRowCells = ({ call }: { call: any }) => {
             </TableCell>
             <TableCell className="text-slate-600 font-medium">{call.displayDuration}</TableCell>
             <TableCell className="text-slate-500 text-xs">{isInboundState ? (call.country === "Unknown" ? "Local" : call.country || 'N/A') : (call.country || 'N/A')}</TableCell>
-            <TableCell className="font-bold text-emerald-600">{isInboundState ? "$0.00" : call.cost}</TableCell>
+            <TableCell className="font-bold text-emerald-600">{isInboundState ? "$0.02" : call.cost}</TableCell>
         </>
     );
 };
@@ -324,7 +324,7 @@ export default function VoiceLogsPage() {
                                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">3</div>
                                 <div>
                                     <h4 className="font-bold text-slate-800 text-sm mb-1">Per-Minute Computation</h4>
-                                    <p className="text-xs text-slate-500 leading-relaxed">Duration is tracked in seconds and converted to minutes. For outbound calls, the matched rate is applied. Inbound calls are always computed at $0.00.</p>
+                                    <p className="text-xs text-slate-500 leading-relaxed">Duration is tracked in seconds and converted to minutes. For outbound calls, the matched rate is applied. Inbound calls are always computed at $0.02.</p>
                                 </div>
                             </div>
 
