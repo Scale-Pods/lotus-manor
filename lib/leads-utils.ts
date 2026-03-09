@@ -92,7 +92,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
             });
 
             consolidatedLeads.push({
-                id: String(getVal(l, ["Lead ID", "id"]) || `intro-${idx}`),
+                id: `intro-${getVal(l, ["Lead ID", "id"]) || idx}`,
                 lead_id: getVal(l, ["Lead ID"]),
                 name: String(getVal(l, ["Name"]) || "Lead"),
                 phone: String(getVal(l, ["Phone"]) || ""),
@@ -112,8 +112,6 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_2": getVal(l, ["W.P_2"]),
                 "W.P_3": getVal(l, ["W.P_3"]),
                 "W.P_4": getVal(l, ["W.P_4"]),
-                "W.P_5": getVal(l, ["W.P_5"]),
-                "W.P_6": getVal(l, ["W.P_6"]),
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
@@ -147,14 +145,14 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
             }
 
             consolidatedLeads.push({
-                id: String(getVal(l, ["Lead ID", "id"]) || `followup-${idx}`),
+                id: `followup-${getVal(l, ["Lead ID", "id"]) || idx}`,
                 lead_id: getVal(l, ["Lead ID"]),
                 name: String(getVal(l, ["Name"]) || "Lead"),
                 phone: String(getVal(l, ["Phone"]) || ""),
                 email: String(getVal(l, ["Email"]) || "No Email"),
                 replied: String(getVal(l, ["Replied", "Email_Replied"]) || "No"),
                 current_loop: "Follow Up",
-                source_loop: "followup",
+                source_loop: "Follow Up",
                 stages_passed: stages,
                 stage_data,
                 created_at: getVal(l, ["Created At", "created_at"]) || new Date().toISOString(),
@@ -168,8 +166,6 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_2": getVal(l, ["W.P_2"]),
                 "W.P_3": getVal(l, ["W.P_3"]),
                 "W.P_4": getVal(l, ["W.P_4"]),
-                "W.P_5": getVal(l, ["W.P_5"]),
-                "W.P_6": getVal(l, ["W.P_6"]),
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
@@ -217,14 +213,14 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
             if (getVal(l, ["Week 3"])) currentWeek = "Week 3";
 
             consolidatedLeads.push({
-                id: String(getVal(l, ["Lead ID", "id"]) || `nurture-${idx}`),
+                id: `nurture-${getVal(l, ["Lead ID", "id"]) || idx}`,
                 lead_id: getVal(l, ["Lead ID"]),
                 name: String(getVal(l, ["Name"]) || "Lead"),
                 phone: String(getVal(l, ["Phone"]) || ""),
                 email: String(getVal(l, ["Email"]) || "No Email"),
                 replied: String(getVal(l, ["Replied", "Email_Replied", "W.P_Replied"]) || "No"),
                 current_loop: "Nurture",
-                source_loop: "nurture",
+                source_loop: "Nurture Loop",
                 stages_passed: stages,
                 stage_data,
                 current_week: currentWeek,
@@ -241,6 +237,12 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_4": getVal(l, ["W.P_4"]),
                 "W.P_5": getVal(l, ["W.P_5"]),
                 "W.P_6": getVal(l, ["W.P_6"]),
+                "W.P_7": getVal(l, ["W.P_7"]),
+                "W.P_8": getVal(l, ["W.P_8"]),
+                "W.P_9": getVal(l, ["W.P_9"]),
+                "W.P_10": getVal(l, ["W.P_10"]),
+                "W.P_11": getVal(l, ["W.P_11"]),
+                "W.P_12": getVal(l, ["W.P_12"]),
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),

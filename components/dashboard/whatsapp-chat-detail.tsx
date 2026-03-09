@@ -84,35 +84,47 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
             const f = found as any;
             let seq = 1;
 
-            // Step 1: Add initial outreach (W.P_1)
+            // Step 1: Initial Outreach (W.P_1) - Always the starting point
             const wp1Raw = f[`W.P_1`] || f.stage_data?.[`WhatsApp 1`];
-            const wp1Msg = parseMsg(wp1Raw, `WhatsApp 1`, 'bot', seq++);
+            const wp1Msg = parseMsg(wp1Raw, `W.P_1`, 'bot', seq++);
             if (wp1Msg) timeline.push(wp1Msg);
 
-            // Step 2: Add other initial drips (2-6)
-            for (let i = 2; i <= 6; i++) {
-                const raw = f[`W.P_${i}`] || f.stage_data?.[`WhatsApp ${i}`];
-                const msg = parseMsg(raw, `WhatsApp ${i}`, 'bot', seq++);
-                if (msg) timeline.push(msg);
+            // Step 2: Check for any user reply to break the drip loop
+            let r1Raw = f[`W.P_Replied_1`];
+            if (!r1Raw || String(r1Raw).toLowerCase() === 'no' || String(r1Raw).toLowerCase() === 'none') {
+                r1Raw = f.whatsapp_replied || f.stage_data?.["WhatsApp Replied"];
             }
 
-            // Step 3: Interleave Replies and Followups
-            for (let i = 1; i <= 10; i++) {
-                // First: The Reply (User)
-                let rRaw = f[`W.P_Replied_${i}`];
-                if (i === 1 && (!rRaw || String(rRaw).toLowerCase() === 'no')) {
-                    rRaw = f.whatsapp_replied || f.stage_data?.["WhatsApp Replied"];
-                }
-                const rMsg = parseMsg(rRaw, i === 1 ? 'Initial Reply' : `Reply ${i}`, 'user', seq++);
-                if (rMsg) timeline.push(rMsg);
+            const hasReply = r1Raw && String(r1Raw).trim() !== '' &&
+                String(r1Raw).toLowerCase() !== 'no' &&
+                String(r1Raw).toLowerCase() !== 'none';
 
-                // Second: The FollowUp (Bot)
-                let fRaw = f[`W.P_FollowUp_${i}`];
-                if (i === 1 && !fRaw) {
-                    fRaw = f.stage_data?.["WhatsApp FollowUp"] || f["W.P_FollowUp"];
+            // Determine drip range (Nurture has 12, others have 4)
+            const dripEnd = f.source_loop === "Nurture Loop" ? 12 : 4;
+
+            if (!hasReply) {
+                // NO REPLY branch: Show the rest of the drips (W.P_2 up to dripEnd)
+                for (let i = 2; i <= dripEnd; i++) {
+                    const raw = f[`W.P_${i}`] || f.stage_data?.[`WhatsApp ${i}`];
+                    const msg = parseMsg(raw, `W.P_${i}`, 'bot', seq++);
+                    if (msg) timeline.push(msg);
                 }
-                const fMsg = parseMsg(fRaw, i === 1 ? 'Initial FollowUp' : `FollowUp ${i}`, 'bot', seq++);
-                if (fMsg) timeline.push(fMsg);
+            } else {
+                // REPLY branch: Skip remaining drips, go straight to the interaction conversation
+                for (let i = 1; i <= 10; i++) {
+                    // First: The Reply (User)
+                    let rRaw = (i === 1) ? r1Raw : f[`W.P_Replied_${i}`];
+                    const rMsg = parseMsg(rRaw, `W.P_Replied ${i}`, 'user', seq++);
+                    if (rMsg) timeline.push(rMsg);
+
+                    // Second: The FollowUp (Bot)
+                    let fRaw = f[`W.P_FollowUp_${i}`];
+                    if (i === 1 && !fRaw) {
+                        fRaw = f.stage_data?.["WhatsApp FollowUp"] || f["W.P_FollowUp"];
+                    }
+                    const fMsg = parseMsg(fRaw, `W.P_FollowUp ${i}`, 'bot', seq++);
+                    if (fMsg) timeline.push(fMsg);
+                }
             }
 
             // Step 4: Strict priority sorting
@@ -154,7 +166,7 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                     <div className="flex items-center gap-2 text-xs text-slate-500">
                         <span>{lead.phone}</span>
                         <span>•</span>
-                        <span>{lead.source_loop} Loop</span>
+                        <span>{lead.source_loop}</span>
                     </div>
                 </div>
             </div>
@@ -216,9 +228,15 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                                 </div>
                                 <div>
                                     <span className="text-[10px] font-bold text-slate-400 uppercase">Campaign</span>
-                                    <Badge className="mt-1 bg-purple-100 text-purple-700 hover:bg-purple-100 border-none text-[10px] font-bold uppercase">
-                                        {lead.source_loop} Loop
+                                    <Badge className="mt-1 bg-purple-100 text-purple-700 hover:bg-purple-100 border-none text-[10px] font-bold uppercase block w-fit">
+                                        {lead.source_loop}
                                     </Badge>
+                                </div>
+                                <div>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Source Table</span>
+                                    <p className="font-bold text-blue-600 mt-1 text-xs">
+                                        {lead.id.startsWith('intro-') ? 'nr_wf' : (lead.id.startsWith('followup-') ? 'followup' : 'nurture')}
+                                    </p>
                                 </div>
                             </div>
                         </CardContent>
