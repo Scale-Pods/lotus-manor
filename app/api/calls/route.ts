@@ -24,7 +24,7 @@ function getRateInfo(phoneNumber: string) {
 }
 
 function calculateCostValue(durationSecs: number, phoneNumber: string, isInbound: boolean) {
-    if (isInbound) return 0; // Inbound is free
+    if (isInbound) return durationSecs > 0 ? 0.02 : 0; // Inbound is $0.02 if answered
     if (!durationSecs || durationSecs <= 0) return 0;
     const rate = getRateInfo(phoneNumber);
     if (!rate || !rate.Rate) return 0;

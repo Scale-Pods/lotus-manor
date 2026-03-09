@@ -33,13 +33,18 @@ export async function GET(
 
         const dynamicVars = data.conversation_initiation_client_data?.dynamic_variables || {};
 
+        const durationSeconds = data.metadata?.call_duration_secs || data.call_duration_secs || data.analysis?.call_duration_secs || 0;
+        const isInbound = (data.direction || dynamicVars.direction || dynamicVars.type || data.metadata?.direction || "").toLowerCase() === 'inbound';
+
         // Normalize for frontend
         const normalized = {
             ...data,
             id: data.conversation_id,
             startedAt: data.metadata?.start_time_unix_secs ? new Date(data.metadata.start_time_unix_secs * 1000).toISOString() : null,
-            durationSeconds: data.metadata?.call_duration_secs || data.call_duration_secs || data.analysis?.call_duration_secs || 0,
-            cost: data.metadata?.cost ? `${data.metadata.cost} credits` : '$0.00',
+            durationSeconds,
+            cost: isInbound
+                ? (durationSeconds > 0 ? '$0.02' : '$0.00')
+                : (data.metadata?.cost ? `${data.metadata.cost} credits` : '$0.00'),
             // Let the frontend know exact charges if needed
             llm_charge: data.metadata?.charging?.llm_charge || 0,
             llm_price: data.metadata?.charging?.llm_price || 0,
@@ -48,7 +53,7 @@ export async function GET(
             callee_number: data.metadata?.callee_number || dynamicVars.callee_number || dynamicVars.callee || "Unknown",
             // The real direction stored deeply by ElevenLabs
             type: data.direction || dynamicVars.direction || dynamicVars.type || data.metadata?.direction || "Unknown",
-            isInbound: (data.direction || dynamicVars.direction || dynamicVars.type || data.metadata?.direction || "").toLowerCase() === 'inbound',
+            isInbound,
             audio_url: `${ELEVENLABS_BASE_URL}/convai/conversations/${conversationId}/audio` // frontend will need to pass xi-api-key normally, since this requires auth, we should proxy it or pass URL
         };
 
