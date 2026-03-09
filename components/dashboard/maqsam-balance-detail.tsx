@@ -33,40 +33,23 @@ export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }
 
         let inbound = 0;
         let outbound = 0;
+        let totalCost = 0;
 
         filtered.forEach((call: any) => {
             const duration = calculateDuration(call);
-            const centralNumber = "97148714150";
-
-            // HYPER-AGGRESSIVE Inbound Detection
-            const raw = call.raw || call;
-            const metadata = raw.metadata || {};
-            const dv = raw.conversation_initiation_client_data?.dynamic_variables || {};
-            const telephony = raw.telephony || {};
-            const initType = (raw.conversation_initiation_type || "").toLowerCase();
-            const directionProp = (telephony.direction || raw.direction || metadata.direction || dv.direction || raw.type || "").toLowerCase();
-
-            const isInbound =
-                call.isInbound === true ||
-                (typeof call.type === 'string' && (call.type.toLowerCase() === "inbound" || call.type === "Inbound")) ||
-                directionProp.includes('inbound') ||
-                directionProp.includes('incoming') ||
-                initType.includes('inbound') ||
-                initType.includes('incoming') ||
-                (call.calleeNumber && call.calleeNumber.toString().replace(/\D/g, '').includes(centralNumber));
+            const isInbound = call.isInbound === true || (typeof call.type === 'string' && call.type.toLowerCase() === "inbound");
 
             if (isInbound) {
                 inbound += duration;
             } else {
-                // Outbound includes both telephony-outbound AND Web Calls
                 outbound += duration;
             }
+            totalCost += (call.costValue || 0);
         });
 
         const total = inbound + outbound;
-        const cost = (total / 60) * 0.16;
 
-        return { inbound, outbound, total, cost };
+        return { inbound, outbound, total, cost: totalCost };
     }, [calls, dateRange]);
 
     const handleDateUpdate = ({ range }: { range: any }) => {
@@ -81,9 +64,9 @@ export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }
                         <Wallet className="h-5 w-5" />
                     </div>
                     <div>
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Calculated Consumption</p>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Estimated Total Consumption</p>
                         <p className="text-2xl font-bold text-slate-900">
-                            ${(stats.cost || 0).toFixed(2)}
+                            ${(stats.cost || 0).toFixed(3)}
                         </p>
                     </div>
                 </div>
@@ -96,18 +79,18 @@ export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }
                 <Table>
                     <TableHeader className="bg-slate-50">
                         <TableRow>
-                            <TableHead className="font-bold text-center">Total Inbound + Outbound Duration</TableHead>
+                            <TableHead className="font-bold text-center">Total Interaction Duration</TableHead>
                             <TableHead className="font-bold text-center">
                                 <div className="flex items-center justify-center gap-1">
-                                    Total Calculated Cost
+                                    Total Spend (USD)
                                     <TooltipProvider>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <Info className="h-3.5 w-3.5 cursor-help opacity-60 hover:opacity-100 transition-opacity" />
                                             </TooltipTrigger>
                                             <TooltipContent className="max-w-[200px] p-3 text-xs leading-relaxed">
-                                                <p className="font-bold mb-1">Calculation Method:</p>
-                                                <p>Total Duration across all calls × $0.16 per minute</p>
+                                                <p className="font-bold mb-1">Advanced Billing Logic:</p>
+                                                <p>Outbound calls are computed via high-precision longest-prefix rate matching.( check in Voice Logs Page )</p>
                                             </TooltipContent>
                                         </Tooltip>
                                     </TooltipProvider>
@@ -119,13 +102,16 @@ export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }
                         <TableRow>
                             <TableCell className="text-center text-lg font-medium text-slate-700">
                                 <div className="flex flex-col items-center gap-1">
-                                    <PhoneIncoming className="h-4 w-4 text-cyan-500 mb-1" />
+                                    <div className="flex items-center gap-2">
+                                        <PhoneIncoming className="h-3 w-3 text-cyan-500" />
+                                        <span className="text-xs text-slate-400">Inbound + Outbound</span>
+                                    </div>
                                     {formatDuration(stats.total) || "0m 0s"}
                                 </div>
                             </TableCell>
                             <TableCell className="text-center">
                                 <span className="text-2xl font-bold text-cyan-700">
-                                    ${(stats.cost || 0).toFixed(2)}
+                                    ${(stats.cost || 0).toFixed(3)}
                                 </span>
                             </TableCell>
                         </TableRow>
@@ -133,7 +119,7 @@ export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }
                 </Table>
             </div>
             {loadingCalls && (
-                <p className="text-center text-xs text-slate-400 animate-pulse">Recalculating real-time consumption data...</p>
+                <p className="text-center text-xs text-slate-400 animate-pulse">Syncing logs and matching prefix rates...</p>
             )}
         </div>
     );

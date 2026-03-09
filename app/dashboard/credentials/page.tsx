@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Mail, MessageCircle, Mic, ExternalLink, Copy, Eye, EyeOff, ShieldCheck, Wallet, Phone } from "lucide-react";
+import { Mail, MessageCircle, Mic, ExternalLink, Copy, Eye, EyeOff, ShieldCheck, Wallet, Phone, BarChart3 } from "lucide-react";
 import React, { useState } from "react";
 import { MaqsamBalanceDetail } from "@/components/dashboard/maqsam-balance-detail";
+import { useRouter } from "next/navigation";
 
 import { useData } from "@/context/DataContext";
 
@@ -15,6 +16,7 @@ export default function CredentialsPage() {
     const { voiceBalance, maqsamBalance, loadingBalances: loadingMaqsam } = useData();
     const [senderEmails, setSenderEmails] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
+    const router = useRouter();
 
     React.useEffect(() => {
         const fetchEmails = async () => {
@@ -92,10 +94,16 @@ export default function CredentialsPage() {
                     iconColor="text-blue-600"
                     iconBg="bg-blue-50"
                     action={
-                        <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2" onClick={() => window.open('https://elevenlabs.io/app/subscription', '_blank')}>
-                            <Wallet className="h-4 w-4" />
-                            Manage Subscription
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" className="border-blue-200 text-blue-600 hover:bg-blue-50 gap-2" onClick={() => router.push('/dashboard/voice/logs')}>
+                                <BarChart3 className="h-4 w-4" />
+                                Detailed Cost Analysis
+                            </Button>
+                            <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2" onClick={() => window.open('https://elevenlabs.io/app/subscription', '_blank')}>
+                                <Wallet className="h-4 w-4" />
+                                Manage Subscription
+                            </Button>
+                        </div>
                     }
                 >
                     <div className="space-y-6">

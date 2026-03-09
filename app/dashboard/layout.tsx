@@ -186,8 +186,7 @@ function DashboardContent({
 
     const calculatedTelephonyCost = useMemo(() => {
         if (!calls || !Array.isArray(calls)) return 0;
-        const totalSecs = calls.reduce((acc: number, call: any) => acc + calculateDuration(call), 0);
-        return (totalSecs / 60) * 0.16;
+        return calls.reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
     }, [calls]);
     const [walletModal, setWalletModal] = useState<{ isOpen: boolean, type: 'vapi' | 'maqsam' }>({ isOpen: false, type: 'vapi' });
 

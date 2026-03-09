@@ -4,12 +4,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { RefreshCw, Play, ChevronLeft, ChevronRight, User, Loader2, Download, ExternalLink, Search } from "lucide-react";
+import { RefreshCw, Play, ChevronLeft, ChevronRight, User, Loader2, Download, ExternalLink, Search, Info } from "lucide-react";
 import { LMLoader } from "@/components/lm-loader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import React, { useState, useEffect } from "react";
 import { CallDetailsModal } from "@/components/voice/call-details-modal";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { format, parseISO } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
@@ -18,20 +19,18 @@ import { useData } from "@/context/DataContext";
 // Progressive fetch for missing metadata (phone numbers/direction)
 const DynamicRowCells = ({ call }: { call: any }) => {
     const [realType, setRealType] = useState(call.type);
-    const [guestNum, setGuestNum] = useState(call.guestNumber);
+    const [guestNum, setGuestNum] = useState(call.phone);
     const [isFetching, setIsFetching] = useState(false);
+    const [isInboundState, setIsInboundState] = useState(call.isInbound);
 
     useEffect(() => {
-        // Stop if already identified
-        if (call.isInbound === true || call.type === 'Inbound' || realType === 'Web Call') {
-            if (realType !== 'Inbound' && realType !== 'Web Call') setRealType('Inbound');
+        // ALWAYS fetch deep data explicitly if the call is from ElevenLabs
+        // to progressively enhance direction detection just like the modal does.
+        if (call.source !== 'elevenlabs' || (isInboundState && guestNum !== "Unknown" && guestNum !== "+Unknown")) {
             return;
         }
 
-        const isUnknown = !guestNum || guestNum === 'Unknown' || guestNum === 'Website/API';
-        const isUnknownType = realType === 'unknown' || !realType;
-
-        if ((isUnknown || isUnknownType) && !isFetching && call.id) {
+        if (!isFetching && call.id) {
             setIsFetching(true);
             fetch(`/api/calls/${call.id}`)
                 .then(res => res.json())
@@ -40,15 +39,21 @@ const DynamicRowCells = ({ call }: { call: any }) => {
                     const metadata = data.metadata || {};
                     const tel = data.telephony || {};
                     const initType = (data.conversation_initiation_type || "").toLowerCase();
+                    const rawType = data.type || metadata.type || dv.direction || dv.type || "unknown";
 
-                    // Deep Direction
-                    const directionStr = (tel.direction || data.direction || metadata.direction || dv.direction || "").toLowerCase();
-                    const deepIsInbound = directionStr === 'inbound' || initType.includes('inbound');
+                    // Deep Direction matching the modal logic
+                    const deepIsInbound = rawType === 'inbound' || initType.includes('inbound') || (tel.direction || "").toLowerCase() === 'inbound';
 
-                    if (deepIsInbound) setRealType("Inbound");
-                    else if (directionStr === 'outbound') setRealType("Outbound");
+                    if (deepIsInbound) {
+                        setRealType("Inbound");
+                        setIsInboundState(true);
+                        call.isInbound = true;
+                        call.type = "Inbound";
+                    } else if (!deepIsInbound && realType !== 'Web Call') {
+                        setRealType("Outbound");
+                    }
 
-                    // Deep Phone
+                    // Deep Phone matching the modal logic
                     const caller = tel.caller_number || metadata.caller_number || dv.caller_number || dv.caller || "Unknown";
                     const callee = tel.callee_number || metadata.callee_number || dv.callee_number || dv.callee || "Unknown";
                     const centralNumber = "97148714150";
@@ -60,30 +65,28 @@ const DynamicRowCells = ({ call }: { call: any }) => {
                         newNum = (callee !== "Unknown" && !callee.toString().includes(centralNumber)) ? callee : caller;
                     }
 
-                    // Handle Web Call scenario
                     if (newNum === "Unknown" && !initType.includes('telephony')) {
-                        setGuestNum("Website/API");
-                        setRealType("Web Call");
-                        call.type = "Web Call";
+                        if (!deepIsInbound) {
+                            setGuestNum("Website/API");
+                            setRealType("Web Call");
+                            call.type = "Web Call";
+                        }
                     } else if (newNum !== "Unknown" && newNum !== "Website/API") {
                         const formatted = `+${String(newNum).replace(/\+/g, '')}`;
                         setGuestNum(formatted);
-                        call.guestNumber = formatted;
-                    } else {
-                        setGuestNum("Website/API");
+                        call.phone = formatted;
                     }
 
-                    if (deepIsInbound) call.type = "Inbound";
                     call.raw = { ...call.raw, ...data };
                 })
                 .catch(() => { })
                 .finally(() => setIsFetching(false));
         }
-    }, [call.id, guestNum, realType, isFetching]);
+    }, [call.id]);
 
     return (
         <>
-            <TableCell className="font-medium text-slate-700">
+            <TableCell className="font-medium text-slate-800">
                 {guestNum === "Unknown" && isFetching ? (
                     <span className="text-slate-400 animate-pulse text-xs italic">Detecting...</span>
                 ) : (
@@ -91,13 +94,17 @@ const DynamicRowCells = ({ call }: { call: any }) => {
                 )}
             </TableCell>
             <TableCell>
-                <span className={`font-semibold ${realType === 'Inbound' ? 'text-blue-600' : 'text-slate-700'}`}>
-                    {realType || "..."}
-                </span>
+                <Badge variant={isInboundState ? "default" : "secondary"} className={`text-[10px] ${isInboundState ? 'bg-blue-600 outline-none border-none' : ''}`}>
+                    {realType}
+                </Badge>
             </TableCell>
+            <TableCell className="text-slate-600 font-medium">{call.displayDuration}</TableCell>
+            <TableCell className="text-slate-500 text-xs">{isInboundState ? (call.country === "Unknown" ? "Local" : call.country || 'N/A') : (call.country || 'N/A')}</TableCell>
+            <TableCell className="font-bold text-emerald-600">{isInboundState ? "$0.00" : call.cost}</TableCell>
         </>
     );
 };
+
 
 export default function VoiceLogsPage() {
     const { calls: globalCalls, loadingCalls, refreshAll } = useData();
@@ -110,6 +117,7 @@ export default function VoiceLogsPage() {
     const [statusFilter, setStatusFilter] = useState("all");
     const [typeFilter, setTypeFilter] = useState("all");
     const [phoneFilter, setPhoneFilter] = useState("");
+    const [costModalOpen, setCostModalOpen] = useState(false);
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
@@ -118,41 +126,12 @@ export default function VoiceLogsPage() {
     useEffect(() => {
         if (loadingCalls) return;
 
-        // Map ElevenLabs/Vapi data to our table structure
-        const mappedCalls = globalCalls.map((call: any) => {
-            const metadata = call.metadata || call.raw?.metadata || {};
-            const dv = call.conversation_initiation_client_data?.dynamic_variables || call.raw?.conversation_initiation_client_data?.dynamic_variables || {};
-
-            const isInbound =
-                call.isInbound === true ||
-                (typeof call.type === 'string' && call.type.toLowerCase() === "inbound") ||
-                (metadata.direction === "inbound") ||
-                (dv.direction === "inbound");
-
-            const typeLabel = isInbound ? "Inbound" : "Outbound";
-
-            // Aggressive phone extraction
-            let guestNumber = call.phone || call.callerNumber || metadata.caller_number || metadata.caller_id || dv.caller_number || dv.caller || "Unknown";
-
-            // if it's outbound, guest is probably callee
-            if (!isInbound && (guestNumber === "Unknown" || guestNumber === "Website/API")) {
-                guestNumber = call.calleeNumber || metadata.callee_number || metadata.callee_id || dv.callee_number || dv.callee || "Unknown";
-            }
-
-            let finalGuestNum = guestNumber;
-            if (guestNumber !== "Unknown" && guestNumber !== "Website/API") {
-                finalGuestNum = `+${String(guestNumber).replace(/\+/g, '')}`;
-            }
-
+        const mappedCalls = globalCalls.map((c: any) => {
+            const isInbound = c.isInbound === true;
             return {
-                id: call.id,
-                status: call.status,
-                type: typeLabel,
-                startedAt: call.startedAt,
-                guestNumber: finalGuestNum,
-                duration: formatDuration(call.durationSeconds || 0),
-                date: call.startedAt ? new Date(call.startedAt).toLocaleString() : 'N/A',
-                raw: call
+                ...c,
+                displayDate: c.startedAt ? format(new Date(c.startedAt), 'PPp') : 'N/A',
+                displayDuration: formatDuration(c.durationSeconds || 0),
             };
         });
 
@@ -160,7 +139,6 @@ export default function VoiceLogsPage() {
     }, [globalCalls, loadingCalls]);
 
     useEffect(() => {
-        // Filter locally
         const filteredCalls = allCallsMapped.filter((call: any) => {
             if (dateRange?.from) {
                 if (!call.startedAt) return false;
@@ -173,19 +151,18 @@ export default function VoiceLogsPage() {
             }
 
             if (statusFilter !== "all" && call.status !== statusFilter) return false;
-            if (typeFilter !== "all" && call.type.toLowerCase() !== typeFilter.toLowerCase()) return false;
+            if (typeFilter !== "all" && call.type?.toLowerCase() !== typeFilter.toLowerCase()) return false;
 
             if (phoneFilter) {
-                const searchStr = phoneFilter.replace(/\+/g, '').replace(/\s+/g, '');
-                const rawGuestNum = call.guestNumber ? call.guestNumber.replace(/\+/g, '').replace(/\s+/g, '') : "Unknown";
-                if (!rawGuestNum.includes(searchStr)) return false;
+                const searchStr = phoneFilter.replace(/\D/g, '');
+                const target = (call.phone || "").replace(/\D/g, '');
+                if (!target.includes(searchStr)) return false;
             }
 
             return true;
         });
 
-        // Sort by date desc
-        setCalls(filteredCalls.sort((a: any, b: any) => new Date(b.raw.startedAt).getTime() - new Date(a.raw.startedAt).getTime()));
+        setCalls(filteredCalls);
         setCurrentPage(1);
     }, [allCallsMapped, dateRange, statusFilter, typeFilter, phoneFilter]);
 
@@ -194,11 +171,10 @@ export default function VoiceLogsPage() {
     };
 
     const handleRowClick = (call: any) => {
-        setSelectedCall(call.raw); // Pass raw Vapi object to modal if compatible, or map it
+        setSelectedCall(call);
         setModalOpen(true);
     };
 
-    // Calculate paginated calls
     const paginatedCalls = calls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     return (
@@ -208,13 +184,17 @@ export default function VoiceLogsPage() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900">Call Logs</h1>
-                        <p className="text-slate-500">View and manage your voice agent call history.</p>
+                        <p className="text-slate-500">Comprehensive history including Maqsam & ElevenLabs calls.</p>
                     </div>
                     <div className="flex items-center gap-3">
+                        <Button variant="outline" className="text-slate-600 border-slate-200" onClick={() => setCostModalOpen(true)}>
+                            <Info className="h-4 w-4 mr-2" />
+                            Cost Info
+                        </Button>
                         <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
                         <Button variant="outline" onClick={handleRefresh} disabled={loading}>
                             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                            Refresh Dashboard
+                            Refresh
                         </Button>
                     </div>
                 </div>
@@ -230,96 +210,59 @@ export default function VoiceLogsPage() {
                         />
                     </div>
                     <Select value={typeFilter} onValueChange={setTypeFilter}>
-                        <SelectTrigger className="w-[140px] h-9">
-                            <SelectValue placeholder="Call Type" />
-                        </SelectTrigger>
+                        <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Type" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Types</SelectItem>
-                            <SelectItem value="inbound">Inbound</SelectItem>
-                            <SelectItem value="outbound">Outbound</SelectItem>
-                            <SelectItem value="web call">Web Call</SelectItem>
+                            <SelectItem value="Inbound">Inbound</SelectItem>
+                            <SelectItem value="Outbound">Outbound</SelectItem>
                         </SelectContent>
                     </Select>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger className="w-[140px] h-9">
-                            <SelectValue placeholder="Status" />
-                        </SelectTrigger>
+                        <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Status" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Status</SelectItem>
-                            <SelectItem value="done">Done / Completed</SelectItem>
+                            <SelectItem value="answered">Answered / Done</SelectItem>
                             <SelectItem value="failed">Failed / Error</SelectItem>
                         </SelectContent>
                     </Select>
-
                 </div>
             </div>
 
-            {/* Table */}
             <Card className="border-slate-200 overflow-hidden shadow-sm bg-white">
                 <div className="overflow-x-auto">
                     <Table>
                         <TableHeader>
-                            <TableRow className="bg-slate-50/50 hover:bg-slate-50/50">
-                                <TableHead className="font-bold text-slate-700 w-[150px]">Execution ID</TableHead>
-                                <TableHead className="font-bold text-slate-700">Phone Number (Guest)</TableHead>
-                                <TableHead className="font-bold text-slate-700">Type</TableHead>
-                                <TableHead className="font-bold text-slate-700">Status</TableHead>
-                                <TableHead className="font-bold text-slate-700">Duration</TableHead>
-                                <TableHead className="font-bold text-slate-700 w-[200px]">Date & Time</TableHead>
-                                <TableHead className="font-bold text-slate-700 text-right">Action</TableHead>
+                            <TableRow className="bg-slate-50/50 hover:bg-slate-50/50 text-[11px] uppercase tracking-wider font-bold text-slate-500">
+                                <TableHead className="w-[80px]">ID</TableHead>
+                                <TableHead>Guest Number</TableHead>
+                                <TableHead>Type</TableHead>
+                                <TableHead>Duration</TableHead>
+                                <TableHead>Country</TableHead>
+                                <TableHead>Cost</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="w-[200px]">Date & Time</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {loading ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="h-24 text-center">
-                                        <div className="flex justify-center items-center gap-2 text-slate-500">
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                            <span>Loading calls...</span>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            ) : paginatedCalls.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="h-24 text-center text-slate-500">
-                                        No calls found.
-                                    </TableCell>
-                                </TableRow>
+                            {loading && calls.length === 0 ? (
+                                <TableRow><TableCell colSpan={8} className="h-24 text-center">Loading calls...</TableCell></TableRow>
+                            ) : calls.length === 0 ? (
+                                <TableRow><TableCell colSpan={8} className="h-24 text-center text-slate-500">No calls matching filters.</TableCell></TableRow>
                             ) : (
                                 paginatedCalls.map((call) => (
                                     <TableRow
                                         key={call.id}
-                                        className="cursor-pointer hover:bg-slate-50 transition-colors group"
+                                        className="cursor-pointer hover:bg-slate-50/50 transition-colors"
                                         onClick={() => handleRowClick(call)}
                                     >
-                                        <TableCell className="font-mono text-xs text-slate-500">{call.id?.substring(0, 8)}...</TableCell>
+                                        <TableCell className="font-mono text-[10px] text-slate-400">#{call.id.toString().substring(0, 6)}</TableCell>
                                         <DynamicRowCells call={call} />
                                         <TableCell>
-                                            <Badge
-                                                variant="secondary"
-                                                className={`font-medium ${call.status === 'done' || call.status === 'completed' || call.status === 'success'
-                                                    ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100'
-                                                    : 'bg-slate-100 text-slate-700 hover:bg-slate-100'
-                                                    } uppercase text-[10px] px-2.5 py-0.5`}
-                                            >
+                                            <Badge variant="outline" className={`text-[10px] uppercase border-${call.status === 'answered' ? 'emerald' : 'slate'}-200 text-${call.status === 'answered' ? 'emerald' : 'slate'}-600`}>
                                                 {call.status}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="font-medium text-slate-700">{call.duration}</TableCell>
-                                        <TableCell className="text-slate-500 text-sm whitespace-nowrap">{call.date}</TableCell>
-                                        <TableCell className="text-right">
-                                            <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                className="h-8 w-8 text-slate-400 hover:text-blue-600"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleRowClick(call);
-                                                }}
-                                            >
-                                                <ExternalLink className="h-4 w-4" />
-                                            </Button>
-                                        </TableCell>
+                                        <TableCell className="text-slate-500 text-xs">{call.displayDate}</TableCell>
                                     </TableRow>
                                 ))
                             )}
@@ -327,42 +270,84 @@ export default function VoiceLogsPage() {
                     </Table>
                 </div>
 
-                {/* Footer */}
                 <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
                     <p className="text-sm text-slate-500">
                         Showing <span className="font-bold text-slate-900">{calls.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}-{Math.min(currentPage * itemsPerPage, calls.length)}</span> of {calls.length} calls
                     </p>
                     <div className="flex items-center gap-2">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                        >
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>
                             <ChevronLeft className="h-4 w-4" />
                         </Button>
-                        <span className="text-sm font-medium text-slate-700 bg-white border border-slate-200 px-3 py-1 rounded-md shadow-sm">
-                            Page {currentPage}
-                        </span>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            onClick={() => setCurrentPage(p => Math.min(Math.ceil(calls.length / itemsPerPage), p + 1))}
-                            disabled={currentPage >= Math.ceil(calls.length / itemsPerPage)}
-                        >
+                        <span className="text-sm font-medium px-3 py-1">Page {currentPage}</span>
+                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setCurrentPage(p => Math.min(Math.ceil(calls.length / itemsPerPage), p + 1))} disabled={currentPage >= Math.ceil(calls.length / itemsPerPage)}>
                             <ChevronRight className="h-4 w-4" />
                         </Button>
                     </div>
                 </div>
             </Card>
 
-            <CallDetailsModal
-                open={modalOpen}
-                onOpenChange={setModalOpen}
-                call={selectedCall}
-            />
+            <CallDetailsModal open={modalOpen} onOpenChange={setModalOpen} call={selectedCall} />
+
+            <Dialog open={costModalOpen} onOpenChange={setCostModalOpen}>
+                <DialogContent className="sm:max-w-[500px] bg-white border-slate-200 shadow-xl overflow-hidden p-0">
+                    <DialogHeader className="p-6 bg-slate-50 border-b border-slate-100">
+                        <DialogTitle className="flex items-center gap-2 text-xl font-bold text-slate-900">
+                            <div className="p-2 rounded-lg bg-blue-100 text-blue-600">
+                                <Info className="h-5 w-5" />
+                            </div>
+                            How Costing is Calculated
+                        </DialogTitle>
+                        <DialogDescription className="text-slate-500">
+                            Understanding our automated billing and rate matching logic.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="p-6 space-y-6">
+                        <div className="space-y-4">
+                            <div className="flex gap-4">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">1</div>
+                                <div>
+                                    <h4 className="font-bold text-slate-800 text-sm mb-1">Normalization</h4>
+                                    <p className="text-xs text-slate-500 leading-relaxed">System cleans phone numbers by removing all symbols and spaces, ensuring consistent lookup against our global rate database.</p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-4">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">2</div>
+                                <div>
+                                    <h4 className="font-bold text-slate-800 text-sm mb-1">Longest-Prefix Matching</h4>
+                                    <p className="text-xs text-slate-500 leading-relaxed">We use high-precision matching. If a number matches multiple regions (e.g. UAE General vs Dubai Fixed), we prioritize the most specific prefix for maximum accuracy.</p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-4">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">3</div>
+                                <div>
+                                    <h4 className="font-bold text-slate-800 text-sm mb-1">Per-Minute Computation</h4>
+                                    <p className="text-xs text-slate-500 leading-relaxed">Duration is tracked in seconds and converted to minutes. For outbound calls, the matched rate is applied. Inbound calls are always computed at $0.00.</p>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-4">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-600 text-sm">✓</div>
+                                <div>
+                                    <h4 className="font-bold text-emerald-800 text-sm mb-1">Billing Confirmation</h4>
+                                    <p className="text-xs text-emerald-600/80 leading-relaxed italic">All rates are pulled directly from your official billing schedule (found in the PDF below).</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="p-6 bg-slate-50 border-t border-slate-100">
+                        <a href="/billing-plan.pdf" download className="w-full">
+                            <Button className="w-full bg-slate-900 hover:bg-slate-800 text-white shadow-lg shadow-slate-200">
+                                <Download className="h-4 w-4 mr-2" />
+                                Download Billing Plan PDF
+                            </Button>
+                        </a>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

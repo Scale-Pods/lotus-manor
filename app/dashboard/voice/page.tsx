@@ -179,7 +179,7 @@ export default function VoiceDashboardPage() {
                 <MetricCard
                     title="Total Executions"
                     value={`${stats.totalCalls} calls`}
-                    badge={`${stats.completedCalls} completed`}
+                    
                     icon={<Phone className="h-5 w-5 text-slate-600" />}
                 />
                 <MetricCard
