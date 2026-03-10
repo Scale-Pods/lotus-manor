@@ -32,14 +32,72 @@ import {
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
 
+// --- Sorting & Activity Helpers ---
+const getMsgDate = (raw: any) => {
+    if (!raw || !String(raw).trim()) return null;
+    const content = String(raw).trim();
+    const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+    const isoMatch = content.match(isoRegex);
+    if (isoMatch) return new Date(isoMatch[1]);
+
+    const lines = content.split('\n');
+    const lastLine = lines[lines.length - 1].trim();
+    const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+    if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+        return lastLineDate;
+    }
+    return null;
+};
+
+const getLeadLatestActivity = (lead: any) => {
+    let latestDate = new Date(lead.created_at);
+
+    // Check all bot messages (W.P_1 - W.P_6)
+    for (let i = 1; i <= 6; i++) {
+        const d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
+        if (d && d > latestDate) latestDate = d;
+    }
+    // Check reply
+    const rd = getMsgDate(lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"]);
+    if (rd && rd > latestDate) latestDate = rd;
+    // Check followup
+    const fd = getMsgDate(lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]);
+    if (fd && fd > latestDate) latestDate = fd;
+
+    // Check extended history
+    for (let i = 1; i <= 10; i++) {
+        const dReplied = getMsgDate(lead[`W.P_Replied_${i}`]);
+        if (dReplied && dReplied > latestDate) latestDate = dReplied;
+
+        const dFollow = getMsgDate(lead[`W.P_FollowUp_${i}`]);
+        if (dFollow && dFollow > latestDate) latestDate = dFollow;
+    }
+    return latestDate;
+};
+
 export default function WhatsappChatPage() {
     const { leads: allLeads, loadingLeads } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
+
+    // URL Sync for chat
+    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+    const initialSelectedId = searchParams?.get('chat');
+
+    const [selectedLeadId, setSelectedLeadId] = useState<string | null>(initialSelectedId || null);
+
+    useEffect(() => {
+        const url = new URL(window.location.origin + window.location.pathname);
+        if (selectedLeadId) {
+            url.searchParams.set('chat', selectedLeadId);
+        } else {
+            url.searchParams.delete('chat');
+        }
+        window.history.replaceState({}, '', url.toString());
+    }, [selectedLeadId]);
 
     // Filter State
     const [pendingFilters, setPendingFilters] = useState<{
@@ -73,59 +131,41 @@ export default function WhatsappChatPage() {
     useEffect(() => {
         if (loadingLeads) return;
 
-        // Only include leads with some WhatsApp activity
         const wpLeads = allLeads.filter(l => {
             const lead = l as any;
-            // 1. Check legacy stages
             if (lead.stages_passed.some((s: string) => s.toLowerCase().includes("whatsapp"))) return true;
-
-            // 2. Check legacy replied field
             if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") return true;
-
-            // 3. Check extended history (Replied 1-10)
             for (let i = 1; i <= 10; i++) {
                 const r = lead[`W.P_Replied_${i}`];
                 if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
             }
-
-            // 4. Check extended history (FollowUp 1-10)
             for (let i = 1; i <= 10; i++) {
                 if (lead[`W.P_FollowUp_${i}`]) return true;
             }
-
             return false;
         });
 
         setLeads(wpLeads);
 
-        // Calculate real metrics
         let totalSent = 0;
         let repliedCount = 0;
 
         wpLeads.forEach(l => {
             const lead = l as any;
-            // Count all outgoing W.P_1-6
             let leadSent = 0;
             for (let i = 1; i <= 6; i++) {
                 if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) leadSent++;
             }
-
-            // Count legacy FollowUp
             if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) leadSent++;
-
-            // Count extended FollowUp 1-10
             for (let i = 1; i <= 10; i++) {
                 if (lead[`W.P_FollowUp_${i}`]) leadSent++;
             }
-
             totalSent += leadSent;
 
-            // Check for ANY reply
             let hasReplied = false;
             if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
                 hasReplied = true;
             } else {
-                // Check extended replies
                 for (let i = 1; i <= 10; i++) {
                     const r = lead[`W.P_Replied_${i}`];
                     if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
@@ -134,7 +174,6 @@ export default function WhatsappChatPage() {
                     }
                 }
             }
-
             if (hasReplied) repliedCount++;
         });
 
@@ -153,7 +192,6 @@ export default function WhatsappChatPage() {
             const matchesSearch = lead.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 lead.phone.includes(searchQuery);
 
-            // Check for ANY reply
             let hasReplied = false;
             if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
                 hasReplied = true;
@@ -167,12 +205,10 @@ export default function WhatsappChatPage() {
                 }
             }
 
-            // Reply Status Filter
             const matchesReplyStatus = activeFilters.replyStatus.length === 0 ||
                 (activeFilters.replyStatus.includes("Replied") && hasReplied) ||
                 (activeFilters.replyStatus.includes("No Reply") && !hasReplied);
 
-            // Loop Filter
             const matchesLoop = activeFilters.loops.length === 0 ||
                 activeFilters.loops.some(loop => {
                     const lName = (lead.source_loop || "").toLowerCase();
@@ -181,7 +217,6 @@ export default function WhatsappChatPage() {
                     return lName.includes(target);
                 });
 
-            // Message Status Filter
             const matchesMessageStatus = activeFilters.messageStatus.length === 0 ||
                 activeFilters.messageStatus.some(status => {
                     const s1 = (lead["W.P_1 TS"] || "").toLowerCase();
@@ -191,13 +226,14 @@ export default function WhatsappChatPage() {
                 });
 
             return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus;
+        }).sort((a, b) => {
+            const dateA = getLeadLatestActivity(a);
+            const dateB = getLeadLatestActivity(b);
+            return dateB.getTime() - dateA.getTime();
         });
     }, [leads, searchQuery, activeFilters]);
 
-    const handleApplyFilters = () => {
-        setActiveFilters(pendingFilters);
-    };
-
+    const handleApplyFilters = () => { setActiveFilters(pendingFilters); };
     const handleResetFilters = () => {
         const reset = { replyStatus: [], loops: [], messageStatus: [] };
         setPendingFilters(reset);
@@ -215,7 +251,6 @@ export default function WhatsappChatPage() {
         });
     };
 
-    // Pagination Logic
     const paginatedLeads = useMemo(() => {
         const start = (currentPage - 1) * leadsPerPage;
         return filteredLeads.slice(start, start + leadsPerPage);
@@ -223,15 +258,11 @@ export default function WhatsappChatPage() {
 
     const totalPages = Math.ceil(filteredLeads.length / leadsPerPage);
 
-    // Reset to page 1 when search or filters change
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [searchQuery, activeFilters]);
+    useEffect(() => { setCurrentPage(1); }, [searchQuery, activeFilters]);
 
     return (
         <div className="space-y-6 pb-10 relative min-h-[500px]">
             {loading && <LMLoader />}
-            {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Chats</h1>
@@ -242,9 +273,7 @@ export default function WhatsappChatPage() {
                 </Button>
             </div>
 
-            {/* Main Content Area */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                {/* Left Sidebar: Filters */}
                 <div className="lg:col-span-1 space-y-4">
                     <Card className="border-slate-200 shadow-sm bg-white h-auto">
                         <CardContent className="p-4 space-y-6">
@@ -253,101 +282,40 @@ export default function WhatsappChatPage() {
                                     <Filter className="h-4 w-4" /> Filters
                                 </div>
                                 {(activeFilters.replyStatus.length > 0 || activeFilters.loops.length > 0 || activeFilters.messageStatus.length > 0) && (
-                                    <button onClick={handleResetFilters} className="text-[10px] text-emerald-600 font-bold hover:underline">
-                                        RESET
-                                    </button>
+                                    <button onClick={handleResetFilters} className="text-[10px] text-emerald-600 font-bold hover:underline">RESET</button>
                                 )}
                             </div>
 
                             <FilterSection title="Reply Status" >
-                                <FilterOption
-                                    label="Replied"
-                                    checked={pendingFilters.replyStatus.includes("Replied")}
-                                    onCheckedChange={() => toggleFilter('replyStatus', "Replied")}
-                                />
-                                <FilterOption
-                                    label="No Reply"
-                                    checked={pendingFilters.replyStatus.includes("No Reply")}
-                                    onCheckedChange={() => toggleFilter('replyStatus', "No Reply")}
-                                />
+                                <FilterOption label="Replied" checked={pendingFilters.replyStatus.includes("Replied")} onCheckedChange={() => toggleFilter('replyStatus', "Replied")} />
+                                <FilterOption label="No Reply" checked={pendingFilters.replyStatus.includes("No Reply")} onCheckedChange={() => toggleFilter('replyStatus', "No Reply")} />
                             </FilterSection>
 
                             <FilterSection title="Loop">
-                                <FilterOption
-                                    label="Intro"
-                                    checked={pendingFilters.loops.includes("Intro")}
-                                    onCheckedChange={() => toggleFilter('loops', "Intro")}
-                                />
-                                <FilterOption
-                                    label="Follow Up"
-                                    checked={pendingFilters.loops.includes("Follow Up")}
-                                    onCheckedChange={() => toggleFilter('loops', "Follow Up")}
-                                />
-                                <FilterOption
-                                    label="Nurture"
-                                    checked={pendingFilters.loops.includes("Nurture")}
-                                    onCheckedChange={() => toggleFilter('loops', "Nurture")}
-                                />
+                                <FilterOption label="Intro" checked={pendingFilters.loops.includes("Intro")} onCheckedChange={() => toggleFilter('loops', "Intro")} />
+                                <FilterOption label="Follow Up" checked={pendingFilters.loops.includes("Follow Up")} onCheckedChange={() => toggleFilter('loops', "Follow Up")} />
+                                <FilterOption label="Nurture" checked={pendingFilters.loops.includes("Nurture")} onCheckedChange={() => toggleFilter('loops', "Nurture")} />
                             </FilterSection>
 
                             <FilterSection title="Message Status">
-                                <FilterOption
-                                    label="Read"
-                                    checked={pendingFilters.messageStatus.includes("Read")}
-                                    onCheckedChange={() => toggleFilter('messageStatus', "Read")}
-                                />
-                                <FilterOption
-                                    label="Sent"
-                                    checked={pendingFilters.messageStatus.includes("Sent")}
-                                    onCheckedChange={() => toggleFilter('messageStatus', "Sent")}
-                                />
-                                <FilterOption
-                                    label="Failed"
-                                    checked={pendingFilters.messageStatus.includes("Failed")}
-                                    onCheckedChange={() => toggleFilter('messageStatus', "Failed")}
-                                />
-                                <FilterOption
-                                    label="Delivered"
-                                    checked={pendingFilters.messageStatus.includes("Delivered")}
-                                    onCheckedChange={() => toggleFilter('messageStatus', "Delivered")}
-                                />
-                                <FilterOption
-                                    label="Deleted"
-                                    checked={pendingFilters.messageStatus.includes("Deleted")}
-                                    onCheckedChange={() => toggleFilter('messageStatus', "Deleted")}
-                                />
+                                <FilterOption label="Read" checked={pendingFilters.messageStatus.includes("Read")} onCheckedChange={() => toggleFilter('messageStatus', "Read")} />
+                                <FilterOption label="Sent" checked={pendingFilters.messageStatus.includes("Sent")} onCheckedChange={() => toggleFilter('messageStatus', "Sent")} />
+                                <FilterOption label="Failed" checked={pendingFilters.messageStatus.includes("Failed")} onCheckedChange={() => toggleFilter('messageStatus', "Failed")} />
+                                <FilterOption label="Delivered" checked={pendingFilters.messageStatus.includes("Delivered")} onCheckedChange={() => toggleFilter('messageStatus', "Delivered")} />
+                                <FilterOption label="Deleted" checked={pendingFilters.messageStatus.includes("Deleted")} onCheckedChange={() => toggleFilter('messageStatus', "Deleted")} />
                             </FilterSection>
 
-                            <Button
-                                className="w-full bg-slate-900 hover:bg-slate-800 text-white h-9"
-                                size="sm"
-                                onClick={handleApplyFilters}
-                            >
-                                Apply Filters
-                            </Button>
+                            <Button className="w-full bg-slate-900 hover:bg-slate-800 text-white h-9" size="sm" onClick={handleApplyFilters}>Apply Filters</Button>
                         </CardContent>
                     </Card>
                 </div>
 
-                {/* Main Content: Metrics and Table */}
                 <div className="lg:col-span-3 space-y-4">
-                    {/* Overview Metrics (Remaining) */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <MetricCard
-                                title="Messages Sent"
-                                value={loading ? "..." : stats.sentCount.toLocaleString()}
-                                desc="Total outgoing pulses"
-                                icon={Send}
-                            />
-                            <MetricCard
-                                title="Total Replies"
-                                value={loading ? "..." : stats.repliedCount.toLocaleString()}
-                                desc={`${stats.totalLeads > 0 ? ((stats.repliedCount / stats.totalLeads) * 100).toFixed(1) : 0}% Response Rate`}
-                                icon={MessageSquare}
-                            />
+                            <MetricCard title="Messages Sent" value={loading ? "..." : stats.sentCount.toLocaleString()} desc="Total outgoing pulses" icon={Send} />
+                            <MetricCard title="Total Replies" value={loading ? "..." : stats.repliedCount.toLocaleString()} desc={`${stats.totalLeads > 0 ? ((stats.repliedCount / stats.totalLeads) * 100).toFixed(1) : 0}% Response Rate`} icon={MessageSquare} />
                         </div>
-
                         <Card className="border-slate-200 shadow-sm bg-white">
                             <CardContent className="p-4 space-y-4">
                                 <div>
@@ -364,12 +332,7 @@ export default function WhatsappChatPage() {
 
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                        <Input
-                            className="pl-10 bg-white"
-                            placeholder="Search by name or phone..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
+                        <Input className="pl-10 bg-white" placeholder="Search by name or phone..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                     </div>
 
                     <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
@@ -379,9 +342,7 @@ export default function WhatsappChatPage() {
                                 Loading real-time chats...
                             </div>
                         ) : filteredLeads.length === 0 ? (
-                            <div className="p-10 text-center text-slate-500">
-                                No WhatsApp chats found.
-                            </div>
+                            <div className="p-10 text-center text-slate-500">No WhatsApp chats found.</div>
                         ) : (
                             <TooltipProvider>
                                 <table className="w-full text-left text-sm">
@@ -404,7 +365,6 @@ export default function WhatsappChatPage() {
                             </TooltipProvider>
                         )}
 
-                        {/* Pagination Controls */}
                         {!loading && filteredLeads.length > 0 && (
                             <div className="bg-slate-50 border-t border-slate-100 px-4 py-3 flex items-center justify-between">
                                 <div className="text-xs text-slate-500 font-medium">
@@ -412,35 +372,11 @@ export default function WhatsappChatPage() {
                                 </div>
                                 {filteredLeads.length > leadsPerPage && (
                                     <div className="flex gap-1">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-8 text-[10px] font-bold uppercase tracking-wider"
-                                            disabled={currentPage === 1}
-                                            onClick={() => setCurrentPage(prev => prev - 1)}
-                                        >
-                                            Prev
-                                        </Button>
+                                        <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase tracking-wider" disabled={currentPage === 1} onClick={() => setCurrentPage(prev => prev - 1)}>Prev</Button>
                                         {[...Array(totalPages)].map((_, i) => (
-                                            <Button
-                                                key={i}
-                                                variant={currentPage === i + 1 ? "default" : "outline"}
-                                                size="sm"
-                                                className={`h-8 w-8 text-xs font-bold ${currentPage === i + 1 ? 'bg-slate-900 text-white' : 'text-slate-600'}`}
-                                                onClick={() => setCurrentPage(i + 1)}
-                                            >
-                                                {i + 1}
-                                            </Button>
+                                            <Button key={i} variant={currentPage === i + 1 ? "default" : "outline"} size="sm" className={`h-8 w-8 text-xs font-bold ${currentPage === i + 1 ? 'bg-slate-900 text-white' : 'text-slate-600'}`} onClick={() => setCurrentPage(i + 1)}>{i + 1}</Button>
                                         ))}
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-8 text-[10px] font-bold uppercase tracking-wider"
-                                            disabled={currentPage === totalPages}
-                                            onClick={() => setCurrentPage(prev => prev + 1)}
-                                        >
-                                            Next
-                                        </Button>
+                                        <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase tracking-wider" disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => prev + 1)}>Next</Button>
                                     </div>
                                 )}
                             </div>
@@ -449,18 +385,10 @@ export default function WhatsappChatPage() {
                 </div>
             </div>
 
-            {/* Chat Detail Modal */}
             <Dialog open={!!selectedLeadId} onOpenChange={(open) => !open && setSelectedLeadId(null)}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden p-6 gap-0">
-                    <DialogHeader className="sr-only">
-                        <DialogTitle>WhatsApp Chat Detail</DialogTitle>
-                    </DialogHeader>
-                    {selectedLeadId && (
-                        <WhatsAppChatDetail
-                            customerId={selectedLeadId}
-                            onClose={() => setSelectedLeadId(null)}
-                        />
-                    )}
+                    <DialogHeader className="sr-only"><DialogTitle>WhatsApp Chat Detail</DialogTitle></DialogHeader>
+                    {selectedLeadId && <WhatsAppChatDetail customerId={selectedLeadId} onClose={() => setSelectedLeadId(null)} />}
                 </DialogContent>
             </Dialog>
         </div>
@@ -471,17 +399,13 @@ function MetricCard({ title, value, desc, icon: Icon, dots }: any) {
     return (
         <Card className="bg-white border-slate-200 shadow-sm">
             <CardContent className="p-4">
-                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg w-fit mb-2">
-                    <Icon className="h-5 w-5" />
-                </div>
+                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg w-fit mb-2"><Icon className="h-5 w-5" /></div>
                 <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
                 <p className="text-xs font-medium text-slate-500">{title}</p>
                 <p className="text-[10px] text-slate-400 mt-1">{desc}</p>
                 {dots && (
                     <div className="flex gap-1 mt-2">
-                        <div className="h-2 w-2 rounded-full bg-blue-400" />
-                        <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                        <div className="h-2 w-2 rounded-full bg-rose-500" />
+                        <div className="h-2 w-2 rounded-full bg-blue-400" /><div className="h-2 w-2 rounded-full bg-emerald-500" /><div className="h-2 w-2 rounded-full bg-rose-500" />
                     </div>
                 )}
             </CardContent>
@@ -493,8 +417,7 @@ function StatusBar({ label, value, total, color }: any) {
     return (
         <div className="space-y-1">
             <div className="flex justify-between text-[10px] font-medium text-slate-600">
-                <span>{label}</span>
-                <span>{value} ({((value / total) * 100).toFixed(1)}%)</span>
+                <span>{label}</span><span>{value} ({((value / total) * 100).toFixed(1)}%)</span>
             </div>
             <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                 <div className={`h-full ${color}`} style={{ width: `${(value / total) * 100}%` }} />
@@ -515,12 +438,7 @@ function FilterSection({ title, children }: any) {
 function FilterOption({ label, checked, onCheckedChange }: any) {
     return (
         <div className="flex items-center gap-2">
-            <Checkbox
-                id={label}
-                className="h-3.5 w-3.5 border-slate-300"
-                checked={checked}
-                onCheckedChange={onCheckedChange}
-            />
+            <Checkbox id={label} className="h-3.5 w-3.5 border-slate-300" checked={checked} onCheckedChange={onCheckedChange} />
             <label htmlFor={label} className="text-sm font-medium text-slate-600 cursor-pointer">{label}</label>
         </div>
     );
@@ -528,24 +446,17 @@ function FilterOption({ label, checked, onCheckedChange }: any) {
 
 function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onClick: () => void }) {
     const lead = leadRaw as any;
-    // 1. Calculate Sent Count (Outgoing)
+    const latestDate = getLeadLatestActivity(lead);
+
     let sentCount = 0;
-    for (let i = 1; i <= 6; i++) {
-        if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) sentCount++;
-    }
+    for (let i = 1; i <= 6; i++) { if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) sentCount++; }
     if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) sentCount++;
+    for (let i = 1; i <= 10; i++) { if (lead[`W.P_FollowUp_${i}`]) sentCount++; }
 
-    // Calculate extended sent count (FollowUp 1-10)
-    for (let i = 1; i <= 10; i++) {
-        if (lead[`W.P_FollowUp_${i}`]) sentCount++;
-    }
-
-    // Check for ANY reply
     let hasReplied = false;
     if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
         hasReplied = true;
     } else {
-        // Check extended replies
         for (let i = 1; i <= 10; i++) {
             const r = lead[`W.P_Replied_${i}`];
             if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
@@ -555,64 +466,13 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
         }
     }
 
-    // 2. Find Last Message Date
-    const getMsgDate = (raw: any) => {
-        if (!raw || !String(raw).trim()) return null;
-        const content = String(raw).trim();
-        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
-        const isoMatch = content.match(isoRegex);
-        if (isoMatch) return new Date(isoMatch[1]);
-
-        const lines = content.split('\n');
-        const lastLine = lines[lines.length - 1].trim();
-        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
-        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-            return lastLineDate;
-        }
-        return null;
-    };
-
-    let latestDate = new Date(lead.created_at);
-
-    // Check all bot messages
-    for (let i = 1; i <= 6; i++) {
-        const d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
-        if (d && d > latestDate) latestDate = d;
-    }
-    // Check reply
-    const rd = getMsgDate(lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"]);
-    if (rd && rd > latestDate) latestDate = rd;
-    // Check followup
-    const fd = getMsgDate(lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]);
-    if (fd && fd > latestDate) latestDate = fd;
-
-    // Check extended history
-    for (let i = 1; i <= 10; i++) {
-        const dReplied = getMsgDate(lead[`W.P_Replied_${i}`]);
-        if (dReplied && dReplied > latestDate) latestDate = dReplied;
-
-        const dFollow = getMsgDate(lead[`W.P_FollowUp_${i}`]);
-        if (dFollow && dFollow > latestDate) latestDate = dFollow;
-    }
-
     const formatTooltipDate = (date: Date | string) => {
         const d = typeof date === 'string' ? new Date(date) : date;
         if (isNaN(d.getTime())) return String(date);
-
         const now = new Date();
         const isToday = d.toDateString() === now.toDateString();
-
-        if (isToday) {
-            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        }
-        return d.toLocaleString([], {
-            day: 'numeric',
-            month: 'numeric',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        });
+        if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return d.toLocaleString([], { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
 
     return (
@@ -624,28 +484,28 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
                 </div>
             </td>
             <td className="px-4 py-3 text-center">
-                <Badge variant="outline" className="text-[10px] uppercase font-bold border-blue-100 text-blue-600 bg-blue-50">
-                    {lead.source_loop}
-                </Badge>
+                <Badge variant="outline" className="text-[10px] uppercase font-bold border-blue-100 text-blue-600 bg-blue-50">{lead.source_loop}</Badge>
             </td>
             <td className="px-4 py-3 text-center font-bold text-slate-700">{sentCount}</td>
             <td className="px-4 py-3 text-center">
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <div>
-                            {hasReplied ? (
-                                <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none text-[10px] font-bold">REPLIED</Badge>
-                            ) : (
-                                <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-200">SENT</Badge>
-                            )}
-                        </div>
-                    </TooltipTrigger>
-                    {hasReplied && (
-                        <TooltipContent side="top" className="bg-slate-800/40 backdrop-blur-md text-white text-[10px] border-none px-2 py-1 shadow-xl">
-                            {formatTooltipDate(latestDate)}
-                        </TooltipContent>
-                    )}
-                </Tooltip>
+                <TooltipProvider>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div>
+                                {hasReplied ? (
+                                    <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none text-[10px] font-bold">REPLIED</Badge>
+                                ) : (
+                                    <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-200">SENT</Badge>
+                                )}
+                            </div>
+                        </TooltipTrigger>
+                        {hasReplied && (
+                            <TooltipContent side="top" className="bg-slate-800/40 backdrop-blur-md text-white text-[10px] border-none px-2 py-1 shadow-xl">
+                                {formatTooltipDate(latestDate)}
+                            </TooltipContent>
+                        )}
+                    </Tooltip>
+                </TooltipProvider>
             </td>
             <td className="px-4 py-3 text-center">
                 <div className="flex flex-col items-center gap-1.5">
@@ -653,8 +513,8 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
                     {lead["W.P_2 TS"] && <MessageStatusBadge index={2} status={lead["W.P_2 TS"]} />}
                 </div>
             </td>
-            <td className="px-4 py-3 text-right text-slate-500 text-xs">
-                {latestDate.toLocaleDateString()}
+            <td className="px-4 py-3 text-right text-slate-500 text-xs text-nowrap">
+                {latestDate.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' })}
             </td>
         </tr>
     );
@@ -662,61 +522,38 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
 
 function MessageStatusBadge({ index, status }: { index: number, status: string }) {
     if (!status) return null;
-
-    // Parse status and timestamp
     const parts = status.split(' - ');
     const statusText = parts[0].trim();
     const rawTimestamp = parts.length > 1 ? parts[1].trim() : null;
 
-    // Helper to format the hover time/date
     const formatTooltipDate = (dateStr: string) => {
-        // Handle specialized format if it's already a string from backend
-        // Try to parse it as a date
-        const d = new Date(dateStr.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1')); // Basic YMD conversion for parsing
+        const d = new Date(dateStr.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
         const finalDate = isNaN(d.getTime()) ? new Date(dateStr) : d;
-
         if (isNaN(finalDate.getTime())) return dateStr;
-
         const now = new Date();
-        const isToday = finalDate.toDateString() === now.toDateString();
-
-        if (isToday) {
-            return finalDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        }
-        return finalDate.toLocaleString([], {
-            day: 'numeric',
-            month: 'numeric',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        });
+        if (finalDate.toDateString() === now.toDateString()) return finalDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return finalDate.toLocaleString([], { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
 
-    // Format status text (capitalize)
     const formatted = statusText.charAt(0).toUpperCase() + statusText.slice(1).toLowerCase();
-
-    // Determine color
-    let badgeClass = "bg-slate-100 text-slate-600 border-slate-200"; // default/sent
+    let badgeClass = "bg-slate-100 text-slate-600 border-slate-200";
     if (formatted.includes("Delivered")) badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
     if (formatted.includes("Read")) badgeClass = "bg-blue-50 text-blue-700 border-blue-100";
     if (formatted.includes("Failed")) badgeClass = "bg-red-50 text-red-700 border-red-100";
 
     return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <div className="flex items-center gap-1.5 w-full justify-center cursor-help">
-                    <span className="text-[9px] text-slate-400 font-mono select-none">{index}</span>
-                    <Badge variant="outline" className={`h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
-                        {formatted}
-                    </Badge>
-                </div>
-            </TooltipTrigger>
-            {rawTimestamp && (
-                <TooltipContent side="top" className="bg-slate-800/40 backdrop-blur-md text-white text-[10px] border-none px-2 py-1 shadow-xl">
-                    {formatTooltipDate(rawTimestamp)}
-                </TooltipContent>
-            )}
-        </Tooltip>
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1.5 w-full justify-center cursor-help">
+                        <span className="text-[9px] text-slate-400 font-mono select-none">{index}</span>
+                        <Badge variant="outline" className={`h-5 px-1.5 text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>{formatted}</Badge>
+                    </div>
+                </TooltipTrigger>
+                {rawTimestamp && (
+                    <TooltipContent side="top" className="bg-slate-800/40 backdrop-blur-md text-white text-[10px] border-none px-2 py-1 shadow-xl">{formatTooltipDate(rawTimestamp)}</TooltipContent>
+                )}
+            </Tooltip>
+        </TooltipProvider>
     );
 }

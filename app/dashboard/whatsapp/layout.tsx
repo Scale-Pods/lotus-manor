@@ -39,7 +39,7 @@ const whatsappSidebarItems = [
         href: "/dashboard/whatsapp/leads",
         icon: Users,
     },
-    
+
     {
         title: "Analytics",
         href: "/dashboard/whatsapp/analytics",
@@ -53,6 +53,18 @@ export default function WhatsappLayout({
     children: React.ReactNode;
 }) {
     const pathname = usePathname();
+
+    // If it's the specific chat page, make it a standalone view without the sidebar
+    const isSpecificChat = pathname.startsWith("/dashboard/whatsapp/chat/") && pathname !== "/dashboard/whatsapp/chat";
+    if (isSpecificChat) {
+        return (
+            <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-6 md:p-8">
+                <main className="w-full max-w-5xl h-[90vh] bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 p-2 sm:p-6 flex flex-col relative">
+                    {children}
+                </main>
+            </div>
+        );
+    }
 
     return (
         <div className="flex h-screen overflow-hidden bg-zinc-50 text-slate-900">

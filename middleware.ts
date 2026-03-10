@@ -22,6 +22,15 @@ export async function middleware(request: NextRequest) {
 
     // Check if the user is attempting to access a dashboard route
     if (pathname.startsWith('/dashboard')) {
+        // ALLOW PUBLIC ACCESS to specific chat links (bypassing auth)
+        // Ensure it has a parameter after /chat/
+        const isPublicChat = pathname.startsWith('/dashboard/whatsapp/chat/') && pathname.split('/').length > 4;
+
+        if (isPublicChat) {
+            // Allow them through without needing a valid auth token
+            return NextResponse.next();
+        }
+
         if (!token) {
             // Redirect to landing page to login
             const response = NextResponse.redirect(new URL('/', request.url));

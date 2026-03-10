@@ -10,6 +10,8 @@ import {
     MessageSquare,
     User,
     Bot,
+    Link as LinkIcon,
+    Check
 } from "lucide-react";
 import { ConsolidatedLead } from "@/lib/leads-utils";
 import { useData } from "@/context/DataContext";
@@ -24,6 +26,17 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
     const [lead, setLead] = useState<ConsolidatedLead | null>(null);
     const [loading, setLoading] = useState(true);
     const [messages, setMessages] = useState<any[]>([]);
+    const [copied, setCopied] = useState(false);
+
+    const handleCopyLink = () => {
+        if (!lead) return;
+        const baseUrl = window.location.origin;
+        // Construct the URL using the phone number as requested
+        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat/${encodeURIComponent(lead.phone)}`;
+        navigator.clipboard.writeText(shareUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     useEffect(() => {
         if (loadingLeads) {
@@ -31,7 +44,16 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
             return;
         }
 
-        const found = allLeads.find(l => String(l.id) === String(customerId));
+        const searchVal = String(customerId).toLowerCase().trim();
+        const found = allLeads.find(l => {
+            if (String(l.id).toLowerCase() === searchVal) return true;
+            if (l.phone) {
+                const lPhoneReplaced = String(l.phone).replace(/\D/g, '');
+                const searchReplaced = searchVal.replace(/\D/g, '');
+                if (searchReplaced && lPhoneReplaced === searchReplaced) return true;
+            }
+            return false;
+        });
 
         if (found) {
             setLead(found);
@@ -168,6 +190,19 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                         <span>•</span>
                         <span>{lead.source_loop}</span>
                     </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className={`gap-2 text-[10px] font-bold uppercase transition-all ${copied ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-900'}`}
+                        onClick={handleCopyLink}
+                    >
+                        {copied ? <Check className="h-3.5 w-3.5" /> : <LinkIcon className="h-3.5 w-3.5" />}
+                        {copied ? 'Copied' : 'Share Link'}
+                    </Button>
+                    
                 </div>
             </div>
 

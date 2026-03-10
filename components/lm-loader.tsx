@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Image from "next/image";
 
 interface LMLoaderProps {
     fullScreen?: boolean;
@@ -26,33 +27,17 @@ export const LMLoader = ({ fullScreen = false }: LMLoaderProps) => {
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 skew-x-12"></div>
 
                         {/* The LM House Logo - Custom Path to match user image */}
-                        <svg
-                            viewBox="0 0 100 100"
-                            className="w-20 h-20 relative z-10"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                        >
-                            {/* Yellow L part - Left vertical and bottom horizontal */}
-                            <path
-                                d="M28 45V72H58"
-                                stroke="#EAB308"
-                                strokeWidth="10"
-                                strokeLinecap="butt"
-                                strokeLinejoin="miter"
-                                className="animate-pulse"
+                        {/* The LM House Logo - Using actual image */}
+                        <div className="relative z-10 w-24 h-24 flex items-center justify-center animate-pulse">
+                            <Image
+                                src="/LM logo.jpeg"
+                                alt="Lotus Manor Logo"
+                                width={100}
+                                height={100}
+                                className="object-contain"
+                                priority
                             />
-
-                            {/* White M part - Framing the house and roof */}
-                            <path
-                                d="M38 72V42L50 30L62 42V72M50 30V55"
-                                stroke="white"
-                                strokeWidth="10"
-                                strokeLinecap="butt"
-                                strokeLinejoin="miter"
-                                className="animate-pulse"
-                                style={{ animationDelay: "0.2s" }}
-                            />
-                        </svg>
+                        </div>
                     </div>
                 </div>
 
@@ -70,7 +55,7 @@ export const LMLoader = ({ fullScreen = false }: LMLoaderProps) => {
                         Real Estate Excellence
                     </p>
                     <p className="text-[10px] font-bold tracking-[0.4em] text-red-600 uppercase">
-                        Please wait while we load your dashboard 
+                        Please wait while we load your dashboard
                     </p>
 
                     {/* Loading Indicator */}
