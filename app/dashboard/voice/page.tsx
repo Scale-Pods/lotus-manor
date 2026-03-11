@@ -17,7 +17,7 @@ import {
     AreaChart,
     Area
 } from "recharts";
-import { format, parseISO, startOfDay, getHours } from "date-fns";
+import { format, parseISO, startOfDay, getHours, subDays } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
@@ -37,7 +37,10 @@ export default function VoiceDashboardPage() {
     const [dailyVolume, setDailyVolume] = useState<any[]>([]);
     const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
     const [loadingLocal, setLoadingLocal] = useState(true);
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date(),
+    });
 
     const loading = loadingLocal || loadingCalls;
 
@@ -86,11 +89,16 @@ export default function VoiceDashboardPage() {
 
             const callDate = new Date(dateStr);
             const from = startOfDay(new Date(dateRange.from));
-            const to = dateRange.to ? startOfDay(new Date(dateRange.to)) : from;
+            const to = new Date(dateRange.to || dateRange.from);
             to.setHours(23, 59, 59, 999);
 
-            return callDate >= from && callDate <= to;
+            const isMatch = callDate >= from && callDate <= to;
+            return isMatch;
         });
+
+        // Debug log to confirm counts
+        console.log(`Global Calls: ${globalCalls.length}, Filtered: ${filteredCalls.length} (Range: ${dateRange.from.toLocaleDateString()} - ${dateRange.to?.toLocaleDateString()})`);
+
 
         filteredCalls.forEach((call: any) => {
             // Normalize ElevenLabs fields from the /api/calls endpoint
@@ -117,10 +125,16 @@ export default function VoiceDashboardPage() {
 
             // Charts processing
             if (startedAtDate) {
-                const dayKey = format(startedAtDate, 'MMM dd');
-                const hour = getHours(startedAtDate);
+                // Use a proper date key for sorting
+                const dayKey = format(startedAtDate, 'yyyy-MM-dd');
+                const displayKey = format(startedAtDate, 'MMM dd');
 
-                dayMap.set(dayKey, (dayMap.get(dayKey) || 0) + 1);
+                if (!dayMap.has(dayKey)) {
+                    dayMap.set(dayKey, { count: 0, display: displayKey });
+                }
+                dayMap.get(dayKey).count++;
+
+                const hour = getHours(startedAtDate);
                 hourMap[hour]++;
             }
         });
@@ -143,13 +157,10 @@ export default function VoiceDashboardPage() {
 
         // Format Daily Volume - Ensure chronological order
         const dailyData = Array.from(dayMap.entries())
-            .map(([name, calls]) => ({ name, calls }))
-            .sort((a, b) => {
-                const dateA = new Date(`${a.name} ${new Date().getFullYear()}`).getTime();
-                const dateB = new Date(`${b.name} ${new Date().getFullYear()}`).getTime();
-                return dateA - dateB;
-            });
-        setDailyVolume(dailyData.slice(-7)); // Show last 7 days
+            .map(([dayKey, data]) => ({ dayKey, name: data.display, calls: data.count }))
+            .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+
+        setDailyVolume(dailyData.slice(-14)); // Show last 14 days of data in the range
 
         // Format Hourly Distribution
         const hourlyData = hourMap.map((calls, hour) => ({
@@ -179,7 +190,7 @@ export default function VoiceDashboardPage() {
                 <MetricCard
                     title="Total Executions"
                     value={`${stats.totalCalls} calls`}
-                    
+                    badge={stats.totalCalls < globalCalls.length ? `Showing ${stats.totalCalls} of ${globalCalls.length} logs` : undefined}
                     icon={<Phone className="h-5 w-5 text-slate-600" />}
                 />
                 <MetricCard

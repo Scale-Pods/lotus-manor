@@ -31,8 +31,14 @@ function calculateCostValue(durationSecs: number, phoneNumber: string, isInbound
     return (durationSecs / 60) * rate.Rate;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
     try {
+        const { searchParams } = new URL(req.url);
+        const fromParam = searchParams.get('from');
+        const toParam = searchParams.get('to');
+        const fromDate = fromParam ? new Date(fromParam) : null;
+        const toDate = toParam ? new Date(toParam) : null;
+
         const apiKey = process.env.ELEVENLABS_API_KEY;
         const agentId = process.env.ELEVENLABS_AGENT_ID;
 
@@ -40,79 +46,113 @@ export async function GET() {
         let elNormalized: any[] = [];
         try {
             if (apiKey) {
-                const listUrl = agentId
-                    ? `${ELEVENLABS_BASE_URL}/convai/conversations?agent_id=${agentId}&page_size=50`
-                    : `${ELEVENLABS_BASE_URL}/convai/conversations?page_size=50`;
+                let allConversations: any[] = [];
+                let hasMore = true;
+                let lastId = null;
+                let pagesFetched = 0;
+                const MAX_PAGES = 30; // Fetch up to 3000 records to stay within limits
 
-                const listRes = await fetch(listUrl, {
-                    headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' }
-                });
+                while (hasMore && pagesFetched < MAX_PAGES) {
+                    let listUrl = `${ELEVENLABS_BASE_URL}/convai/conversations?page_size=100`;
 
-                if (listRes.ok) {
+                    if (lastId) listUrl += `&cursor=${lastId}`;
+
+                    const listRes = await fetch(listUrl, {
+                        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' }
+                    });
+
+                    if (!listRes.ok) break;
+
                     const listData = await listRes.json();
                     const list = listData.conversations || [];
 
-                    // Enrichment: Fetch details for first 50 to get telephony data
-                    const details = await Promise.all(
-                        list.slice(0, 50).map(async (c: any) => {
-                            try {
-                                const dr = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${c.conversation_id}`, {
-                                    headers: { 'xi-api-key': apiKey }
-                                });
-                                if (dr.ok) {
-                                    const dJson = await dr.json();
-                                    return { ...c, ...dJson };
-                                }
-                            } catch (e) { }
-                            return c;
-                        })
-                    );
+                    if (list.length === 0) break;
 
-                    elNormalized = details.map((c: any) => {
-                        const tel = c.telephony || {};
-                        const meta = c.metadata || c.metadata_json || {};
-                        const dv = (c.conversation_initiation_client_data?.dynamic_variables) || {};
+                    // Filter locally by date if requested to avoid excessive detail fetching
+                    let filteredList = list;
+                    if (fromDate || toDate) {
+                        filteredList = list.filter((c: any) => {
+                            const startTime = c.start_time_unix_secs ? c.start_time_unix_secs * 1000 : 0;
+                            if (fromDate && startTime < fromDate.getTime()) return false;
+                            if (toDate && startTime > toDate.getTime()) return false;
+                            return true;
+                        });
+                    }
 
-                        const caller = cleanPhoneNumber(tel.caller_number || meta.caller_number || dv.caller_number);
-                        const callee = cleanPhoneNumber(tel.callee_number || meta.callee_number || dv.callee_number);
+                    allConversations = [...allConversations, ...filteredList];
 
-                        const initType = (c.conversation_initiation_type || "").toLowerCase();
-                        const direction = (tel.direction || c.direction || meta.direction || dv.direction || dv.type || "").toLowerCase();
-                        const rawType = (c.type || meta.type || "").toLowerCase();
-                        const src = (c.conversation_initiation_source || "").toLowerCase();
+                    // Stop if we've reached conversations older than fromDate
+                    const oldestInPage = list[list.length - 1].start_time_unix_secs * 1000;
+                    if (fromDate && oldestInPage < fromDate.getTime()) break;
 
-                        // Inbound Detection
-                        const isInbound = initType.includes('inbound') || direction === 'inbound' || rawType === 'inbound';
-                        const isWeb = initType === 'web' || src === 'react_sdk';
-
-                        const centralNumber = "97148714150";
-                        const isCalleeCentral = callee.includes(centralNumber);
-                        const phoneRaw = isInbound || isCalleeCentral ? caller : callee;
-                        const phone = isInbound || isCalleeCentral ? (caller !== "Unknown" ? `+${caller}` : "Inbound (Unknown)")
-                            : (callee !== "Unknown" ? `+${callee}` : (isWeb ? "Website/API" : "Unknown"));
-
-                        const duration = c.call_duration_secs || c.duration_secs || meta.call_duration_secs || 0;
-                        const rateEntry: any = getRateInfo(phoneRaw);
-                        const costUSD = calculateCostValue(duration, phoneRaw, isInbound);
-
-                        const startTimeSec = c.start_time_unix_secs || c.start_time || 0;
-                        const startedAt = startTimeSec ? new Date(startTimeSec * 1000).toISOString() : new Date().toISOString();
-
-                        return {
-                            id: c.conversation_id,
-                            startedAt,
-                            durationSeconds: duration,
-                            cost: costUSD > 0 ? `$${costUSD.toFixed(3)}` : (meta.cost ? `${meta.cost} credits` : "$0.00"),
-                            costValue: costUSD,
-                            type: isInbound ? "Inbound" : (isWeb ? "Web Call" : "Outbound"),
-                            isInbound,
-                            phone,
-                            country: rateEntry?.Country || (phone.startsWith('+') ? "Other" : "Unknown"),
-                            source: 'elevenlabs',
-                            status: (c.status === 'success' || c.status === 'done' || c.status === 'completed') ? 'answered' : (c.status || 'answered')
-                        };
-                    });
+                    // ElevenLabs pagination uses next_cursor
+                    lastId = listData.next_cursor;
+                    hasMore = !!lastId;
+                    pagesFetched++;
                 }
+
+                // Enrichment: Fetch details for relevant conversations
+                // Increased limit to 1000 for better data coverage in dashboard
+                const enrichmentLimit = 1000;
+                const details = await Promise.all(
+                    allConversations.slice(0, enrichmentLimit).map(async (c: any) => {
+                        try {
+                            const dr = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${c.conversation_id}`, {
+                                headers: { 'xi-api-key': apiKey }
+                            });
+                            if (dr.ok) {
+                                const dJson = await dr.json();
+                                return { ...c, ...dJson };
+                            }
+                        } catch (e) { }
+                        return c;
+                    })
+                );
+
+                elNormalized = details.map((c: any) => {
+                    const tel = c.telephony || {};
+                    const meta = c.metadata || c.metadata_json || {};
+                    const dv = (c.conversation_initiation_client_data?.dynamic_variables) || {};
+
+                    const caller = cleanPhoneNumber(tel.caller_number || meta.caller_number || dv.caller_number);
+                    const callee = cleanPhoneNumber(tel.callee_number || meta.callee_number || dv.callee_number);
+
+                    const initType = (c.conversation_initiation_type || "").toLowerCase();
+                    const direction = (tel.direction || c.direction || meta.direction || dv.direction || dv.type || "").toLowerCase();
+                    const rawType = (c.type || meta.type || "").toLowerCase();
+                    const src = (c.conversation_initiation_source || "").toLowerCase();
+
+                    // Inbound Detection
+                    const isInbound = initType.includes('inbound') || direction === 'inbound' || rawType === 'inbound';
+                    const isWeb = initType === 'web' || src === 'react_sdk';
+
+                    const centralNumber = "97148714150";
+                    const isCalleeCentral = callee.includes(centralNumber);
+                    const phoneRaw = isInbound || isCalleeCentral ? caller : callee;
+                    const phone = isInbound || isCalleeCentral ? (caller !== "Unknown" ? `+${caller}` : "Inbound (Unknown)")
+                        : (callee !== "Unknown" ? `+${callee}` : (isWeb ? "Website/API" : "Unknown"));
+
+                    const duration = c.call_duration_secs || c.duration_secs || meta.call_duration_secs || 0;
+                    const rateEntry: any = getRateInfo(phoneRaw);
+                    const costUSD = calculateCostValue(duration, phoneRaw, isInbound);
+
+                    const startTimeSec = c.start_time_unix_secs || c.start_time || 0;
+                    const startedAt = startTimeSec ? new Date(startTimeSec * 1000).toISOString() : new Date().toISOString();
+
+                    return {
+                        id: c.conversation_id,
+                        startedAt,
+                        durationSeconds: duration,
+                        cost: costUSD > 0 ? `$${costUSD.toFixed(3)}` : (meta.cost ? `${meta.cost} credits` : "$0.00"),
+                        costValue: costUSD,
+                        type: isInbound ? "Inbound" : (isWeb ? "Web Call" : "Outbound"),
+                        isInbound,
+                        phone,
+                        country: rateEntry?.Country || (phone.startsWith('+') ? "Other" : "Unknown"),
+                        source: 'elevenlabs',
+                        status: (c.status === 'success' || c.status === 'done' || c.status === 'completed') ? 'answered' : (c.status || 'answered')
+                    };
+                });
             }
         } catch (e) {
             console.error("ElevenLabs aggregation fail:", e);
@@ -127,7 +167,7 @@ export async function GET() {
 
             if (mKey && mSecret) {
                 const creds = Buffer.from(`${mKey}:${mSecret}`).toString('base64');
-                const mUrl = `https://api.${mBase}/v2/calls?limit=100`;
+                const mUrl = `https://api.${mBase}/v2/calls?limit=1000`; // Increased limit to 1000
 
                 const mRes = await fetch(mUrl, {
                     headers: { 'Authorization': `Basic ${creds}`, 'Accept': 'application/json' }
@@ -174,6 +214,7 @@ export async function GET() {
         }
 
         // --- 3. Final Aggregation ---
+        console.log(`Final Aggregation: ElevenLabs=${elNormalized.length}, Maqsam=${maqsamNormalized.length}`);
         const final = [...elNormalized, ...maqsamNormalized].sort((a, b) =>
             new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
         );
