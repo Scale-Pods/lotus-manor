@@ -92,35 +92,46 @@ export async function GET(req: Request) {
                 }
 
                 // Enrichment: Fetch details for relevant conversations
-                // Increased limit to 1000 for better data coverage in dashboard
-                const enrichmentLimit = 1000;
+                // We enrich the most recent ones to get duration/telephony info
+                const enrichmentLimit = 200;
+                const enrichmentMap = new Map();
+
+                // Fetch details in batches to avoid overwhelming the API
+                const toEnrich = allConversations.slice(0, enrichmentLimit);
                 const details = await Promise.all(
-                    allConversations.slice(0, enrichmentLimit).map(async (c: any) => {
+                    toEnrich.map(async (c: any) => {
                         try {
                             const dr = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${c.conversation_id}`, {
                                 headers: { 'xi-api-key': apiKey }
                             });
                             if (dr.ok) {
-                                const dJson = await dr.json();
-                                return { ...c, ...dJson };
+                                return await dr.json();
                             }
                         } catch (e) { }
-                        return c;
+                        return null;
                     })
                 );
 
-                elNormalized = details.map((c: any) => {
-                    const tel = c.telephony || {};
-                    const meta = c.metadata || c.metadata_json || {};
-                    const dv = (c.conversation_initiation_client_data?.dynamic_variables) || {};
+                details.forEach(d => {
+                    if (d) enrichmentMap.set(d.conversation_id, d);
+                });
+
+                // Normalize ALL conversations, using enriched data where available
+                elNormalized = allConversations.map((c: any) => {
+                    const enriched = enrichmentMap.get(c.conversation_id) || {};
+                    const merged = { ...c, ...enriched };
+
+                    const tel = merged.telephony || {};
+                    const meta = merged.metadata || merged.metadata_json || {};
+                    const dv = (merged.conversation_initiation_client_data?.dynamic_variables) || {};
 
                     const caller = cleanPhoneNumber(tel.caller_number || meta.caller_number || dv.caller_number);
                     const callee = cleanPhoneNumber(tel.callee_number || meta.callee_number || dv.callee_number);
 
-                    const initType = (c.conversation_initiation_type || "").toLowerCase();
-                    const direction = (tel.direction || c.direction || meta.direction || dv.direction || dv.type || "").toLowerCase();
-                    const rawType = (c.type || meta.type || "").toLowerCase();
-                    const src = (c.conversation_initiation_source || "").toLowerCase();
+                    const initType = (merged.conversation_initiation_type || "").toLowerCase();
+                    const direction = (tel.direction || merged.direction || meta.direction || dv.direction || dv.type || "").toLowerCase();
+                    const rawType = (merged.type || meta.type || "").toLowerCase();
+                    const src = (merged.conversation_initiation_source || "").toLowerCase();
 
                     // Inbound Detection
                     const isInbound = initType.includes('inbound') || direction === 'inbound' || rawType === 'inbound';
@@ -132,15 +143,15 @@ export async function GET(req: Request) {
                     const phone = isInbound || isCalleeCentral ? (caller !== "Unknown" ? `+${caller}` : "Inbound (Unknown)")
                         : (callee !== "Unknown" ? `+${callee}` : (isWeb ? "Website/API" : "Unknown"));
 
-                    const duration = c.call_duration_secs || c.duration_secs || meta.call_duration_secs || 0;
+                    const duration = merged.call_duration_secs || merged.duration_secs || meta.call_duration_secs || 0;
                     const rateEntry: any = getRateInfo(phoneRaw);
                     const costUSD = calculateCostValue(duration, phoneRaw, isInbound);
 
-                    const startTimeSec = c.start_time_unix_secs || c.start_time || 0;
+                    const startTimeSec = merged.start_time_unix_secs || merged.start_time || 0;
                     const startedAt = startTimeSec ? new Date(startTimeSec * 1000).toISOString() : new Date().toISOString();
 
                     return {
-                        id: c.conversation_id,
+                        id: merged.conversation_id,
                         startedAt,
                         durationSeconds: duration,
                         cost: costUSD > 0 ? `$${costUSD.toFixed(3)}` : (meta.cost ? `${meta.cost} credits` : "$0.00"),
@@ -150,7 +161,7 @@ export async function GET(req: Request) {
                         phone,
                         country: rateEntry?.Country || (phone.startsWith('+') ? "Other" : "Unknown"),
                         source: 'elevenlabs',
-                        status: (c.status === 'success' || c.status === 'done' || c.status === 'completed') ? 'answered' : (c.status || 'answered')
+                        status: (merged.status === 'success' || merged.status === 'done' || merged.status === 'completed' || merged.call_successful === 'success') ? 'answered' : (merged.status || 'answered')
                     };
                 });
             }

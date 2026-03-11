@@ -91,6 +91,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         refreshAll();
 
+        // Real-time polling for calls and balances (every 30 seconds)
+        const pollInterval = setInterval(() => {
+            console.log('Polling for new calls and balance updates...');
+            fetchCalls();
+            fetchBalances();
+        }, 30000);
+
         // 🚀 OPTION 3: Supabase Realtime Implementation
         // Subscribe to all 3 leads tables for instant updates
         const leadsChannel = supabase
@@ -123,8 +130,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
         return () => {
             supabase.removeChannel(leadsChannel);
+            clearInterval(pollInterval);
         };
-    }, [refreshAll, fetchLeads]);
+    }, [refreshAll, fetchLeads, fetchCalls, fetchBalances]);
 
     return (
         <DataContext.Provider value={{

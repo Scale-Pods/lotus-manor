@@ -160,7 +160,7 @@ export default function VoiceDashboardPage() {
             .map(([dayKey, data]) => ({ dayKey, name: data.display, calls: data.count }))
             .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
 
-        setDailyVolume(dailyData.slice(-14)); // Show last 14 days of data in the range
+        setDailyVolume(dailyData); // Show all days available in the range data
 
         // Format Hourly Distribution
         const hourlyData = hourMap.map((calls, hour) => ({
@@ -178,9 +178,26 @@ export default function VoiceDashboardPage() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Voice Agent Dashboard</h1>
-                    <p className="text-slate-500">Monitor your AI voice agent performance.</p>
+                    <div className="flex items-center gap-2 text-slate-500">
+                        <p>Monitor your AI voice agent performance.</p>
+                        <span className="text-xs px-2 py-0.5 bg-slate-100 rounded-full">
+                            Last refreshed: {new Date().toLocaleTimeString()}
+                        </span>
+                    </div>
                 </div>
                 <div className="flex items-center gap-4">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                            setLoadingLocal(true);
+                            useData().refreshCalls().then(() => setLoadingLocal(false));
+                        }}
+                        className="h-10 rounded-xl bg-white border-slate-200 text-slate-600 hover:bg-slate-50 transition-all flex items-center gap-2"
+                    >
+                        <TrendingUp className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh Data
+                    </Button>
                     <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
                 </div>
             </div>
