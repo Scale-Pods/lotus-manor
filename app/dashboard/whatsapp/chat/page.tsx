@@ -31,6 +31,9 @@ import {
 } from "lucide-react";
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { subDays, startOfDay, endOfDay } from "date-fns";
+import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 
 // --- Sorting & Activity Helpers ---
 const getMsgDate = (raw: any) => {
@@ -52,9 +55,21 @@ const getMsgDate = (raw: any) => {
 const getLeadLatestActivity = (lead: any) => {
     let latestDate = new Date(lead.created_at);
 
-    // Check all bot messages (W.P_1 - W.P_6)
-    for (let i = 1; i <= 6; i++) {
-        const d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
+    // Check all bot messages (W.P_1 - W.P_12)
+    for (let i = 1; i <= 12; i++) {
+        // Fallback to TS columns if available since actual message might not have timestamp
+        const tsRaw = lead[`W.P_${i} TS`];
+        let d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
+
+        // Try extracting from TS string (e.g. "Delivered - 2026-03-12 10:00:00")
+        if (!d && tsRaw && tsRaw.includes(' - ')) {
+            const datePart = tsRaw.split(' - ')[1].trim();
+            const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
+            if (!isNaN(tsDate.getTime())) {
+                d = tsDate;
+            }
+        }
+
         if (d && d > latestDate) latestDate = d;
     }
     // Check reply
@@ -110,6 +125,11 @@ export default function WhatsappChatPage() {
         messageStatus: []
     });
 
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 30),
+        to: new Date(),
+    });
+
     const [activeFilters, setActiveFilters] = useState<{
         replyStatus: string[],
         loops: string[],
@@ -138,22 +158,33 @@ export default function WhatsappChatPage() {
             for (let i = 1; i <= 10; i++) {
                 const r = lead[`W.P_Replied_${i}`];
                 if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
-            }
-            for (let i = 1; i <= 10; i++) {
                 if (lead[`W.P_FollowUp_${i}`]) return true;
+            }
+            // Check for sent messages in drips
+            for (let i = 1; i <= 12; i++) {
+                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
             }
             return false;
         });
 
         setLeads(wpLeads);
 
+        // Stats should respect the date filter
+        const filteredForStats = wpLeads.filter(lead => {
+            if (!dateRange?.from) return true;
+            const latestActivity = getLeadLatestActivity(lead);
+            const from = startOfDay(new Date(dateRange.from));
+            const to = endOfDay(new Date(dateRange.to || dateRange.from));
+            return latestActivity >= from && latestActivity <= to;
+        });
+
         let totalSent = 0;
         let repliedCount = 0;
 
-        wpLeads.forEach(l => {
+        filteredForStats.forEach(l => {
             const lead = l as any;
             let leadSent = 0;
-            for (let i = 1; i <= 6; i++) {
+            for (let i = 1; i <= 12; i++) {
                 if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) leadSent++;
             }
             if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) leadSent++;
@@ -178,13 +209,13 @@ export default function WhatsappChatPage() {
         });
 
         setStats({
-            totalLeads: wpLeads.length,
+            totalLeads: filteredForStats.length,
             sentCount: totalSent,
             deliveredCount: Math.round(totalSent * 0.96),
             readCount: Math.round(totalSent * 0.82),
             repliedCount: repliedCount
         });
-    }, [allLeads, loadingLeads]);
+    }, [allLeads, loadingLeads, dateRange]);
 
     const filteredLeads = useMemo(() => {
         return leads.filter(l => {
@@ -225,13 +256,21 @@ export default function WhatsappChatPage() {
                     return s1.includes(target) || s2.includes(target);
                 });
 
-            return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus;
+            let matchesDate = true;
+            if (dateRange?.from) {
+                const latestActivity = getLeadLatestActivity(lead);
+                const from = startOfDay(new Date(dateRange.from));
+                const to = endOfDay(new Date(dateRange.to || dateRange.from));
+                matchesDate = latestActivity >= from && latestActivity <= to;
+            }
+
+            return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus && matchesDate;
         }).sort((a, b) => {
             const dateA = getLeadLatestActivity(a);
             const dateB = getLeadLatestActivity(b);
             return dateB.getTime() - dateA.getTime();
         });
-    }, [leads, searchQuery, activeFilters]);
+    }, [leads, searchQuery, activeFilters, dateRange]);
 
     const handleApplyFilters = () => { setActiveFilters(pendingFilters); };
     const handleResetFilters = () => {
@@ -258,7 +297,53 @@ export default function WhatsappChatPage() {
 
     const totalPages = Math.ceil(filteredLeads.length / leadsPerPage);
 
-    useEffect(() => { setCurrentPage(1); }, [searchQuery, activeFilters]);
+    useEffect(() => { setCurrentPage(1); }, [searchQuery, activeFilters, dateRange]);
+
+    const renderPaginationItems = () => {
+        const items = [];
+        const maxVisible = 5;
+
+        if (totalPages <= maxVisible + 2) {
+            for (let i = 1; i <= totalPages; i++) {
+                items.push(renderPageButton(i));
+            }
+        } else {
+            items.push(renderPageButton(1));
+
+            if (currentPage > 3) {
+                items.push(<span key="dots-1" className="flex items-center justify-center w-8 h-8 text-slate-400"><MoreHorizontal className="h-4 w-4" /></span>);
+            }
+
+            const start = Math.max(2, currentPage - 1);
+            const end = Math.min(totalPages - 1, currentPage + 1);
+
+            for (let i = start; i <= end; i++) {
+                if (i > 1 && i < totalPages) {
+                    items.push(renderPageButton(i));
+                }
+            }
+
+            if (currentPage < totalPages - 2) {
+                items.push(<span key="dots-2" className="flex items-center justify-center w-8 h-8 text-slate-400"><MoreHorizontal className="h-4 w-4" /></span>);
+            }
+
+            items.push(renderPageButton(totalPages));
+        }
+        return items;
+    };
+
+    const renderPageButton = (page: number) => (
+        <Button
+            key={page}
+            variant={currentPage === page ? "default" : "outline"}
+            size="sm"
+            className={`h-8 w-8 text-xs font-bold ${currentPage === page ? 'bg-slate-900 text-white' : 'text-slate-600'
+                }`}
+            onClick={() => setCurrentPage(page)}
+        >
+            {page}
+        </Button>
+    );
 
     return (
         <div className="space-y-6 pb-10 relative min-h-[500px]">
@@ -268,9 +353,12 @@ export default function WhatsappChatPage() {
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Chats</h1>
                     <p className="text-slate-500 text-sm">Real-time engagement across your leads</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="gap-2">
-                    <RefreshCw className="h-4 w-4" /> Refresh
-                </Button>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                    <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
+                    <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="gap-2 h-9">
+                        <RefreshCw className="h-4 w-4" /> Refresh
+                    </Button>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -371,12 +459,16 @@ export default function WhatsappChatPage() {
                                     Showing <span className="text-slate-900 font-bold">{filteredLeads.length > 0 ? (currentPage - 1) * leadsPerPage + 1 : 0}</span> to <span className="text-slate-900 font-bold">{Math.min(currentPage * leadsPerPage, filteredLeads.length)}</span> of <span className="text-slate-900 font-bold">{filteredLeads.length}</span> leads
                                 </div>
                                 {filteredLeads.length > leadsPerPage && (
-                                    <div className="flex gap-1">
-                                        <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase tracking-wider" disabled={currentPage === 1} onClick={() => setCurrentPage(prev => prev - 1)}>Prev</Button>
-                                        {[...Array(totalPages)].map((_, i) => (
-                                            <Button key={i} variant={currentPage === i + 1 ? "default" : "outline"} size="sm" className={`h-8 w-8 text-xs font-bold ${currentPage === i + 1 ? 'bg-slate-900 text-white' : 'text-slate-600'}`} onClick={() => setCurrentPage(i + 1)}>{i + 1}</Button>
-                                        ))}
-                                        <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold uppercase tracking-wider" disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => prev + 1)}>Next</Button>
+                                    <div className="flex gap-1 items-center">
+                                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={currentPage === 1} onClick={() => setCurrentPage(prev => prev - 1)}>
+                                            <ChevronLeft className="h-4 w-4" />
+                                        </Button>
+                                        <div className="flex gap-1">
+                                            {renderPaginationItems()}
+                                        </div>
+                                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => prev + 1)}>
+                                            <ChevronRight className="h-4 w-4" />
+                                        </Button>
                                     </div>
                                 )}
                             </div>
@@ -449,7 +541,7 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
     const latestDate = getLeadLatestActivity(lead);
 
     let sentCount = 0;
-    for (let i = 1; i <= 6; i++) { if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) sentCount++; }
+    for (let i = 1; i <= 12; i++) { if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) sentCount++; }
     if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) sentCount++;
     for (let i = 1; i <= 10; i++) { if (lead[`W.P_FollowUp_${i}`]) sentCount++; }
 
@@ -524,7 +616,8 @@ function MessageStatusBadge({ index, status }: { index: number, status: string }
     if (!status) return null;
     const parts = status.split(' - ');
     const statusText = parts[0].trim();
-    const rawTimestamp = parts.length > 1 ? parts[1].trim() : null;
+    // If there's no " - ", the entire status string might be the timestamp
+    const rawTimestamp = parts.length > 1 ? parts[1].trim() : status.trim();
 
     const formatTooltipDate = (dateStr: string) => {
         const d = new Date(dateStr.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
