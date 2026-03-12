@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw, Volume2, MoreVertical, X, Phone, Clock, DollarSign, Calendar, ArrowRight, ArrowLeft } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw, Volume2, MoreVertical, X, Phone, Clock, DollarSign, Calendar, ArrowRight, ArrowLeft, User } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -133,9 +133,15 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     let toSubInfo;
     let toLabel;
 
+    const extractedGuestName = (call?.name && call.name !== "Guest" && call.name !== "Unknown")
+        ? call.name
+        : (displayCall.name && displayCall.name !== "Guest" && displayCall.name !== "Unknown"
+            ? displayCall.name
+            : (displayCall.lead?.name || displayCall.user_name || displayCall.metadata?.user_name || rawDynamicVars.user_name || displayCall.customer?.name || "Guest"));
+
     if (isInbound) {
         // Customer calls us
-        fromName = "Guest";
+        fromName = extractedGuestName;
         fromSubInfo = callerNumber;
         fromLabel = "From (Customer)";
 
@@ -148,7 +154,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
         fromSubInfo = centralNumber;
         fromLabel = "From (Assistant)";
 
-        toName = "Guest";
+        toName = extractedGuestName;
         toSubInfo = calleeNumber !== "Unknown" ? calleeNumber : callerNumber;
         toLabel = "To (Customer)";
     }
@@ -212,7 +218,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                             </div>
                         </div>
 
-                        {/* Column 4: LLM Cost */}
+                        {/* Column 4: LLM Cost & Name */}
                         <div className="space-y-6">
                             <div>
                                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">LLM Cost</p>
@@ -223,6 +229,13 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                                     <span className="text-xs text-slate-500 mt-0.5">
                                         Total: ${(displayCall.llm_price || displayCall.metadata?.charging?.llm_price || 0).toFixed(4)}
                                     </span>
+                                </div>
+                            </div>
+                            <div>
+                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Guest Name</p>
+                                <div className="flex items-center gap-2">
+                                    <User className="h-4 w-4 text-slate-400" />
+                                    <span className="font-bold text-slate-900 truncate max-w-[150px]" title={extractedGuestName}>{extractedGuestName}</span>
                                 </div>
                             </div>
                         </div>
