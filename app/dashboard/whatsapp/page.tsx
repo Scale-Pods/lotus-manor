@@ -59,6 +59,53 @@ export default function WhatsappDashboardPage() {
     const loading = loadingLeads;
     const [dateRange, setDateRange] = useState<any>(undefined);
 
+    // --- Sorting & Activity Helpers ---
+    const getMsgDate = (raw: any) => {
+        if (!raw || !String(raw).trim()) return null;
+        const content = String(raw).trim();
+        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+        const isoMatch = content.match(isoRegex);
+        if (isoMatch) return new Date(isoMatch[1]);
+        const lines = content.split('\n');
+        const lastLine = lines[lines.length - 1].trim();
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+            return lastLineDate;
+        }
+        return null;
+    };
+
+    const getLeadLatestActivity = (lead: any) => {
+        let latestDate = new Date(lead.created_at);
+        for (let i = 1; i <= 12; i++) {
+            const tsRaw = lead[`W.P_${i} TS`];
+            let d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
+            if (!d && tsRaw && tsRaw.includes(' - ')) {
+                const datePart = tsRaw.split(' - ')[1].trim();
+                const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
+                if (!isNaN(tsDate.getTime())) {
+                    const rawLower = tsRaw.toLowerCase();
+                    if (rawLower.includes('read') || rawLower.includes('delivered')) {
+                        tsDate.setHours(0, 0, 0, 0);
+                    }
+                    d = tsDate;
+                }
+            }
+            if (d && d > latestDate) latestDate = d;
+        }
+        const rd = getMsgDate(lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"]);
+        if (rd && rd > latestDate) latestDate = rd;
+        const fd = getMsgDate(lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]);
+        if (fd && fd > latestDate) latestDate = fd;
+        for (let i = 1; i <= 10; i++) {
+            const dReplied = getMsgDate(lead[`W.P_Replied_${i}`]);
+            if (dReplied && dReplied > latestDate) latestDate = dReplied;
+            const dFollow = getMsgDate(lead[`W.P_FollowUp_${i}`]);
+            if (dFollow && dFollow > latestDate) latestDate = dFollow;
+        }
+        return latestDate;
+    };
+
     useEffect(() => {
         const calculateStats = async () => {
             if (loadingLeads) return;
@@ -73,21 +120,37 @@ export default function WhatsappDashboardPage() {
 
                 setLeads(whatsappContactedLeads);
 
-                // Apply Date Filtering
+                // Apply Exact Date Filtering (Same as Chat view)
+                const fromD = dateRange?.from ? new Date(dateRange.from) : null;
+                const toD = dateRange?.to ? new Date(dateRange.to) : fromD;
+
+                if (fromD) fromD.setHours(0, 0, 0, 0);
+                if (toD) toD.setHours(23, 59, 59, 999);
+
+                const checkDate = (d: Date | null) => {
+                    if (!fromD || !toD) return true;
+                    if (!d) return false;
+                    return d >= fromD && d <= toD;
+                };
+
+                const getDripDate = (lead: any, i: number) => {
+                    const tsRaw = lead[`W.P_${i} TS`];
+                    let d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
+                    if (!d && tsRaw && tsRaw.includes(' - ')) {
+                        const datePart = tsRaw.split(' - ')[1].trim();
+                        const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
+                        if (!isNaN(tsDate.getTime())) {
+                            d = tsDate;
+                        }
+                    }
+                    return d;
+                };
+
+                // Filter down total leads using exact activity timestamp
                 const filteredLeads = whatsappContactedLeads.filter((lead: any) => {
                     if (!dateRange?.from) return true;
-
-                    // Use updated_at or created_at if last_contacted is missing for extended leads
-                    const dateRef = lead.last_contacted || lead.updated_at || lead.created_at;
-                    if (!dateRef) return false;
-
-                    const leadDate = new Date(dateRef);
-                    const from = new Date(dateRange.from);
-                    from.setHours(0, 0, 0, 0);
-                    const to = dateRange.to ? new Date(dateRange.to) : from;
-                    to.setHours(23, 59, 59, 999);
-
-                    return leadDate >= from && leadDate <= to;
+                    const latestActivity = getLeadLatestActivity(lead);
+                    return checkDate(latestActivity);
                 });
 
                 const dailyGroups: Record<string, { date: string, sent: number, replied: number }> = {};
@@ -101,55 +164,79 @@ export default function WhatsappDashboardPage() {
                     unresponsive: 0
                 };
 
-                filteredLeads.forEach((l: any) => {
+                filteredLeads.forEach((lead: any) => {
                     let leadSentCount = 0;
-                    for (let i = 1; i <= 6; i++) {
-                        if (l[`W.P_${i}`] || l.stage_data?.[`WhatsApp ${i}`]) leadSentCount++;
+                    let hasWPInDate = false;
+
+                    // DRIPS
+                    for (let i = 1; i <= 12; i++) {
+                        if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) {
+                            let d = getDripDate(lead, i);
+                            if (!d && i === 1) d = new Date(lead.created_at);
+                            if (checkDate(d)) {
+                                leadSentCount++;
+                                hasWPInDate = true;
+                            }
+                        }
                     }
-                    if (l["W.P_FollowUp"] || l.stage_data?.["WhatsApp FollowUp"]) leadSentCount++;
+                    // FOLLOWUPS
+                    if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) {
+                        if (checkDate(getMsgDate(lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]))) {
+                            leadSentCount++;
+                            hasWPInDate = true;
+                        }
+                    }
                     for (let i = 1; i <= 10; i++) {
-                        if (l[`W.P_FollowUp_${i}`]) leadSentCount++;
+                        if (lead[`W.P_FollowUp_${i}`]) {
+                            if (checkDate(getMsgDate(lead[`W.P_FollowUp_${i}`]))) {
+                                leadSentCount++;
+                                hasWPInDate = true;
+                            }
+                        }
                     }
 
-                    let hasWP = leadSentCount > 0;
-
-                    if (hasWP) {
+                    if (hasWPInDate) {
                         finalStats.messagesSent += leadSentCount;
                         finalStats.uniqueLeadsContacted++;
                     }
 
+                    // REPLIES
                     let isReplied = false;
-                    if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none" && String(l.whatsapp_replied).trim() !== "") {
-                        isReplied = true;
-                    } else {
+                    const initialReplyRaw = lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"];
+                    if (initialReplyRaw && String(initialReplyRaw).toLowerCase() !== "no" && String(initialReplyRaw).toLowerCase() !== "none") {
+                        if (checkDate(getMsgDate(initialReplyRaw) || new Date(lead.created_at))) isReplied = true;
+                    }
+                    if (!isReplied) {
                         for (let i = 1; i <= 10; i++) {
-                            const r = l[`W.P_Replied_${i}`];
+                            const r = lead[`W.P_Replied_${i}`];
                             if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                                isReplied = true;
-                                break;
+                                if (checkDate(getMsgDate(r))) {
+                                    isReplied = true;
+                                    break;
+                                }
                             }
                         }
                     }
 
                     if (isReplied) {
                         finalStats.totalReplies++;
-                    } else if (hasWP) {
+                    } else if (hasWPInDate) {
                         finalStats.waiting++;
                     }
 
                     // Trend
-                    const dateRef = l.last_contacted || l.updated_at || l.created_at;
-                    if (dateRef) {
-                        const d = new Date(dateRef).toLocaleDateString([], { month: 'short', day: 'numeric' });
-                        if (!dailyGroups[d]) dailyGroups[d] = { date: d, sent: 0, replied: 0 };
-                        dailyGroups[d].sent += leadSentCount;
-                        if (isReplied) dailyGroups[d].replied += 1;
+                    const latestAct = getLeadLatestActivity(lead);
+                    if (latestAct) {
+                        const dStr = latestAct.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                        if (!dailyGroups[dStr]) dailyGroups[dStr] = { date: dStr, sent: 0, replied: 0 };
+                        dailyGroups[dStr].sent += leadSentCount;
+                        if (isReplied) dailyGroups[dStr].replied += 1;
                     }
                 });
 
                 setStats({
                     totalLeads: finalStats.totalLeads,
-                    contactedLeads: finalStats.messagesSent, // Map to messages sent
+                    contactedLeads: finalStats.messagesSent,
                     totalReplies: finalStats.totalReplies,
                     replied: finalStats.totalReplies,
                     waiting: finalStats.waiting,

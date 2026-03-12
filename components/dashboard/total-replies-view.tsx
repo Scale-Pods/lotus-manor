@@ -41,89 +41,101 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 5;
 
+    const parseMsg = (raw: any): { date: Date | null, content: string } => {
+        if (!raw || !String(raw).trim()) return { date: null, content: "" };
+        const content = String(raw).trim();
+        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+        const isoMatch = content.match(isoRegex);
+        if (isoMatch) {
+            return {
+                date: new Date(isoMatch[1]),
+                content: content.replace(isoRegex, '').trim()
+            };
+        }
+        const lines = content.split('\n');
+        const lastLine = lines[lines.length - 1].trim();
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+            return {
+                date: lastLineDate,
+                content: lines.slice(0, -1).join('\n').trim()
+            };
+        }
+        return { date: null, content: content };
+    };
+
     // Map real leads to ReplyData format
-    const realData: (ReplyData & { link: string })[] = [];
+    const realData: (ReplyData & { link: string; sortDate: Date })[] = [];
 
     leads.forEach((lead: any, idx: number) => {
         // --- WhatsApp Logic ---
-        let wpReply = "";
-        let wpDateStr = lead.updated_at || lead.created_at || new Date().toISOString();
+        let wpReplyObj = { content: "", date: new Date(0) };
         let hasWP = false;
 
-        // Check legacy
-        if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
+        const addWpReply = (raw: any) => {
+            if (!raw || String(raw).toLowerCase() === "no" || String(raw).toLowerCase() === "none" || String(raw).trim() === "") return;
             hasWP = true;
-            wpReply = String(lead.whatsapp_replied).trim();
-            // Try to extract date
-            const lines = wpReply.split('\n');
-            const lastLine = lines[lines.length - 1].trim();
-            const possibleDate = new Date(lastLine);
-            if (!isNaN(possibleDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-                wpDateStr = possibleDate.toISOString();
-                wpReply = lines.slice(0, -1).join('\n').trim() || "See chat for details";
+            const parsed = parseMsg(raw);
+            const msgDate = parsed.date || new Date(lead.updated_at || lead.created_at || 0);
+            if (msgDate >= wpReplyObj.date) {
+                wpReplyObj = { content: parsed.content, date: msgDate };
             }
-        }
+        };
 
-        // Check extended if no legacy or to find newer interaction
+        addWpReply(lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"]);
         for (let i = 1; i <= 10; i++) {
-            const r = lead[`W.P_Replied_${i}`];
-            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                hasWP = true;
-                // Extended replies usually just contain the text. Date might not be embedded.
-                // We use the last found reply as the "latest" preview.
-                wpReply = String(r).trim();
-                // If we want to use updated_at, we already have it. 
-            }
+            addWpReply(lead[`W.P_Replied_${i}`]);
         }
 
-        if (hasWP) {
-            const dateObj = new Date(wpDateStr);
+        if (hasWP && wpReplyObj.content) {
             realData.push({
                 id: `${lead.id || `lead-${idx}`}-wp`,
                 contactName: lead.name || "Unknown",
                 contactInfo: lead.phone || "No info",
                 mode: 'WhatsApp',
-                date: dateObj.toLocaleDateString(),
-                time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                date: wpReplyObj.date.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: wpReplyObj.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: 'Replied',
-                preview: wpReply.substring(0, 50) + (wpReply.length > 50 ? "..." : ""),
-                link: `/dashboard/whatsapp/chat` // Navigate to generic chat page where they can search
+                preview: wpReplyObj.content.substring(0, 60) + (wpReplyObj.content.length > 60 ? "..." : ""),
+                link: `/dashboard/whatsapp/chat?chat=${lead.id}`,
+                sortDate: wpReplyObj.date
             });
         }
 
         // --- Email Logic ---
-        let emailReply = "";
-        let emailDateStr = lead.updated_at || lead.created_at || new Date().toISOString();
+        let emailReplyObj = { content: "", date: new Date(0) };
         let hasEmail = false;
 
-        if (lead.email_replied && lead.email_replied !== "No" && lead.email_replied !== "none") {
+        const addEmailReply = (raw: any) => {
+            if (!raw || String(raw).toLowerCase() === "no" || String(raw).toLowerCase() === "none" || String(raw).trim() === "") return;
             hasEmail = true;
-            emailReply = String(lead.email_replied).trim();
-            // Try to extract date
-            const lines = emailReply.split('\n');
-            const lastLine = lines[lines.length - 1].trim();
-            const possibleDate = new Date(lastLine);
-            if (!isNaN(possibleDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-                emailDateStr = possibleDate.toISOString();
-                emailReply = lines.slice(0, -1).join('\n').trim() || "See email for details";
+            const parsed = parseMsg(raw);
+            const msgDate = parsed.date || new Date(lead.updated_at || lead.created_at || 0);
+            if (msgDate >= emailReplyObj.date) {
+                emailReplyObj = { content: parsed.content, date: msgDate };
             }
-        }
+        };
 
-        if (hasEmail) {
-            const dateObj = new Date(emailDateStr);
+        addEmailReply(lead.email_replied || lead.stage_data?.["Email Replied"]);
+
+        if (hasEmail && emailReplyObj.content) {
             realData.push({
                 id: `${lead.id || `lead-${idx}`}-email`,
                 contactName: lead.name || "Unknown",
                 contactInfo: lead.email || "No info",
                 mode: 'Email',
-                date: dateObj.toLocaleDateString(),
-                time: dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                date: emailReplyObj.date.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }),
+                time: emailReplyObj.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: 'Replied',
-                preview: emailReply.substring(0, 50) + (emailReply.length > 50 ? "..." : ""),
-                link: `/dashboard/email/sent` // Navigate to email page
+                preview: emailReplyObj.content.substring(0, 60) + (emailReplyObj.content.length > 60 ? "..." : ""),
+                link: `/dashboard/email/sent`,
+                sortDate: emailReplyObj.date
             });
         }
     });
+
+    // Sort heavily by newest reply first
+    realData.sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime());
 
     // Filter logic
     const filteredData = realData.filter(item => {
