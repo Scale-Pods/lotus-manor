@@ -66,6 +66,12 @@ const getLeadLatestActivity = (lead: any) => {
             const datePart = tsRaw.split(' - ')[1].trim();
             const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
             if (!isNaN(tsDate.getTime())) {
+                const rawLower = tsRaw.toLowerCase();
+                // If it's merely a status receipt, we strip the exact time.
+                // In a real chat app, reading a message doesn't bump the chat to the top.
+                if (rawLower.includes('read') || rawLower.includes('delivered')) {
+                    tsDate.setHours(0, 0, 0, 0);
+                }
                 d = tsDate;
             }
         }
