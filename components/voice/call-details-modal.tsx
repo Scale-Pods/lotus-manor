@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw, Volume2, MoreVertical, X, Phone, Clock, DollarSign, Calendar, ArrowRight, ArrowLeft } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw, Volume2, MoreVertical, X, Phone, Clock, DollarSign, Calendar, ArrowRight, ArrowLeft, Download } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -312,6 +312,8 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
     const [currentTime, setCurrentTime] = useState(0);
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(1);
+    const [playbackRate, setPlaybackRate] = useState(1);
+    const [showSpeedMenu, setShowSpeedMenu] = useState(false);
 
     const internalAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -378,6 +380,43 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
         setCurrentTime(newTime);
     };
 
+    const changePlaybackRate = (rate: number) => {
+        setPlaybackRate(rate);
+        if (internalAudioRef.current) {
+            internalAudioRef.current.playbackRate = rate;
+        }
+        setShowSpeedMenu(false);
+    };
+
+    const downloadAudio = async () => {
+        try {
+            const response = await fetch(audioUrl);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `recording-${new Date().getTime()}.mp3`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error("Error downloading audio:", error);
+        }
+    };
+
+    const speedMenuRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (speedMenuRef.current && !speedMenuRef.current.contains(event.target as Node)) {
+                setShowSpeedMenu(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
     return (
         <div className="mt-6 p-6 border border-slate-200 rounded-3xl bg-gradient-to-br from-white to-slate-50 shadow-xl shadow-slate-200/50 space-y-6">
             <div className="flex items-center justify-between">
@@ -390,15 +429,46 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
                         <p className="text-sm font-bold text-slate-700 leading-none">Call Audio</p>
                     </div>
                 </div>
-                <div className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-mono shadow-sm">
-                    {formatTime(currentTime)} / {formatTime(duration)}
+                <div className="flex items-center gap-3">
+                    <div className="relative" ref={speedMenuRef}>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className={`h-8 text-[11px] font-bold rounded-full px-3 transition-colors ${showSpeedMenu ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'}`}
+                            onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                        >
+                            {playbackRate === 1 ? '1x' : `${playbackRate}x`}
+                        </Button>
+                        {showSpeedMenu && (
+                            <div className="absolute bottom-full mb-3 right-0 bg-white border border-slate-200 rounded-2xl shadow-2xl p-1.5 z-[100] flex flex-col min-w-[70px] animate-in fade-in slide-in-from-bottom-2 duration-200">
+                                {[0.5, 1, 1.25, 1.5, 2].map((rate) => (
+                                    <button
+                                        key={rate}
+                                        onClick={() => changePlaybackRate(rate)}
+                                        className={`px-3 py-2 text-[11px] font-bold rounded-xl text-left transition-colors ${playbackRate === rate ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                                    >
+                                        {rate}x
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full"
+                        onClick={downloadAudio}
+                        title="Download"
+                    >
+                        <Download className="h-4 w-4" />
+                    </Button>
                 </div>
             </div>
 
             <div className="space-y-6">
                 {/* Progress Bar Container */}
                 <div className="relative group px-1">
-                    <div className="flex justify-between text-[10px] text-slate-400 mb-2 font-medium">
+                    <div className="flex justify-between text-[10px] text-slate-400 mb-2 font-bold tracking-tight">
                         <span>{formatTime(currentTime)}</span>
                         <span>{formatTime(duration)}</span>
                     </div>
@@ -409,21 +479,29 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
                             max={duration || 0}
                             value={currentTime}
                             onChange={handleSeek}
-                            className="absolute inset-0 w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer accent-blue-600 z-10 opacity-0"
+                            className="absolute inset-0 w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer accent-blue-600 z-[60] opacity-0"
                         />
                         <div className="absolute inset-0 h-2 bg-slate-200 rounded-full overflow-hidden">
                             <div
                                 className="h-full bg-blue-600 transition-all duration-100 ease-out relative"
                                 style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
                             >
-                                <div className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-4 bg-white border-2 border-blue-600 rounded-full shadow-md scale-0 group-hover:scale-100 transition-transform" />
+                                <div className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-4 bg-white border-2 border-blue-600 rounded-full shadow-lg scale-50 group-hover:scale-100 transition-transform z-[70]" />
                             </div>
                         </div>
                     </div>
                 </div>
 
                 {/* Controls */}
-                <div className="flex items-center justify-center gap-8">
+                <div className="flex items-center justify-center gap-6">
+                    <button
+                        onClick={() => skip(-30)}
+                        className="p-2 text-slate-400 hover:text-blue-600 transition-all active:scale-90"
+                        title="Skip back 30s"
+                    >
+                        <SkipBack className="h-5 w-5" />
+                    </button>
+
                     <button
                         onClick={() => skip(-10)}
                         className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all active:scale-90"
@@ -449,6 +527,14 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
                         title="Skip forward 10s"
                     >
                         <RotateCw className="h-6 w-6" />
+                    </button>
+
+                    <button
+                        onClick={() => skip(30)}
+                        className="p-2 text-slate-400 hover:text-blue-600 transition-all active:scale-90"
+                        title="Skip forward 30s"
+                    >
+                        <SkipForward className="h-5 w-5" />
                     </button>
                 </div>
 
