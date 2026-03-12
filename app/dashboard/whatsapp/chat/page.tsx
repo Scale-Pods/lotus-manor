@@ -184,34 +184,71 @@ export default function WhatsappChatPage() {
             return latestActivity >= from && latestActivity <= to;
         });
 
+        const fromD = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+        const toD = dateRange?.from ? endOfDay(new Date(dateRange.to || dateRange.from)) : null;
+
+        const checkDate = (d: Date | null) => {
+            if (!fromD || !toD) return true;
+            if (!d) return false;
+            return d >= fromD && d <= toD;
+        };
+
+        const getDripDate = (lead: any, i: number) => {
+            const tsRaw = lead[`W.P_${i} TS`];
+            let d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
+            if (!d && tsRaw && tsRaw.includes(' - ')) {
+                const datePart = tsRaw.split(' - ')[1].trim();
+                const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
+                if (!isNaN(tsDate.getTime())) {
+                    d = tsDate;
+                }
+            }
+            return d;
+        };
+
         let totalSent = 0;
         let repliedCount = 0;
 
         filteredForStats.forEach(l => {
             const lead = l as any;
             let leadSent = 0;
+
             for (let i = 1; i <= 12; i++) {
-                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) leadSent++;
+                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) {
+                    let d = getDripDate(lead, i);
+                    if (!d && i === 1) d = new Date(lead.created_at); // fallback for legacy data
+                    if (checkDate(d)) leadSent++;
+                }
             }
-            if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) leadSent++;
+
+            if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) {
+                if (checkDate(getMsgDate(lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]))) leadSent++;
+            }
+
             for (let i = 1; i <= 10; i++) {
-                if (lead[`W.P_FollowUp_${i}`]) leadSent++;
+                if (lead[`W.P_FollowUp_${i}`]) {
+                    if (checkDate(getMsgDate(lead[`W.P_FollowUp_${i}`]))) leadSent++;
+                }
             }
             totalSent += leadSent;
 
-            let hasReplied = false;
-            if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
-                hasReplied = true;
-            } else {
+            let leadReplied = false;
+            const initialReplyRaw = lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"];
+            if (initialReplyRaw && String(initialReplyRaw).toLowerCase() !== "no" && String(initialReplyRaw).toLowerCase() !== "none") {
+                if (checkDate(getMsgDate(initialReplyRaw) || new Date(lead.created_at))) leadReplied = true;
+            }
+            if (!leadReplied) {
                 for (let i = 1; i <= 10; i++) {
                     const r = lead[`W.P_Replied_${i}`];
                     if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                        hasReplied = true;
-                        break;
+                        if (checkDate(getMsgDate(r))) {
+                            leadReplied = true;
+                            break;
+                        }
                     }
                 }
             }
-            if (hasReplied) repliedCount++;
+            if (leadReplied) repliedCount++;
         });
 
         setStats({
