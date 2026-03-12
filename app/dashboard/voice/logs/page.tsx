@@ -123,7 +123,7 @@ const DynamicRowCells = ({ call }: { call: any }) => {
 
 
 export default function VoiceLogsPage() {
-    const { calls: globalCalls, loadingCalls, refreshAll } = useData();
+    const { calls: globalCalls, loadingCalls, refreshAll, leads, loadingLeads } = useData();
     const [allCallsMapped, setAllCallsMapped] = useState<any[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
     const loading = loadingCalls;
@@ -143,19 +143,33 @@ export default function VoiceLogsPage() {
     const itemsPerPage = 10;
 
     useEffect(() => {
-        if (loadingCalls) return;
+        if (loadingCalls || loadingLeads || !globalCalls) return;
 
         const mappedCalls = globalCalls.map((c: any) => {
             const isInbound = c.isInbound === true;
+            
+            // Eagerly resolve name from our Leads database based on phone
+            let resolvedName = c.name;
+            if ((!resolvedName || resolvedName === "Guest" || resolvedName === "Unknown") && c.phone && leads) {
+                const targetPhone = c.phone.replace(/\D/g, '');
+                if (targetPhone && targetPhone.length > 5) {
+                    const foundLead = leads.find((l: any) => l.phone && l.phone.replace(/\D/g, '') === targetPhone);
+                    if (foundLead && foundLead.name) {
+                        resolvedName = foundLead.name;
+                    }
+                }
+            }
+
             return {
                 ...c,
+                name: resolvedName,
                 displayDate: c.startedAt ? format(new Date(c.startedAt), 'PPp') : 'N/A',
                 displayDuration: formatDuration(c.durationSeconds || 0),
             };
         });
 
         setAllCallsMapped(mappedCalls);
-    }, [globalCalls, loadingCalls]);
+    }, [globalCalls, loadingCalls, leads, loadingLeads]);
 
     useEffect(() => {
         const filteredCalls = allCallsMapped.filter((call: any) => {
@@ -173,9 +187,14 @@ export default function VoiceLogsPage() {
             if (typeFilter !== "all" && call.type?.toLowerCase() !== typeFilter.toLowerCase()) return false;
 
             if (phoneFilter) {
-                const searchStr = phoneFilter.replace(/\D/g, '');
-                const target = (call.phone || "").replace(/\D/g, '');
-                if (!target.includes(searchStr)) return false;
+                const searchStr = phoneFilter.toLowerCase().trim();
+                const phoneSearch = searchStr.replace(/\D/g, '');
+                const phoneTarget = (call.phone || "").replace(/\D/g, '');
+
+                const matchesPhone = phoneSearch && phoneTarget.includes(phoneSearch);
+                const matchesName = (call.name || "Guest").toLowerCase().includes(searchStr);
+
+                if (!matchesPhone && !matchesName) return false;
             }
 
             return true;
@@ -222,7 +241,7 @@ export default function VoiceLogsPage() {
                     <div className="relative w-[220px]">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
                         <Input
-                            placeholder="Search phone number..."
+                            placeholder="Search name or phone..."
                             className="pl-9 h-9"
                             value={phoneFilter}
                             onChange={(e) => setPhoneFilter(e.target.value)}
