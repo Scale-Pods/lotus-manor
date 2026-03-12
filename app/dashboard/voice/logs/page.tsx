@@ -20,6 +20,7 @@ import { useData } from "@/context/DataContext";
 const DynamicRowCells = ({ call }: { call: any }) => {
     const [realType, setRealType] = useState(call.type);
     const [guestNum, setGuestNum] = useState(call.phone);
+    const [guestName, setGuestName] = useState(call.name || "Guest");
     const [isFetching, setIsFetching] = useState(false);
     const [isInboundState, setIsInboundState] = useState(call.isInbound);
 
@@ -77,6 +78,14 @@ const DynamicRowCells = ({ call }: { call: any }) => {
                         call.phone = formatted;
                     }
 
+                    // Deep Name Detection
+                    const detectedName = data.name || metadata.user_name || metadata.name || dv.custom__name || dv.audient__name || dv.user_name || dv.name || dv.customer_name || dv.first_name || (dv.first_name ? `${dv.first_name} ${dv.last_name || ''}` : null);
+
+                    if (detectedName && detectedName !== "Guest") {
+                        setGuestName(detectedName);
+                        call.name = detectedName;
+                    }
+
                     call.raw = { ...call.raw, ...data };
                 })
                 .catch(() => { })
@@ -86,6 +95,13 @@ const DynamicRowCells = ({ call }: { call: any }) => {
 
     return (
         <>
+            <TableCell className="font-semibold text-slate-900">
+                {guestName === "Guest" && isFetching ? (
+                    <span className="text-slate-400 animate-pulse text-xs italic">Loading...</span>
+                ) : (
+                    guestName
+                )}
+            </TableCell>
             <TableCell className="font-medium text-slate-800">
                 {guestNum === "Unknown" && isFetching ? (
                     <span className="text-slate-400 animate-pulse text-xs italic">Detecting...</span>
@@ -236,7 +252,7 @@ export default function VoiceLogsPage() {
                     <Table>
                         <TableHeader>
                             <TableRow className="bg-slate-50/50 hover:bg-slate-50/50 text-[11px] uppercase tracking-wider font-bold text-slate-500">
-                                <TableHead className="w-[80px]">ID</TableHead>
+                                <TableHead className="w-[150px]">Name</TableHead>
                                 <TableHead>Guest Number</TableHead>
                                 <TableHead>Type</TableHead>
                                 <TableHead>Duration</TableHead>
@@ -258,7 +274,6 @@ export default function VoiceLogsPage() {
                                         className="cursor-pointer hover:bg-slate-50/50 transition-colors"
                                         onClick={() => handleRowClick(call)}
                                     >
-                                        <TableCell className="font-mono text-[10px] text-slate-400">#{call.id.toString().substring(0, 6)}</TableCell>
                                         <DynamicRowCells call={call} />
                                         <TableCell>
                                             <Badge variant="outline" className={`text-[10px] uppercase border-${call.status === 'answered' ? 'emerald' : 'slate'}-200 text-${call.status === 'answered' ? 'emerald' : 'slate'}-600`}>

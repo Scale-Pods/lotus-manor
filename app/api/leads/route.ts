@@ -80,7 +80,7 @@ export async function GET() {
             }
         }
 
-        console.log(`Successfully fetched ${tableName}: ${allData.length} records`);
+        // console.log(`Successfully fetched ${tableName}: ${allData.length} records`);
         return allData;
     };
 

@@ -97,7 +97,7 @@ export default function VoiceDashboardPage() {
         });
 
         // Debug log to confirm counts
-        console.log(`Global Calls: ${globalCalls.length}, Filtered: ${filteredCalls.length} (Range: ${dateRange.from.toLocaleDateString()} - ${dateRange.to?.toLocaleDateString()})`);
+        // console.log(`Global Calls: ${globalCalls.length}, Filtered: ${filteredCalls.length} (Range: ${dateRange.from.toLocaleDateString()} - ${dateRange.to?.toLocaleDateString()})`);
 
 
         filteredCalls.forEach((call: any) => {

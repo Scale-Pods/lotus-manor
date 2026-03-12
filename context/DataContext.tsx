@@ -93,7 +93,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
         // Real-time polling for calls and balances (every 30 seconds)
         const pollInterval = setInterval(() => {
-            console.log('Polling for new calls and balance updates...');
+            // console.log('Polling for new calls and balance updates...');
             fetchCalls();
             fetchBalances();
         }, 30000);

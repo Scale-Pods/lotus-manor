@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import RATES_DATA from '../../../context/rates.json';
 
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
@@ -29,6 +30,14 @@ function calculateCostValue(durationSecs: number, phoneNumber: string, isInbound
     const rate = getRateInfo(phoneNumber);
     if (!rate || !rate.Rate) return 0;
     return (durationSecs / 60) * rate.Rate;
+}
+
+function getMaqsamSignature(method: string, endpoint: string, timestamp: string, accessSecret: string) {
+    const payload = `${method}${endpoint}${timestamp}`;
+    return crypto
+        .createHmac("sha256", accessSecret)
+        .update(payload)
+        .digest("base64");
 }
 
 export async function GET(req: Request) {
@@ -117,7 +126,7 @@ export async function GET(req: Request) {
                 });
 
                 // Normalize ALL conversations, using enriched data where available
-                elNormalized = allConversations.map((c: any) => {
+                elNormalized = allConversations.map((c: any, idx: number) => {
                     const enriched = enrichmentMap.get(c.conversation_id) || {};
                     const merged = { ...c, ...enriched };
 
@@ -150,8 +159,16 @@ export async function GET(req: Request) {
                     const startTimeSec = merged.start_time_unix_secs || merged.start_time || 0;
                     const startedAt = startTimeSec ? new Date(startTimeSec * 1000).toISOString() : new Date().toISOString();
 
+                    // Name Detection
+                    const firstName = dv.first_name || meta.first_name || "";
+                    const lastName = dv.last_name || meta.last_name || "";
+                    const fullName = (firstName && lastName) ? `${firstName} ${lastName}` : (firstName || lastName);
+
+                    const name = fullName || meta.user_name || meta.name || dv.user_name || dv.name || dv.custom__name || dv.audient__name || dv.customer_name || "Guest";
+
                     return {
                         id: merged.conversation_id,
+                        name: name === "Guest" ? "Guest" : name,
                         startedAt,
                         durationSeconds: duration,
                         cost: costUSD > 0 ? `$${costUSD.toFixed(3)}` : (meta.cost ? `${meta.cost} credits` : "$0.00"),
@@ -172,52 +189,64 @@ export async function GET(req: Request) {
         // --- 2. Maqsam Aggregation ---
         let maqsamNormalized: any[] = [];
         try {
-            const mKey = process.env.MAQSAM_ACCESS_KEY_ID || process.env.MAQSAM_ACCESS_KEY;
+            const mKey = process.env.MAQSAM_ACCESS_KEY_ID;
             const mSecret = process.env.MAQSAM_ACCESS_SECRET;
             const mBase = process.env.MAQSAM_BASE_URL || 'maqsam.com';
 
             if (mKey && mSecret) {
-                const creds = Buffer.from(`${mKey}:${mSecret}`).toString('base64');
-                const mUrl = `https://api.${mBase}/v2/calls?limit=1000`; // Increased limit to 1000
+                const method = "GET";
+                const fetchMaqsam = async (endpoint: string, useBasic: boolean) => {
+                    const timestamp = new Date().toISOString();
+                    const mUrl = `https://api.${mBase}${endpoint}`;
+                    const headers: any = { "Accept": "application/json" };
+                    if (useBasic) {
+                        headers["Authorization"] = `Basic ${Buffer.from(`${mKey}:${mSecret}`).toString('base64')}`;
+                    } else {
+                        const payload = `${method}${endpoint}${timestamp}`;
+                        headers["X-ACCESS-KEY"] = mKey;
+                        headers["X-TIMESTAMP"] = timestamp;
+                        headers["X-SIGNATURE"] = crypto.createHmac("sha256", mSecret).update(payload).digest("base64");
+                    }
+                    return fetch(mUrl, { method, headers });
+                };
 
-                const mRes = await fetch(mUrl, {
-                    headers: { 'Authorization': `Basic ${creds}`, 'Accept': 'application/json' }
-                });
+                let mRes = await fetchMaqsam("/v2/calls", true);
+                if (!mRes.ok) {
+                    mRes = await fetchMaqsam("/v1/account/calls", false); // Try Balance-style Signature auth
+                }
 
                 if (mRes.ok) {
                     const mData = await mRes.json();
-                    const mcList = mData.calls || mData.data || [];
+                    const mcList = Array.isArray(mData.message) ? mData.message : (mData.data || mData.calls || []);
 
                     maqsamNormalized = mcList.map((mc: any) => {
-                        const mDirect = (mc.direction || mc.type || "").toLowerCase();
-                        const isInbound = mDirect === 'inbound' || mDirect === 'incoming';
+                        const direction = (mc.direction || "").toLowerCase();
+                        const isInbound = direction === 'inbound' || direction === 'incoming';
+                        const callerNum = cleanPhoneNumber(mc.callerNumber || mc.caller || mc.from);
+                        const calleeNum = cleanPhoneNumber(mc.calleeNumber || mc.callee || mc.to);
+                        const phoneRaw = isInbound ? callerNum : calleeNum;
 
-                        const caller = cleanPhoneNumber(mc.caller_number || mc.from);
-                        const callee = cleanPhoneNumber(mc.callee_number || mc.to);
-
-                        const phoneRaw = isInbound ? caller : callee;
-                        const phone = phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown";
-
-                        const duration = parseInt(mc.duration || 0);
-                        const rateEntry: any = getRateInfo(phoneRaw);
-                        const costUSD = calculateCostValue(duration, phoneRaw, isInbound);
+                        const nameValue = isInbound ? (mc.caller || mc.contact_name) : (mc.callee || mc.contact_name);
+                        const isNotNumber = nameValue && !nameValue.match(/^\+?\d+$/);
 
                         return {
                             id: (mc.id || mc.uuid || Math.random()).toString(),
-                            startedAt: mc.start_time || mc.created_at || new Date().toISOString(),
-                            durationSeconds: duration,
-                            cost: costUSD > 0 ? `$${costUSD.toFixed(3)}` : "$0.00",
-                            costValue: costUSD,
-                            type: isInbound ? "Inbound" : "Outbound",
+                            name: isNotNumber ? nameValue : "Guest",
+                            startedAt: mc.timestamp ? new Date(mc.timestamp * 1000).toISOString() : (mc.start_time || mc.created_at || new Date().toISOString()),
+                            durationSeconds: parseInt(mc.duration || 0),
+                            cost: calculateCostValue(parseInt(mc.duration || 0), phoneRaw, isInbound) > 0 ? `$${calculateCostValue(parseInt(mc.duration || 0), phoneRaw, isInbound).toFixed(3)}` : "$0.00",
+                            costValue: calculateCostValue(parseInt(mc.duration || 0), phoneRaw, isInbound),
+                            type: isInbound ? "Inbound" : (mc.type === 'campaign' ? "Campaign" : "Outbound"),
                             isInbound,
-                            phone,
-                            country: rateEntry?.Country || "Unknown",
+                            phone: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
+                            country: getRateInfo(phoneRaw)?.Country || "Unknown",
                             source: 'maqsam',
-                            status: (mc.status === 'answered' || mc.status === 'completed') ? 'answered' : (mc.status || 'missed')
+                            status: (mc.state === 'completed' || mc.state === 'serviced' || mc.status === 'answered') ? 'answered' : (mc.state || mc.status || 'answered')
                         };
                     });
-                } else {
-                    console.error("Maqsam error:", mRes.status);
+                } else if (mRes.status !== 401) {
+                    const err = await mRes.text();
+                    console.error("[Maqsam] Request Failed:", { status: mRes.status, response: err });
                 }
             }
         } catch (e) {
@@ -225,7 +254,6 @@ export async function GET(req: Request) {
         }
 
         // --- 3. Final Aggregation ---
-        console.log(`Final Aggregation: ElevenLabs=${elNormalized.length}, Maqsam=${maqsamNormalized.length}`);
         const final = [...elNormalized, ...maqsamNormalized].sort((a, b) =>
             new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
         );

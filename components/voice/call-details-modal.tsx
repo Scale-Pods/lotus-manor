@@ -3,15 +3,17 @@
 import {
     Dialog,
     DialogContent,
-    DialogHeader,
-    DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw, Volume2, MoreVertical, X, Phone, Clock, DollarSign, Calendar, ArrowRight, ArrowLeft, Download } from "lucide-react";
+import {
+    Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw,
+    Volume2, X, Phone, Clock, DollarSign, Calendar, Download,
+    Maximize2
+} from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useState, useEffect, useRef } from "react";
 
 interface CallDetailsModalProps {
@@ -24,11 +26,18 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     const [fullCall, setFullCall] = useState<any>(null);
     const [localLoading, setLocalLoading] = useState(false);
 
+    // Audio Player State
+    const audioRef = useRef<HTMLAudioElement>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [playbackRate, setPlaybackRate] = useState(1);
+    const [volume, setVolume] = useState(1);
+
     useEffect(() => {
         if (open && call?.id) {
-            setFullCall(call); // Set initial data
+            setFullCall(call);
             setLocalLoading(true);
-            // Fetch fresh details to get messages/transcript if not present
             fetch(`/api/calls/${call.id}`)
                 .then(res => res.ok ? res.json() : null)
                 .then(data => {
@@ -36,6 +45,11 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                 })
                 .catch(err => console.error("Error fetching details", err))
                 .finally(() => setLocalLoading(false));
+        } else {
+            // Reset player when closed
+            setIsPlaying(false);
+            setCurrentTime(0);
+            if (audioRef.current) audioRef.current.pause();
         }
     }, [open, call]);
 
@@ -43,555 +57,315 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 
     const displayCall = fullCall || call;
 
-    // Helper to get messages from various Vapi/ElevenLabs formats
     const getMessages = (data: any) => {
         if (!data) return [];
-
-        // Priority 1: ElevenLabs transcript object
         if (Array.isArray(data.transcript) && data.transcript.length > 0) {
             return data.transcript.map((msg: any) => ({
                 role: msg.role === 'agent' ? 'assistant' : 'user',
                 message: msg.message || msg.content || msg.text
             }));
         }
-
-        // Fallbacks
         if (Array.isArray(data.messages)) return data.messages;
         if (data.analysis && Array.isArray(data.analysis.transcript)) return data.analysis.transcript;
         if (typeof data.transcript === 'string') return [{ role: 'assistant', message: data.transcript }];
-
         return [];
     };
 
     const messages = getMessages(displayCall);
     const recordingUrl = displayCall.audio_url || displayCall.recordingUrl || displayCall.recording_url || displayCall.artifact?.recordingUrl;
 
-    // Helper to format duration
-    const getDuration = (data: any) => {
+    const getDurationDisplay = (data: any) => {
         let seconds = 0;
-        // Check various ElevenLabs/normalized locations
         if (typeof data.call_duration_secs === 'number') seconds = data.call_duration_secs;
         else if (data.analysis?.call_duration_secs) seconds = data.analysis.call_duration_secs;
         else if (typeof data.durationSeconds === 'number') seconds = data.durationSeconds;
         else if (typeof data.duration === 'number') seconds = data.duration;
-
-        if (seconds === 0 && data.endedAt && data.startedAt) {
-            const start = new Date(data.startedAt).getTime();
-            const end = new Date(data.endedAt).getTime();
-            seconds = (end - start) / 1000;
-        }
-
-        // Active call fallback
-        if (seconds === 0 && (data.status === 'in-progress' || data.status === 'processing') && data.metadata?.start_time_unix_secs) {
-            const start = data.metadata.start_time_unix_secs * 1000;
-            const now = Date.now();
-            seconds = Math.max(0, (now - start) / 1000);
-        }
 
         const min = Math.floor(seconds / 60);
         const sec = Math.floor(seconds % 60);
         return `${min}m ${sec}s`;
     };
 
-    const durationDisplay = getDuration(displayCall);
-
-    // ElevenLabs Cost Mapping
-    // Cost is pre-formatted in /api/calls route as "X credits", fallback to displayCall.cost
+    const durationDisplay = getDurationDisplay(displayCall);
     const costDisplay = displayCall.cost || (displayCall.metadata?.cost ? `${displayCall.metadata.cost} credits` : '$0.00');
 
-    const startedAtDisplay = displayCall.metadata?.start_time_unix_secs
-        ? new Date(displayCall.metadata.start_time_unix_secs * 1000).toLocaleString('en-US', {
-            year: 'numeric',
-            month: 'numeric',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: 'numeric',
-            second: 'numeric',
-            hour12: true
-        })
-        : (displayCall.startedAt ? new Date(displayCall.startedAt).toLocaleString() : (displayCall.date || 'N/A'));
-
-    // Determine Call Type and entities
-    const rawDynamicVars = displayCall.conversation_initiation_client_data?.dynamic_variables || {};
-    const rawType = displayCall.type || displayCall.metadata?.type || rawDynamicVars.direction || rawDynamicVars.type || "unknown";
-    const isInbound = rawType === 'inbound';
-
-    // Default call type 
-    const callTypeDisplay = isInbound ? "Inbound" : "Outbound";
-
-    const callerNumber = displayCall.phone || displayCall.caller_number || displayCall.metadata?.caller_number || rawDynamicVars.caller_number || rawDynamicVars.caller || "Unknown";
-    const calleeNumber = displayCall.callee_number || displayCall.metadata?.callee_number || rawDynamicVars.callee_number || rawDynamicVars.callee || "Unknown";
-    const centralNumber = "97148714150";
-    const assistantName = displayCall.agent_name || "ElevenLabs AI Agent";
-
-    // Reconstruct connection logic
-    let fromName;
-    let fromSubInfo;
-    let fromLabel;
-
-    let toName;
-    let toSubInfo;
-    let toLabel;
-
-    if (isInbound) {
-        // Customer calls us
-        fromName = "Guest";
-        fromSubInfo = callerNumber;
-        fromLabel = "From (Customer)";
-
-        toName = assistantName;
-        toSubInfo = centralNumber;
-        toLabel = "To (Assistant)";
-    } else {
-        // We call the customer (or a Web Call simulating us calling)
-        fromName = assistantName;
-        fromSubInfo = centralNumber;
-        fromLabel = "From (Assistant)";
-
-        toName = "Guest";
-        toSubInfo = calleeNumber !== "Unknown" ? calleeNumber : callerNumber;
-        toLabel = "To (Customer)";
-    }
-
-    // Determine Audio Proxy route (avoiding exposing XI_API_KEY directly frontend)
-    const audioUrl = displayCall.id ? `/api/calls/${displayCall.id}/audio` : null;
-
-    return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-3xl p-0 gap-0 bg-white overflow-hidden max-h-[90vh] flex flex-col">
-                <DialogHeader className="p-6 border-b border-slate-100 flex flex-row items-center justify-between space-y-0">
-                    <DialogTitle className="text-xl font-semibold">Call Details</DialogTitle>
-                </DialogHeader>
-
-                <div className="flex-1 overflow-auto">
-                    {/* Call Overview */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 p-6 bg-slate-50/50 border-b border-slate-100 items-start">
-                        {/* Column 1: Status & Type */}
-                        <div className="space-y-6">
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Status</p>
-                                <Badge className={`${displayCall.status === 'done' || displayCall.status === 'ended' || displayCall.status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} border-none shadow-none uppercase text-[10px] px-2.5 py-0.5`}>
-                                    {displayCall.status || 'Unknown'}
-                                </Badge>
-                            </div>
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Type</p>
-                                <Badge variant="outline" className="border-slate-300 text-slate-600 uppercase text-[10px] px-2.5 py-0.5">
-                                    {callTypeDisplay}
-                                </Badge>
-                            </div>
-                        </div>
-
-                        {/* Column 2: Duration & Date */}
-                        <div className="space-y-6">
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Duration</p>
-                                <div className="flex items-center gap-2">
-                                    <Clock className="h-4 w-4 text-slate-400" />
-                                    <span className="font-bold text-slate-900">{durationDisplay}</span>
-                                </div>
-                            </div>
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Date & Time</p>
-                                <div className="flex items-center gap-2">
-                                    <Calendar className="h-4 w-4 text-slate-400" />
-                                    <span className="text-sm text-slate-700">{startedAtDisplay}</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Column 3: Cost breakdown Top */}
-                        <div className="space-y-6">
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Call Cost</p>
-                                <span className="font-bold text-slate-900">{displayCall.metadata?.charging?.call_charge || 0} credits</span>
-                            </div>
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Credits (LLM)</p>
-                                <span className="font-bold text-slate-900">{displayCall.llm_charge || displayCall.metadata?.charging?.llm_charge || 0}</span>
-                            </div>
-                        </div>
-
-                        {/* Column 4: LLM Cost */}
-                        <div className="space-y-6">
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">LLM Cost</p>
-                                <div className="flex flex-col">
-                                    <span className="font-bold text-slate-900">
-                                        ${((displayCall.llm_price || displayCall.metadata?.charging?.llm_price || 0) / Math.max(1, (displayCall.durationSeconds / 60) || 1)).toFixed(4)} / min
-                                    </span>
-                                    <span className="text-xs text-slate-500 mt-0.5">
-                                        Total: ${(displayCall.llm_price || displayCall.metadata?.charging?.llm_price || 0).toFixed(4)}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="p-6 space-y-6">
-                        {/* Call Information */}
-                        <div>
-                            <h3 className="text-sm font-bold text-slate-900 mb-3 uppercase tracking-wide">Call Information</h3>
-                            <div className="p-5 border border-slate-200 rounded-xl bg-white shadow-sm">
-                                <div className="flex justify-between items-center mb-3 px-2">
-                                    <p className="text-xs uppercase tracking-wider text-slate-500 font-bold">{fromLabel}</p>
-                                    <p className="text-xs uppercase tracking-wider text-slate-500 font-bold">{toLabel}</p>
-                                </div>
-                                <div className="flex items-center justify-between gap-4">
-
-                                    <div className="flex items-center gap-4 flex-1">
-                                        <div className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center ${fromLabel.includes('Assistant') ? 'bg-purple-100 text-purple-600' : 'bg-blue-50 text-blue-600'}`}>
-                                            {fromLabel.includes('Assistant') ? <Avatar><AvatarFallback>AI</AvatarFallback></Avatar> : <Phone className="h-5 w-5" />}
-                                        </div>
-                                        <div className="flex-1 font-semibold text-slate-900 border border-slate-200 bg-slate-50/50 rounded-lg px-4 py-3">
-                                            <span className="block text-sm">{fromName}</span>
-                                            {fromSubInfo !== "Unknown" && fromSubInfo !== "Website/API" && (
-                                                <span className="block text-xs font-normal text-slate-500 mt-0.5 tracking-wide">{`+${fromSubInfo.replace(/\+/g, '')}`}</span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex flex-col items-center px-4 shrink-0">
-                                        <span className="text-[10px] uppercase font-bold text-blue-600 tracking-widest mb-2">{isInbound ? "INBOUND" : "OUTBOUND"}</span>
-                                        <div className="h-0.5 w-20 bg-blue-200 relative">
-                                            <ArrowRight className="w-4 h-4 text-blue-600 absolute -right-1.5 -top-[7px]" />
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-4 flex-1">
-                                        <div className="flex-1 font-semibold text-slate-900 border border-slate-200 bg-slate-50/50 rounded-lg px-4 py-3 text-right">
-                                            <span className="block text-sm">{toName}</span>
-                                            {toSubInfo !== "Unknown" && toSubInfo !== "Website/API" && (
-                                                <span className="block text-xs font-normal text-slate-500 mt-0.5 tracking-wide">{`+${toSubInfo.replace(/\+/g, '')}`}</span>
-                                            )}
-                                        </div>
-                                        <div className={`h-11 w-11 shrink-0 rounded-full flex items-center justify-center ${toLabel.includes('Assistant') ? 'bg-purple-100 text-purple-600' : 'bg-blue-50 text-blue-600'}`}>
-                                            {toLabel.includes('Assistant') ? <Avatar><AvatarFallback>AI</AvatarFallback></Avatar> : <Phone className="h-5 w-5" />}
-                                        </div>
-                                    </div>
-
-                                </div>
-                            </div>
-
-                            {/* Audio Player Section */}
-                            {audioUrl && (
-                                <ModernAudioPlayer audioUrl={audioUrl} />
-                            )}
-                        </div>
-
-                        {/* Transcript */}
-                        <div className="flex-1 min-h-[200px]">
-                            <h3 className="text-sm font-bold text-slate-900 mb-3 uppercase tracking-wide">Transcript</h3>
-                            <ScrollArea className="h-[300px] w-full rounded-lg border border-slate-200 bg-slate-50 p-4">
-                                <div className="space-y-4">
-                                    {Array.isArray(messages) && messages
-                                        .filter((msg: any) => msg.role !== 'system') // Filter out system prompt
-                                        .map((msg: any, idx: number) => (
-                                            <TranscriptMessage
-                                                key={idx}
-                                                role={msg.role}
-                                                text={msg.message || msg.content || msg.text || ''}
-                                            />
-                                        ))}
-                                    {(!messages || messages.length === 0) && (
-                                        <p className="text-sm text-slate-500 text-center italic">No transcript available.</p>
-                                    )}
-                                </div>
-                            </ScrollArea>
-                        </div>
-                    </div>
-                </div>
-
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [currentTime, setCurrentTime] = useState(0);
-    const [duration, setDuration] = useState(0);
-    const [volume, setVolume] = useState(1);
-    const [playbackRate, setPlaybackRate] = useState(1);
-    const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-
-    const internalAudioRef = useRef<HTMLAudioElement | null>(null);
-
-    useEffect(() => {
-        const audio = new Audio(audioUrl);
-        internalAudioRef.current = audio;
-
-        const setAudioData = () => {
-            setDuration(audio.duration);
-        };
-
-        const setAudioTime = () => {
-            setCurrentTime(audio.currentTime);
-        };
-
-        const handleEnded = () => {
-            setIsPlaying(false);
-            setCurrentTime(0);
-        };
-
-        // Events
-        audio.addEventListener('loadedmetadata', setAudioData);
-        audio.addEventListener('timeupdate', setAudioTime);
-        audio.addEventListener('ended', handleEnded);
-
-        return () => {
-            audio.pause();
-            audio.removeEventListener('loadedmetadata', setAudioData);
-            audio.removeEventListener('timeupdate', setAudioTime);
-            audio.removeEventListener('ended', handleEnded);
-            internalAudioRef.current = null;
-        };
-    }, [audioUrl]);
-
+    // Player Handlers
     const togglePlay = () => {
-        if (!internalAudioRef.current) return;
-        if (isPlaying) {
-            internalAudioRef.current.pause();
-        } else {
-            internalAudioRef.current.play();
+        if (audioRef.current) {
+            if (isPlaying) audioRef.current.pause();
+            else audioRef.current.play();
+            setIsPlaying(!isPlaying);
         }
-        setIsPlaying(!isPlaying);
+    };
+
+    const handleTimeUpdate = () => {
+        if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+    };
+
+    const handleLoadedMetadata = () => {
+        if (audioRef.current) setDuration(audioRef.current.duration);
+    };
+
+    const seek = (val: number) => {
+        if (audioRef.current) {
+            audioRef.current.currentTime = val;
+            setCurrentTime(val);
+        }
+    };
+
+    const skip = (seconds: number) => {
+        if (audioRef.current) {
+            audioRef.current.currentTime += seconds;
+        }
+    };
+
+    const changeSpeed = (rate: number) => {
+        if (audioRef.current) {
+            audioRef.current.playbackRate = rate;
+            setPlaybackRate(rate);
+        }
     };
 
     const formatTime = (time: number) => {
         if (isNaN(time)) return "0:00";
-        const minutes = Math.floor(time / 60);
-        const seconds = Math.floor(time % 60);
-        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        const min = Math.floor(time / 60);
+        const sec = Math.floor(time % 60);
+        return `${min}:${sec.toString().padStart(2, '0')}`;
     };
-
-    const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const time = parseFloat(e.target.value);
-        setCurrentTime(time);
-        if (internalAudioRef.current) {
-            internalAudioRef.current.currentTime = time;
-        }
-    };
-
-    const skip = (amount: number) => {
-        if (!internalAudioRef.current) return;
-        const newTime = Math.max(0, Math.min(duration, internalAudioRef.current.currentTime + amount));
-        internalAudioRef.current.currentTime = newTime;
-        setCurrentTime(newTime);
-    };
-
-    const changePlaybackRate = (rate: number) => {
-        setPlaybackRate(rate);
-        if (internalAudioRef.current) {
-            internalAudioRef.current.playbackRate = rate;
-        }
-        setShowSpeedMenu(false);
-    };
-
-    const downloadAudio = async () => {
-        try {
-            const response = await fetch(audioUrl);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `recording-${new Date().getTime()}.mp3`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        } catch (error) {
-            console.error("Error downloading audio:", error);
-        }
-    };
-
-    const speedMenuRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
-            if (speedMenuRef.current && !speedMenuRef.current.contains(event.target as Node)) {
-                setShowSpeedMenu(false);
-            }
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
 
     return (
-        <div className="mt-6 p-6 border border-slate-200 rounded-3xl bg-gradient-to-br from-white to-slate-50 shadow-xl shadow-slate-200/50 space-y-6">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-50 text-blue-600">
-                        <Volume2 className="h-4 w-4" />
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="max-w-5xl max-h-[95vh] p-0 overflow-hidden bg-[#0A0C10] border-slate-800 text-slate-100 flex flex-col rounded-[2rem] shadow-2xl ring-1 ring-white/10">
+                {/* Custom Header Bar */}
+                <div className="absolute right-6 top-6 z-50 flex items-center gap-2">
+                    <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="rounded-full hover:bg-white/10 text-slate-400 h-10 w-10">
+                        <X className="w-5 h-5" />
+                    </Button>
+                </div>
+
+                <div className="flex-1 flex flex-col overflow-hidden relative">
+                    {/* Hero Header Section */}
+                    <div className="p-10 pb-6 flex flex-col md:flex-row items-center gap-8 bg-gradient-to-br from-blue-600/10 via-transparent to-purple-600/10">
+                        <div className="relative group">
+                            <div className="absolute inset-0 bg-primary/20 rounded-3xl blur-2xl group-hover:bg-primary/30 transition-all duration-500" />
+                            <Avatar className="w-24 h-24 border-2 border-white/10 shadow-2xl relative z-10 rounded-3xl overflow-hidden">
+                                <AvatarFallback className="bg-slate-900 text-primary text-3xl font-bold italic">
+                                    {displayCall.name?.charAt(0) || "G"}
+                                </AvatarFallback>
+                            </Avatar>
+                        </div>
+
+                        <div className="flex-1 text-center md:text-left z-10">
+                            <h2 className="text-4xl font-black tracking-tighter text-white mb-2 flex items-center justify-center md:justify-start gap-4">
+                                {displayCall.name || "Guest Caller"}
+                                {displayCall.status === 'answered' && (
+                                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                                )}
+                            </h2>
+                            <div className="flex flex-wrap justify-center md:justify-start items-center gap-3 mt-1">
+                                <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-400 border-none px-4 rounded-full font-bold">
+                                    <Phone className="w-3.5 h-3.5 mr-2" /> {displayCall.phone || "Hidden"}
+                                </Badge>
+                                <Badge variant="secondary" className="bg-blue-500/10 text-blue-400 border-none px-4 rounded-full font-bold">
+                                    <Clock className="w-3.5 h-3.5 mr-2" /> {durationDisplay}
+                                </Badge>
+                                <Badge variant="secondary" className={`px-4 rounded-full font-black uppercase text-[10px] tracking-widest ${displayCall.isInbound ? 'bg-indigo-500/20 text-indigo-300' : 'bg-orange-500/20 text-orange-300'
+                                    }`}>
+                                    {displayCall.type || (displayCall.isInbound ? "Inbound" : "Outbound")}
+                                </Badge>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1 text-right z-10">
+                            <div className="text-4xl font-black text-white flex items-center gap-2 tracking-tighter">
+                                <span className="text-emerald-500 shrink-0">$</span>
+                                {costDisplay.replace('$', '')}
+                            </div>
+                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                                <Calendar className="w-3 h-3" />
+                                {new Date(displayCall.startedAt).toLocaleString()}
+                            </p>
+                        </div>
                     </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] leading-none mb-1">Recording</p>
-                        <p className="text-sm font-bold text-slate-700 leading-none">Call Audio</p>
+
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-hidden px-4 md:px-0">
+                        {/* Conversation Transcript Area */}
+                        <div className="md:col-span-8 flex flex-col overflow-hidden bg-white/2 border-r border-white/5">
+                            <ScrollArea className="flex-1 px-10 py-6">
+                                <div className="space-y-8 pb-10">
+                                    {localLoading && messages.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-32 gap-6">
+                                            <div className="w-16 h-16 border-4 border-primary/10 border-t-primary rounded-full animate-spin shadow-lg" />
+                                            <p className="text-slate-400 font-bold animate-pulse text-sm uppercase tracking-widest">Decrypting Transcript...</p>
+                                        </div>
+                                    ) : messages.length === 0 ? (
+                                        <div className="text-center py-32 text-slate-500 flex flex-col items-center gap-6">
+                                            <div className="w-20 h-20 rounded-full bg-slate-900/50 flex items-center justify-center border border-white/5 shadow-2xl">
+                                                <X className="w-10 h-10 text-slate-600" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <p className="text-lg font-bold text-slate-300">Transcript Unavailable</p>
+                                                <p className="text-xs text-slate-500">The server hasn't generated a text log for this session yet.</p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        messages.map((m: any, i: number) => (
+                                            <div key={i} className={`flex flex-col ${m.role === 'assistant' ? 'items-start' : 'items-end'} group`}>
+                                                <span className={`text-[10px] font-black uppercase tracking-[0.2em] mb-2 px-1 ${m.role === 'assistant' ? 'text-blue-500' : 'text-slate-500'
+                                                    }`}>
+                                                    {m.role === 'assistant' ? 'AI Assistant' : 'Caller'}
+                                                </span>
+                                                <div className={`p-6 rounded-[2rem] max-w-[85%] text-sm md:text-base leading-[1.6] shadow-2xl transition-all duration-300 border ${m.role === 'assistant'
+                                                        ? 'bg-slate-900 border-white/5 text-slate-100 rounded-tl-none ring-1 ring-white/5'
+                                                        : 'bg-primary/20 border-primary/20 text-white rounded-tr-none text-right ring-1 ring-primary/20'
+                                                    }`}>
+                                                    {m.message}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </ScrollArea>
+                        </div>
+
+                        {/* Analysis Sidebar */}
+                        <div className="md:col-span-4 p-8 overflow-y-auto bg-black/40">
+                            <div className="space-y-8">
+                                <div>
+                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-4 flex items-center gap-3">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                                        Advanced Summary
+                                    </h3>
+                                    <div className="bg-slate-900/50 rounded-3xl p-6 border border-white/10 relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-100 transition-opacity">
+                                            <Maximize2 className="w-4 h-4 cursor-pointer" />
+                                        </div>
+                                        <p className="text-sm text-slate-300 leading-relaxed font-medium">
+                                            {displayCall.analysis?.summary || displayCall.summary || "Generating AI summary..."}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <Separator className="bg-white/5" />
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    {[
+                                        { label: "Status", value: displayCall.status, color: "text-emerald-400" },
+                                        { label: "Source", value: displayCall.source, color: "text-blue-400" },
+                                        { label: "Country", value: displayCall.country || "GLOBAL", color: "text-purple-400" },
+                                        { label: "Latency", value: displayCall.metadata?.latency ? `${displayCall.metadata.latency}ms` : "LOW", color: "text-amber-400" }
+                                    ].map((field, idx) => (
+                                        <div key={idx} className="bg-white/5 p-4 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors">
+                                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">{field.label}</p>
+                                            <p className={`text-sm font-bold capitalize ${field.color}`}>{field.value || "—"}</p>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <Separator className="bg-white/5" />
+
+                                <div className="space-y-4">
+                                    <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-4 flex items-center gap-3">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                        Quick Actions
+                                    </h3>
+                                    <Button asChild variant="outline" className="w-full h-14 rounded-2xl bg-slate-900 border-white/10 hover:bg-white/5 text-slate-300 gap-3 text-sm font-bold">
+                                        <a href={recordingUrl} download target="_blank">
+                                            <Download className="w-5 h-5 text-emerald-500" /> Download High-res Recording
+                                        </a>
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div className="flex items-center gap-3">
-                    <div className="relative" ref={speedMenuRef}>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className={`h-8 text-[11px] font-bold rounded-full px-3 transition-colors ${showSpeedMenu ? 'bg-blue-600 text-white hover:bg-blue-700' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'}`}
-                            onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                        >
-                            {playbackRate === 1 ? '1x' : `${playbackRate}x`}
-                        </Button>
-                        {showSpeedMenu && (
-                            <div className="absolute bottom-full mb-3 right-0 bg-white border border-slate-200 rounded-2xl shadow-2xl p-1.5 z-[100] flex flex-col min-w-[70px] animate-in fade-in slide-in-from-bottom-2 duration-200">
-                                {[0.5, 1, 1.25, 1.5, 2].map((rate) => (
+
+                {/* --- PREMIUM FLOATING PLAYER --- */}
+                {recordingUrl && (
+                    <div className="h-32 bg-slate-900/95 backdrop-blur-3xl border-t border-white/10 px-8 flex items-center gap-10 shadow-[0_-20px_50px_rgba(0,0,0,0.5)] z-[60]">
+                        <audio
+                            ref={audioRef}
+                            src={recordingUrl}
+                            onTimeUpdate={handleTimeUpdate}
+                            onLoadedMetadata={handleLoadedMetadata}
+                            onEnded={() => setIsPlaying(false)}
+                        />
+
+                        {/* Playback Controls */}
+                        <div className="flex items-center gap-4">
+                            <Button variant="ghost" size="icon" onClick={() => skip(-10)} className="rounded-full hover:bg-white/10 text-slate-400 h-12 w-12 transition-transform active:scale-90">
+                                <RotateCcw className="w-6 h-6" />
+                            </Button>
+
+                            <Button
+                                onClick={togglePlay}
+                                className="w-16 h-16 rounded-full bg-white hover:bg-slate-200 text-black shadow-[0_0_30px_rgba(255,255,255,0.3)] hover:shadow-[0_0_40px_rgba(255,255,255,0.4)] transition-all duration-300 active:scale-95 p-0"
+                            >
+                                {isPlaying ? <Pause className="fill-current w-8 h-8" /> : <Play className="fill-current w-8 h-8 translate-x-0.5" />}
+                            </Button>
+
+                            <Button variant="ghost" size="icon" onClick={() => skip(10)} className="rounded-full hover:bg-white/10 text-slate-400 h-12 w-12 transition-transform active:scale-90">
+                                <RotateCw className="w-6 h-6" />
+                            </Button>
+                        </div>
+
+                        {/* Progress Engine */}
+                        <div className="flex-1 flex flex-col gap-2 relative">
+                            <div className="flex justify-between text-[11px] font-black text-slate-500 uppercase tracking-widest px-1">
+                                <span>{formatTime(currentTime)}</span>
+                                <span className="text-white/40">{formatTime(duration)}</span>
+                            </div>
+
+                            <div className="relative group h-10 flex items-center">
+                                {/* Track Container */}
+                                <div className="absolute inset-0 h-2 bg-white/5 rounded-full my-auto overflow-hidden">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-blue-500 to-primary shadow-[0_0_20px_rgba(37,99,235,0.6)] transition-all ease-linear"
+                                        style={{ width: `${(currentTime / duration || 0) * 100}%` }}
+                                    />
+                                </div>
+
+                                {/* Invisible Range Input */}
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max={duration || 0}
+                                    step="0.01"
+                                    value={currentTime}
+                                    onChange={(e) => seek(parseFloat(e.target.value))}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30"
+                                />
+
+                                {/* Refined Thumb */}
+                                <div
+                                    className="absolute h-5 w-5 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-[3px] border-primary pointer-events-none transition-transform group-hover:scale-125 z-20"
+                                    style={{ left: `calc(${(currentTime / duration || 0) * 100}% - 10px)` }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Speed Matrix */}
+                        <div className="flex items-center gap-6 border-l border-white/10 pl-10 h-full">
+                            <div className="flex bg-black/40 rounded-2xl p-1 border border-white/5 self-center">
+                                {[0.5, 1, 1.5, 2].map(rate => (
                                     <button
                                         key={rate}
-                                        onClick={() => changePlaybackRate(rate)}
-                                        className={`px-3 py-2 text-[11px] font-bold rounded-xl text-left transition-colors ${playbackRate === rate ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                                        onClick={() => changeSpeed(rate)}
+                                        className={`px-4 py-1.5 rounded-xl text-[10px] font-black transition-all duration-300 uppercase tracking-tighter ${playbackRate === rate ? 'bg-white text-black shadow-lg' : 'text-slate-500 hover:text-white'
+                                            }`}
                                     >
                                         {rate}x
                                     </button>
                                 ))}
                             </div>
-                        )}
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full"
-                        onClick={downloadAudio}
-                        title="Download"
-                    >
-                        <Download className="h-4 w-4" />
-                    </Button>
-                </div>
-            </div>
 
-            <div className="space-y-6">
-                {/* Progress Bar Container */}
-                <div className="relative group px-1">
-                    <div className="flex justify-between text-[10px] text-slate-400 mb-2 font-bold tracking-tight">
-                        <span>{formatTime(currentTime)}</span>
-                        <span>{formatTime(duration)}</span>
-                    </div>
-                    <div className="relative h-2 w-full">
-                        <input
-                            type="range"
-                            min="0"
-                            max={duration || 0}
-                            value={currentTime}
-                            onChange={handleSeek}
-                            className="absolute inset-0 w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer accent-blue-600 z-[60] opacity-0"
-                        />
-                        <div className="absolute inset-0 h-2 bg-slate-200 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-blue-600 transition-all duration-100 ease-out relative"
-                                style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
-                            >
-                                <div className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-4 bg-white border-2 border-blue-600 rounded-full shadow-lg scale-50 group-hover:scale-100 transition-transform z-[70]" />
-                            </div>
+                            <Button size="icon" variant="ghost" className="rounded-full text-slate-500 hover:text-white hover:bg-white/10" onClick={() => setVolume(volume === 0 ? 1 : 0)}>
+                                <Volume2 className="w-5 h-5" />
+                            </Button>
                         </div>
                     </div>
-                </div>
-
-                {/* Controls */}
-                <div className="flex items-center justify-center gap-6">
-                    <button
-                        onClick={() => skip(-30)}
-                        className="p-2 text-slate-400 hover:text-blue-600 transition-all active:scale-90"
-                        title="Skip back 30s"
-                    >
-                        <SkipBack className="h-5 w-5" />
-                    </button>
-
-                    <button
-                        onClick={() => skip(-10)}
-                        className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all active:scale-90"
-                        title="Skip back 10s"
-                    >
-                        <RotateCcw className="h-6 w-6" />
-                    </button>
-
-                    <button
-                        onClick={togglePlay}
-                        className="h-16 w-16 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-2xl shadow-blue-200 transition-all transform hover:scale-105 active:scale-95 group"
-                    >
-                        {isPlaying ? (
-                            <Pause className="h-8 w-8 fill-current" />
-                        ) : (
-                            <Play className="h-8 w-8 fill-current translate-x-0.5" />
-                        )}
-                    </button>
-
-                    <button
-                        onClick={() => skip(10)}
-                        className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all active:scale-90"
-                        title="Skip forward 10s"
-                    >
-                        <RotateCw className="h-6 w-6" />
-                    </button>
-
-                    <button
-                        onClick={() => skip(30)}
-                        className="p-2 text-slate-400 hover:text-blue-600 transition-all active:scale-90"
-                        title="Skip forward 30s"
-                    >
-                        <SkipForward className="h-5 w-5" />
-                    </button>
-                </div>
-
-                <div className="flex items-center gap-4 px-2">
-                    <Volume2 className="h-4 w-4 text-slate-400 shrink-0" />
-                    <div className="relative flex-1 h-1">
-                        <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={volume}
-                            onChange={(e) => {
-                                const v = parseFloat(e.target.value);
-                                setVolume(v);
-                                if (internalAudioRef.current) internalAudioRef.current.volume = v;
-                            }}
-                            className="absolute inset-0 w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-slate-400 z-10"
-                        />
-                        <div
-                            className="absolute inset-0 h-1 bg-slate-400 rounded-full pointer-events-none"
-                            style={{ width: `${volume * 100}%` }}
-                        />
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function TranscriptMessage({ role, text }: { role: string; text: string }) {
-    const isAssistant = role === 'assistant' || role === 'model' || role === 'system' || role === 'bot';
-    const isUser = role === 'user';
-    const isTool = role === 'tool' || role === 'function' || role === 'tool-calls' || role === 'tool-output';
-
-    if (isTool) {
-        // Optional: Render tools differently or skip
-        return (
-            <div className="flex gap-3 justify-center">
-                <div className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded border border-slate-200 font-mono max-w-[80%] whitespace-pre-wrap text-center">
-                    Tool Info: {text}
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className={`flex gap-3 ${isAssistant ? '' : 'flex-row-reverse'}`}>
-            <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${isAssistant ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
-                {isAssistant ? <span className="text-xs font-bold">AI</span> : <span className="text-xs font-bold">U</span>}
-            </div>
-            <div className={`max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${isAssistant
-                ? 'bg-white border border-slate-200 text-slate-700 rounded-tl-none'
-                : 'bg-blue-600 text-white rounded-tr-none'
-                }`}>
-                {text}
-            </div>
-        </div>
+                )}
+            </DialogContent>
+        </Dialog>
     );
 }

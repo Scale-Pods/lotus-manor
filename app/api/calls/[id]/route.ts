@@ -36,10 +36,14 @@ export async function GET(
         const durationSeconds = data.metadata?.call_duration_secs || data.call_duration_secs || data.analysis?.call_duration_secs || 0;
         const isInbound = (data.direction || dynamicVars.direction || dynamicVars.type || data.metadata?.direction || "").toLowerCase() === 'inbound';
 
+        // Name Detection
+        const name = data.metadata?.user_name || data.metadata?.name || dynamicVars.user_name || dynamicVars.name || dynamicVars.customer_name || dynamicVars.first_name || dynamicVars.custom__name || dynamicVars.audient__name || (dynamicVars.first_name ? `${dynamicVars.first_name} ${dynamicVars.last_name || ''}` : "Guest");
+
         // Normalize for frontend
         const normalized = {
             ...data,
             id: data.conversation_id,
+            name: name === "Guest" ? "Guest" : name,
             startedAt: data.metadata?.start_time_unix_secs ? new Date(data.metadata.start_time_unix_secs * 1000).toISOString() : null,
             durationSeconds,
             cost: isInbound
