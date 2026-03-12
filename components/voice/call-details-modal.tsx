@@ -308,178 +308,23 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 }
 
 function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [currentTime, setCurrentTime] = useState(0);
-    const [duration, setDuration] = useState(0);
-    const [volume, setVolume] = useState(1);
-
-    const internalAudioRef = useRef<HTMLAudioElement | null>(null);
-
-    useEffect(() => {
-        const audio = new Audio(audioUrl);
-        internalAudioRef.current = audio;
-
-        const setAudioData = () => {
-            setDuration(audio.duration);
-        };
-
-        const setAudioTime = () => {
-            setCurrentTime(audio.currentTime);
-        };
-
-        const handleEnded = () => {
-            setIsPlaying(false);
-            setCurrentTime(0);
-        };
-
-        // Events
-        audio.addEventListener('loadedmetadata', setAudioData);
-        audio.addEventListener('timeupdate', setAudioTime);
-        audio.addEventListener('ended', handleEnded);
-
-        return () => {
-            audio.pause();
-            audio.removeEventListener('loadedmetadata', setAudioData);
-            audio.removeEventListener('timeupdate', setAudioTime);
-            audio.removeEventListener('ended', handleEnded);
-            internalAudioRef.current = null;
-        };
-    }, [audioUrl]);
-
-    const togglePlay = () => {
-        if (!internalAudioRef.current) return;
-        if (isPlaying) {
-            internalAudioRef.current.pause();
-        } else {
-            internalAudioRef.current.play();
-        }
-        setIsPlaying(!isPlaying);
-    };
-
-    const formatTime = (time: number) => {
-        if (isNaN(time)) return "0:00";
-        const minutes = Math.floor(time / 60);
-        const seconds = Math.floor(time % 60);
-        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    };
-
-    const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const time = parseFloat(e.target.value);
-        setCurrentTime(time);
-        if (internalAudioRef.current) {
-            internalAudioRef.current.currentTime = time;
-        }
-    };
-
-    const skip = (amount: number) => {
-        if (!internalAudioRef.current) return;
-        const newTime = Math.max(0, Math.min(duration, internalAudioRef.current.currentTime + amount));
-        internalAudioRef.current.currentTime = newTime;
-        setCurrentTime(newTime);
-    };
-
     return (
-        <div className="mt-6 p-6 border border-slate-200 rounded-3xl bg-gradient-to-br from-white to-slate-50 shadow-xl shadow-slate-200/50 space-y-6">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-50 text-blue-600">
-                        <Volume2 className="h-4 w-4" />
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] leading-none mb-1">Recording</p>
-                        <p className="text-sm font-bold text-slate-700 leading-none">Call Audio</p>
-                    </div>
+        <div className="mt-6 p-5 border border-slate-200 rounded-xl bg-slate-50/50 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-50 text-blue-600">
+                    <Volume2 className="h-4 w-4" />
                 </div>
-                <div className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-mono shadow-sm">
-                    {formatTime(currentTime)} / {formatTime(duration)}
+                <div>
+                    <h3 className="text-sm font-bold text-slate-900 leading-none">Call Recording</h3>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">Play to review conversation</p>
                 </div>
             </div>
-
-            <div className="space-y-6">
-                {/* Progress Bar Container */}
-                <div className="relative group px-1">
-                    <div className="flex justify-between text-[10px] text-slate-400 mb-2 font-medium">
-                        <span>{formatTime(currentTime)}</span>
-                        <span>{formatTime(duration)}</span>
-                    </div>
-                    <div className="relative h-2 w-full flex items-center">
-                        <input
-                            type="range"
-                            min="0"
-                            max={duration || 0}
-                            step="0.01"
-                            value={currentTime}
-                            onChange={handleSeek}
-                            className="absolute inset-0 w-full h-full appearance-none cursor-pointer z-20 opacity-0"
-                        />
-                        {/* Background track */}
-                        <div className="absolute inset-0 h-2 bg-slate-200 rounded-full pointer-events-none" />
-                        {/* Filled track */}
-                        <div
-                            className="absolute left-0 h-2 bg-blue-600 rounded-full pointer-events-none transition-all duration-75"
-                            style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
-                        />
-                        {/* Scrubber Thumb */}
-                        <div
-                            className="absolute top-1/2 -translate-y-1/2 h-4 w-4 bg-white border-2 border-blue-600 rounded-full shadow-md scale-0 group-hover:scale-100 transition-transform pointer-events-none z-10"
-                            style={{ left: `calc(${(currentTime / (duration || 1)) * 100}% - 8px)` }}
-                        />
-                    </div>
-                </div>
-
-                {/* Controls */}
-                <div className="flex items-center justify-center gap-8">
-                    <button
-                        onClick={() => skip(-10)}
-                        className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all active:scale-90"
-                        title="Skip back 10s"
-                    >
-                        <RotateCcw className="h-6 w-6" />
-                    </button>
-
-                    <button
-                        onClick={togglePlay}
-                        className="h-16 w-16 flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-2xl shadow-blue-200 transition-all transform hover:scale-105 active:scale-95 group"
-                    >
-                        {isPlaying ? (
-                            <Pause className="h-8 w-8 fill-current" />
-                        ) : (
-                            <Play className="h-8 w-8 fill-current translate-x-0.5" />
-                        )}
-                    </button>
-
-                    <button
-                        onClick={() => skip(10)}
-                        className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all active:scale-90"
-                        title="Skip forward 10s"
-                    >
-                        <RotateCw className="h-6 w-6" />
-                    </button>
-                </div>
-
-                <div className="flex items-center gap-4 px-2">
-                    <Volume2 className="h-4 w-4 text-slate-400 shrink-0" />
-                    <div className="relative flex-1 h-1">
-                        <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={volume}
-                            onChange={(e) => {
-                                const v = parseFloat(e.target.value);
-                                setVolume(v);
-                                if (internalAudioRef.current) internalAudioRef.current.volume = v;
-                            }}
-                            className="absolute inset-0 w-full h-1 bg-slate-100 rounded-full appearance-none cursor-pointer accent-slate-400 z-10"
-                        />
-                        <div
-                            className="absolute inset-0 h-1 bg-slate-400 rounded-full pointer-events-none"
-                            style={{ width: `${volume * 100}%` }}
-                        />
-                    </div>
-                </div>
-            </div>
+            <audio
+                src={audioUrl}
+                controls
+                className="w-full h-12"
+                preload="metadata"
+            />
         </div>
     );
 }
