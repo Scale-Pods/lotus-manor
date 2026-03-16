@@ -62,13 +62,12 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
             const stages: string[] = [];
             const stage_data: Record<string, any> = {};
 
-            const emailKeys = ["Email_1", "Email_2", "Email_3"];
-            emailKeys.forEach((key, i) => {
-                const val = getVal(l, [key, `Email ${i + 1}`]);
-                if (val) {
-                    const stageName = `Email ${i + 1}`;
-                    stages.push(stageName);
-                    stage_data[stageName] = val;
+            // Direct access — no getVal normalization, read ONLY Email_1/2/3 underscore columns
+            ["Email_1", "Email_2", "Email_3"].forEach((key) => {
+                const val = l[key]; // direct property access — no fallback to "Email 1"
+                if (val !== undefined && val !== null && String(val).trim() !== "") {
+                    stages.push(key);          // stage name = "Email_1" (matches column)
+                    stage_data[key] = val;
                 }
             });
 
@@ -106,7 +105,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 updated_at: getVal(l, ["Updated At", "updated_at"]),
                 last_contacted: getVal(l, ["Last Contacted", "last_contacted"]),
                 sender_email: getVal(l, ["Senders email", "sender_email"]),
-                email_replied: getVal(l, ["Email_Replied", "Email Replied"]),
+                email_replied: l["Email_Replied"] ?? null,
                 whatsapp_replied: getVal(l, ["W.P_Replied", "Replied", "whatsapp_replied"]),
                 "W.P_1": getVal(l, ["W.P_1"]),
                 "W.P_2": getVal(l, ["W.P_2"]),
@@ -128,13 +127,13 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
             const stages: string[] = [];
             const stage_data: Record<string, any> = {};
 
-            // Follow-up Emails 1-3 map to Dashboard Email 4-6
+            // Direct access — read ONLY Email_1/2/3 underscore columns from followup
             for (let i = 1; i <= 3; i++) {
-                const val = getVal(l, [`Email ${i}`, `Email_${i}`]);
-                if (val) {
-                    const stageName = `Email ${3 + i}`;
-                    stages.push(stageName);
-                    stage_data[stageName] = val;
+                const key = `Email_${i}`;
+                const val = l[key]; // direct — no normalization fallback
+                if (val !== undefined && val !== null && String(val).trim() !== "") {
+                    stages.push(key);          // stage name = "Email_1" etc.
+                    stage_data[key] = val;
                 }
             }
 
@@ -160,7 +159,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 last_contacted: getVal(l, ["Last Contacted"]),
                 dropped: getVal(l, ["Dropped"]),
                 sender_email: getVal(l, ["Senders email"]),
-                email_replied: getVal(l, ["Email_Replied", "Email Replied"]),
+                email_replied: l["Email_Replied"] ?? null,
                 whatsapp_replied: getVal(l, ["W.P_Replied", "Replied", "whatsapp_replied"]),
                 "W.P_1": getVal(l, ["W.P_1"]),
                 "W.P_2": getVal(l, ["W.P_2"]),
@@ -182,13 +181,13 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
             const stages: string[] = [];
             const stage_data: Record<string, any> = {};
 
-            // Nurture Email_1-9 map to Dashboard Email 7-15
+            // Direct access — read ONLY Email_1 through Email_9 underscore columns from nurture
             for (let i = 1; i <= 9; i++) {
-                const val = getVal(l, [`Email_${i}`, `Email ${i}`]);
-                if (val) {
-                    const stageName = `Email ${6 + i}`;
-                    stages.push(stageName);
-                    stage_data[stageName] = val;
+                const key = `Email_${i}`;
+                const val = l[key]; // direct — no normalization fallback
+                if (val !== undefined && val !== null && String(val).trim() !== "") {
+                    stages.push(key);          // stage name = "Email_1" etc.
+                    stage_data[key] = val;
                 }
             }
 
@@ -229,7 +228,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 last_contacted: getVal(l, ["Last Contacted"]),
                 dropped: getVal(l, ["Dropped"]),
                 sender_email: getVal(l, ["Senders email"]),
-                email_replied: getVal(l, ["Email_Replied", "Email Replied"]),
+                email_replied: l["Email_Replied"] ?? null,
                 whatsapp_replied: getVal(l, ["W.P_Replied", "Replied", "whatsapp_replied"]),
                 "W.P_1": getVal(l, ["W.P_1"]),
                 "W.P_2": getVal(l, ["W.P_2"]),

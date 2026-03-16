@@ -1,7 +1,6 @@
 "use client";
 
 import { LMLoader } from "@/components/lm-loader";
-
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,34 +12,16 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {
-    Bell,
-    Mail,
-    ChevronDown,
-    ChevronUp,
-    Reply,
-    Search,
-    Calendar as CalendarIcon
-} from "lucide-react";
+import { Mail, ChevronDown, ChevronUp, Reply, Search } from "lucide-react";
 import React, { useState, useEffect, useMemo } from "react";
 import {
     Collapsible,
     CollapsibleContent,
     CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { format } from "date-fns";
-import { cn } from "@/lib/utils";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { useData } from "@/context/DataContext";
-
-// Mock data removed
-
 
 export default function ReceivedEmailsPage() {
     const { leads: allLeads, loadingLeads } = useData();
@@ -57,145 +38,135 @@ export default function ReceivedEmailsPage() {
 
             try {
                 const realReplies: any[] = [];
+
                 allLeads.forEach((lead: any, index: number) => {
-                    // Check if lead replied specifically via email
-                    const emailReply = lead.email_replied || lead.Email_Replied || lead.replied;
+                    // Read Email_Replied column value (mapped to email_replied in leads-utils)
+                    const emailReply = lead.email_replied;
+                    if (!emailReply || emailReply === "No" || String(emailReply).trim() === "") return;
 
-                    if (emailReply && emailReply !== "No" && emailReply !== "none") {
-                        const trimmed = String(emailReply).trim();
-                        const lines = trimmed.split('\n');
-                        const lastLine = lines[lines.length - 1].trim();
+                    const trimmed = String(emailReply).trim();
+                    const lines = trimmed.split("\n");
+                    const lastLine = lines[lines.length - 1].trim();
+                    const lastLineDate = new Date(lastLine);
 
-                        // Detect if there's a timestamp at the end of the reply column
-                        const lastLineDate = new Date(lastLine);
-                        let displayDate = lead.created_at;
-                        let cleanEmailReply = emailReply;
+                    // Default display date is the lead's created_at
+                    let displayDate: string = lead.created_at || new Date().toISOString();
+                    let cleanContent = trimmed;
 
-                        if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-                            displayDate = lastLineDate.toISOString();
-                            // If it's a timestamp, the rest is the content
-                            cleanEmailReply = lines.slice(0, -1).join('\n').trim() || "Email Reply Received";
-                        }
-
-                        let repliedTo = "";
-                        const replyTime = new Date(displayDate).getTime();
-                        if (!isNaN(replyTime) && lead.stages_passed) {
-                            let maxTime = -1;
-                            lead.stages_passed.forEach((stage: string) => {
-                                if (stage.toLowerCase().includes("email")) {
-                                    const raw = lead.stage_data?.[stage];
-                                    if (raw && typeof raw === 'string') {
-                                        const tStr = raw.trim();
-                                        const lDate = new Date(tStr.split('\n').pop()!.trim()).getTime();
-                                        const fDate = new Date(tStr).getTime();
-                                        const emTime = !isNaN(lDate) ? lDate : (!isNaN(fDate) ? fDate : -1);
-                                        if (emTime !== -1 && emTime <= replyTime + 60000 && emTime > maxTime) {
-                                            maxTime = emTime;
-                                            repliedTo = stage;
-                                        }
-                                    }
-                                }
-                            });
-                        }
-
-                        // Normalize specific email loop step just like Sent page
-                        let displayStageType = "";
-                        if (repliedTo) {
-                            displayStageType = repliedTo;
-                            const loopName = (lead.source_loop || "").toLowerCase();
-                            if (loopName.includes("follow")) {
-                                if (repliedTo === "Email 4") displayStageType = "Email 1";
-                                else if (repliedTo === "Email 5") displayStageType = "Email 2";
-                                else if (repliedTo === "Email 6") displayStageType = "Email 3";
-                            } else if (loopName.includes("nurture")) {
-                                const match = repliedTo.match(/Email (\d+)/);
-                                if (match) {
-                                    const num = parseInt(match[1]);
-                                    if (num >= 7 && num <= 15) {
-                                        displayStageType = `Email ${num - 6}`;
-                                    }
-                                }
-                            }
-                        }
-
-                        realReplies.push({
-                            id: `${lead.id || index}-email-reply`,
-                            sender: lead.email || "No Email Provided",
-                            status: "Replied",
-                            subject: displayStageType ? `Reply to ${displayStageType}` : "Email Reply",
-                            timestamp: displayDate ? format(new Date(displayDate), 'MMM dd, yyyy • p') : "Unknown Date",
-                            senderName: lead.name || "Lead",
-                            content: cleanEmailReply,
-                            originalDate: displayDate,
-                            loop: lead.source_loop,
-                            repliedToStep: displayStageType
-                        });
+                    // If last line of Email_Replied is a timestamp, use it as the reply date
+                    if (
+                        !isNaN(lastLineDate.getTime()) &&
+                        lastLine.includes("-") &&
+                        lastLine.includes(":")
+                    ) {
+                        displayDate = lastLineDate.toISOString();
+                        cleanContent = lines.slice(0, -1).join("\n").trim() || "Email Reply Received";
                     }
+
+                    // Last email stage = what they replied to. Stages are now "Email_1" etc.
+                    const emailStages = (lead.stages_passed || []).filter((s: string) =>
+                        s.startsWith("Email_")
+                    );
+                    const lastEmailStage = emailStages.length > 0 ? emailStages[emailStages.length - 1] : "";
+
+                    // Stage name IS the column name — no remapping needed
+                    const displayRepliedTo = lastEmailStage; // e.g. "Email_1", "Email_2"
+
+                    let formattedTimestamp = "Unknown Date";
+                    try {
+                        formattedTimestamp = format(new Date(displayDate), "MMM dd, yyyy • p");
+                    } catch (_) { }
+
+                    realReplies.push({
+                        id: `${lead.id || index}-email-reply`,
+                        sender: lead.email || "No Email Provided",
+                        senderName: lead.name || "Lead",
+                        status: "Replied",
+                        subject: displayRepliedTo ? `Reply to ${displayRepliedTo}` : "Email Reply",
+                        timestamp: formattedTimestamp,
+                        content: cleanContent,
+                        originalDate: displayDate,
+                        loop: lead.source_loop || "",
+                        repliedToStep: displayRepliedTo,
+                    });
                 });
-                // Sort replies by date (newest first)
-                realReplies.sort((a, b) => {
-                    const dateA = a.originalDate ? new Date(a.originalDate).getTime() : 0;
-                    const dateB = b.originalDate ? new Date(b.originalDate).getTime() : 0;
-                    return dateB - dateA;
-                });
+
+                // Sort newest first by default
+                realReplies.sort(
+                    (a, b) =>
+                        new Date(b.originalDate).getTime() - new Date(a.originalDate).getTime()
+                );
                 setReplies(realReplies);
             } catch (e) {
-                console.error("Received emails processing error", e);
+                console.error("Received emails error", e);
             }
         };
         fetchReplies();
     }, [allLeads, loadingLeads]);
 
     const filteredReplies = useMemo(() => {
-        let result = replies.filter(reply => {
-            const matchesLoop = loopFilter === "all" || reply.loop?.toLowerCase() === loopFilter.toLowerCase();
-            const matchesSearch = reply.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                reply.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                reply.senderName.toLowerCase().includes(searchQuery.toLowerCase());
-
-            // Date Range Filtering
-            if (dateRange?.from) {
-                const replyDateStr = reply.originalDate;
-                if (!replyDateStr) return false;
-                const replyDate = new Date(replyDateStr);
-                if (isNaN(replyDate.getTime())) return false;
-
-                const from = new Date(dateRange.from);
-                from.setHours(0, 0, 0, 0);
-                const to = dateRange.to ? new Date(dateRange.to) : from;
-                to.setHours(23, 59, 59, 999);
-
-                if (replyDate < from || replyDate > to) return false;
+        let result = replies.filter((reply) => {
+            // Loop filter
+            if (loopFilter !== "all") {
+                const loop = (reply.loop || "").toLowerCase();
+                if (loopFilter === "intro" && !loop.includes("intro")) return false;
+                if (loopFilter === "followup" && !loop.includes("follow")) return false;
+                if (loopFilter === "nurture" && !loop.includes("nurture")) return false;
             }
 
-            return matchesLoop && matchesSearch;
+            // Search
+            const q = searchQuery.toLowerCase();
+            if (
+                q &&
+                !reply.sender.toLowerCase().includes(q) &&
+                !reply.content.toLowerCase().includes(q) &&
+                !reply.senderName.toLowerCase().includes(q)
+            )
+                return false;
+
+            // Date range
+            if (dateRange?.from) {
+                const rd = reply.originalDate ? new Date(reply.originalDate) : null;
+                if (!rd || isNaN(rd.getTime())) return false;
+                const from = new Date(dateRange.from);
+                from.setHours(0, 0, 0, 0);
+                const to = dateRange.to ? new Date(dateRange.to) : new Date(from);
+                to.setHours(23, 59, 59, 999);
+                if (rd < from || rd > to) return false;
+            }
+
+            return true;
         });
 
-        // Apply Sorting
+        // Sort
         return result.sort((a, b) => {
-            const dateA = a.originalDate ? new Date(a.originalDate).getTime() : 0;
-            const dateB = b.originalDate ? new Date(b.originalDate).getTime() : 0;
-            return sortBy === "newest" ? dateB - dateA : dateA - dateB;
+            const da = a.originalDate ? new Date(a.originalDate).getTime() : 0;
+            const db = b.originalDate ? new Date(b.originalDate).getTime() : 0;
+            return sortBy === "newest" ? db - da : da - db;
         });
     }, [replies, loopFilter, searchQuery, dateRange, sortBy]);
 
     return (
         <div className="space-y-6 pb-10 max-w-5xl mx-auto relative min-h-[500px]">
             {loading && <LMLoader />}
-            {/* Page Header */}
+
+            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Received Emails</h1>
-                    <p className="text-slate-500">View all received emails and replies from your campaigns</p>
+                    <p className="text-slate-500">
+                        View all received email replies from your campaigns
+                    </p>
                 </div>
-
             </div>
 
             {/* Summary Card */}
             <Card className="bg-white border-slate-200 shadow-sm">
                 <CardContent className="p-6 flex items-center justify-between">
                     <div>
-                        <h3 className="text-2xl font-bold text-slate-900">{loading ? "..." : filteredReplies.length} replies received</h3>
+                        <h3 className="text-2xl font-bold text-slate-900">
+                            {loading ? "..." : filteredReplies.length} replies received
+                        </h3>
                         <p className="text-sm font-medium text-slate-500 mt-1">Total Replies</p>
                     </div>
                     <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
@@ -204,7 +175,7 @@ export default function ReceivedEmailsPage() {
                 </CardContent>
             </Card>
 
-            {/* Search & Filters Section */}
+            {/* Search & Filters */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
                 <div className="flex flex-col md:flex-row gap-4">
                     <div className="relative flex-1">
@@ -229,7 +200,7 @@ export default function ReceivedEmailsPage() {
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Loops</SelectItem>
-                            <SelectItem value="Intro">Intro Loop</SelectItem>
+                            <SelectItem value="intro">Intro Loop</SelectItem>
                             <SelectItem value="followup">Follow Up</SelectItem>
                             <SelectItem value="nurture">Nurture Loop</SelectItem>
                         </SelectContent>
@@ -261,25 +232,32 @@ export default function ReceivedEmailsPage() {
                 </div>
             </div>
 
-            {/* Email Reply List */}
+            {/* Reply List */}
             <div className="space-y-4">
-                {!loading && filteredReplies.map((reply) => (
-                    <EmailReplyCard key={reply.id} reply={reply} />
-                ))}
+                {!loading &&
+                    filteredReplies.map((reply) => (
+                        <EmailReplyCard key={reply.id} reply={reply} />
+                    ))}
                 {!loading && filteredReplies.length === 0 && (
-                    <div className="p-10 text-center text-slate-500">No replies found.</div>
+                    <div className="flex flex-col items-center justify-center h-64 text-slate-400 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                        <Mail className="h-8 w-8 mb-2 opacity-50" />
+                        <p>No replies found.</p>
+                    </div>
                 )}
             </div>
         </div>
     );
 }
 
-
 function EmailReplyCard({ reply }: { reply: any }) {
     const [isOpen, setIsOpen] = useState(false);
 
     return (
-        <Collapsible open={isOpen} onOpenChange={setIsOpen} className="bg-white border border-slate-200 rounded-xl shadow-sm transition-all hover:shadow-md">
+        <Collapsible
+            open={isOpen}
+            onOpenChange={setIsOpen}
+            className="bg-white border border-slate-200 rounded-xl shadow-sm transition-all hover:shadow-md"
+        >
             <CollapsibleTrigger asChild>
                 <div className="p-6 flex items-center gap-4 cursor-pointer group">
                     <div className="h-12 w-12 shrink-0 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center border border-emerald-100">
@@ -288,19 +266,34 @@ function EmailReplyCard({ reply }: { reply: any }) {
 
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-2">
-                                <h4 className="text-lg font-bold text-slate-900 truncate">{reply.senderName}</h4>
-                                <Badge variant="outline" className="text-purple-600 bg-purple-50 border-purple-100 text-[10px] uppercase font-bold">
-                                    {reply.loop}
-                                </Badge>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-lg font-bold text-slate-900 truncate">
+                                    {reply.senderName}
+                                </h4>
+                                {reply.loop && (
+                                    <Badge
+                                        variant="outline"
+                                        className="text-purple-600 bg-purple-50 border-purple-100 text-[10px] uppercase font-bold"
+                                    >
+                                        {reply.loop}
+                                    </Badge>
+                                )}
                                 {reply.repliedToStep && (
-                                    <Badge variant="outline" className="text-indigo-600 bg-indigo-50 border-indigo-100 text-[10px] font-bold gap-1">
+                                    <Badge
+                                        variant="outline"
+                                        className="text-indigo-600 bg-indigo-50 border-indigo-100 text-[10px] font-bold gap-1"
+                                    >
                                         <Reply className="h-3 w-3" />
                                         {reply.repliedToStep}
                                     </Badge>
                                 )}
                                 {reply.timestamp && (
-                                    <Badge variant="outline" className="text-cyan-600 bg-cyan-50 border-cyan-100 text-[10px] font-bold">{reply.timestamp}</Badge>
+                                    <Badge
+                                        variant="outline"
+                                        className="text-cyan-600 bg-cyan-50 border-cyan-100 text-[10px] font-bold"
+                                    >
+                                        {reply.timestamp}
+                                    </Badge>
                                 )}
                             </div>
                         </div>
@@ -308,6 +301,11 @@ function EmailReplyCard({ reply }: { reply: any }) {
                             <Mail className="h-3 w-3 text-slate-400" />
                             <p className="text-xs text-slate-500 font-medium truncate">{reply.sender}</p>
                         </div>
+                        {!isOpen && (
+                            <p className="text-sm text-slate-400 truncate max-w-md mt-1">
+                                {reply.content.substring(0, 80)}...
+                            </p>
+                        )}
                     </div>
 
                     <div className="shrink-0 p-2 rounded-full text-slate-400 group-hover:bg-slate-50 group-hover:text-slate-600 transition-colors">
@@ -319,7 +317,6 @@ function EmailReplyCard({ reply }: { reply: any }) {
             <CollapsibleContent>
                 <div className="px-6 pb-6 pt-0">
                     <div className="pl-[64px] space-y-4 border-t border-slate-100 pt-4">
-                        {/* Email Body */}
                         <div className="p-4 bg-slate-50 rounded-lg border border-slate-100 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
                             {reply.content}
                         </div>

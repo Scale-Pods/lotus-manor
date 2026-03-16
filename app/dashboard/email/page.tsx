@@ -68,46 +68,45 @@ export default function EmailDashboardPage() {
 
                 filteredLeads.forEach((lead: any) => {
                     const stages = lead.stages_passed || [];
+                    const loop = (lead.source_loop || "").toLowerCase();
 
-                    // Count Stages
                     stages.forEach((stage: string) => {
-                        const s = stage.toLowerCase();
-                        if (s.includes("email")) {
-                            totalEmails++;
+                        const s = stage.toLowerCase().trim();
+                        // Stages are now "email_1", "email_2" etc. (underscore = actual column names)
+                        if (!s.startsWith("email_")) return;
 
-                            // Map to arrays
-                            // Intro
-                            if (s.includes("email 1") && !s.includes("10") && !s.includes("11") && !s.includes("12") && !s.includes("13") && !s.includes("14") && !s.includes("15")) intro[0]++;
-                            if (s.includes("email 2")) intro[1]++;
-                            if (s.includes("email 3")) intro[2]++;
+                        totalEmails++;
 
-                            // Follow Up
-                            if (s.includes("email 4")) followUp[0]++;
-                            if (s.includes("email 5")) followUp[1]++;
-                            if (s.includes("email 6")) followUp[2]++;
-
-                            // Nurture
-                            if (s.includes("email 7")) nurture[0]++;
-                            if (s.includes("email 8")) nurture[1]++;
-                            if (s.includes("email 9")) nurture[2]++;
-                            if (s.includes("email 10")) nurture[3]++;
-                            if (s.includes("email 11")) nurture[4]++;
-                            if (s.includes("email 12")) nurture[5]++;
-                            if (s.includes("email 13")) nurture[6]++;
-                            if (s.includes("email 14")) nurture[7]++;
-                            if (s.includes("email 15")) nurture[8]++;
+                        if (loop === "intro") {
+                            if (s === "email_1") intro[0]++;
+                            else if (s === "email_2") intro[1]++;
+                            else if (s === "email_3") intro[2]++;
+                        } else if (loop.includes("follow")) {
+                            if (s === "email_1") followUp[0]++;
+                            else if (s === "email_2") followUp[1]++;
+                            else if (s === "email_3") followUp[2]++;
+                        } else if (loop.includes("nurture")) {
+                            if (s === "email_1") nurture[0]++;
+                            else if (s === "email_2") nurture[1]++;
+                            else if (s === "email_3") nurture[2]++;
+                            else if (s === "email_4") nurture[3]++;
+                            else if (s === "email_5") nurture[4]++;
+                            else if (s === "email_6") nurture[5]++;
+                            else if (s === "email_7") nurture[6]++;
+                            else if (s === "email_8") nurture[7]++;
+                            else if (s === "email_9") nurture[8]++;
                         }
                     });
 
-                    if (lead.replied && lead.replied !== "No") {
+                    if (lead.email_replied && lead.email_replied !== "No" && String(lead.email_replied).trim() !== "") {
                         replyCount++;
                     }
 
                     if (lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes")) {
                         unsubscribedCount++;
-                        unsubsLeads.push(lead);
                     }
                 });
+
 
                 setData({
                     totalEmails: totalEmails,
@@ -240,7 +239,7 @@ export default function EmailDashboardPage() {
 
                     <TabsContent value="intro" className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {["Email 1", "Email 2", "Email 3"].map((name, i) => (
+                            {["Email_1", "Email_2", "Email_3"].map((name, i) => (
                                 <BreakdownCard
                                     key={name}
                                     title={name}
@@ -255,7 +254,7 @@ export default function EmailDashboardPage() {
 
                     <TabsContent value="followup" className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {["Email 4", "Email 5", "Email 6"].map((name, i) => (
+                            {["Email_1", "Email_2", "Email_3"].map((name, i) => (
                                 <BreakdownCard
                                     key={name}
                                     title={name}
@@ -269,12 +268,11 @@ export default function EmailDashboardPage() {
                     </TabsContent>
 
                     <TabsContent value="nurture" className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 gap-6">
-                            {/* User asked for 9 cards. Grid 3x3 is good. */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             {Array.from({ length: 9 }).map((_, i) => (
                                 <BreakdownCard
                                     key={`nurture-${i}`}
-                                    title={`Email ${i + 7}`}
+                                    title={`Email_${i + 1}`}
                                     count={data.nurtureCounts[i]}
                                     total={data.totalEmails}
                                     color="#8b5cf6"
