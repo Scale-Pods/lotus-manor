@@ -9,26 +9,28 @@ export async function GET(
     try {
         const apiKey = process.env.ELEVENLABS_API_KEY;
         const { id } = await context.params;
-        const conversationId = id;
 
         if (!apiKey) return NextResponse.json({ error: "Configuration error" }, { status: 500 });
 
-        const response = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${conversationId}/audio`, {
+        const upstream = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${id}/audio`, {
             headers: { 'xi-api-key': apiKey }
         });
 
-        if (!response.ok) {
-            throw new Error(`ElevenLabs error: ${response.status}`);
+        if (!upstream.ok) {
+            throw new Error(`ElevenLabs error: ${upstream.status}`);
         }
 
-        // Return the binary audio stream with appropriate content type
-        const audioBuffer = await response.arrayBuffer();
-
-        return new NextResponse(audioBuffer, {
+        // Stream the response body directly to the client instead of buffering
+        // the full file. This lets the browser start buffering and playing
+        // audio almost immediately rather than waiting for the full download.
+        return new NextResponse(upstream.body, {
+            status: 200,
             headers: {
-                'Content-Type': 'audio/mpeg', // ElevenLabs typically returns mp3
-                'Cache-Control': 'public, max-age=3600'
-            }
+                'Content-Type': upstream.headers.get('Content-Type') || 'audio/mpeg',
+                'Content-Length': upstream.headers.get('Content-Length') || '',
+                // Cache for 1 hour so re-opening the same call is instant
+                'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+            },
         });
 
     } catch (error) {

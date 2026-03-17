@@ -147,7 +147,7 @@ export default function VoiceLogsPage() {
 
         const mappedCalls = globalCalls.map((c: any) => {
             const isInbound = c.isInbound === true;
-            
+
             // Eagerly resolve name from our Leads database based on phone
             let resolvedName = c.name;
             if ((!resolvedName || resolvedName === "Guest" || resolvedName === "Unknown") && c.phone && leads) {
@@ -171,6 +171,12 @@ export default function VoiceLogsPage() {
         setAllCallsMapped(mappedCalls);
     }, [globalCalls, loadingCalls, leads, loadingLeads]);
 
+    // Reset to page 1 ONLY when the user explicitly changes a filter — not when background data enrichment updates allCallsMapped.
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [dateRange, statusFilter, typeFilter, phoneFilter]);
+
+    // Re-apply filtering whenever data or filters change (no page reset here).
     useEffect(() => {
         const filteredCalls = allCallsMapped.filter((call: any) => {
             if (dateRange?.from) {
@@ -201,7 +207,6 @@ export default function VoiceLogsPage() {
         });
 
         setCalls(filteredCalls);
-        setCurrentPage(1);
     }, [allCallsMapped, dateRange, statusFilter, typeFilter, phoneFilter]);
 
     const handleRefresh = () => {

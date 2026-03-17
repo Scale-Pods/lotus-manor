@@ -8,11 +8,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, SkipBack, SkipForward, RotateCcw, RotateCw, Volume2, MoreVertical, X, Phone, Clock, DollarSign, Calendar, ArrowRight, ArrowLeft, User } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Phone, Clock, Calendar, ArrowRight, User } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 interface CallDetailsModalProps {
     open: boolean;
@@ -321,23 +321,290 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 }
 
 function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
+    const audioRef = useRef<HTMLAudioElement>(null);
+    const seekRef = useRef<HTMLDivElement>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [volume, setVolume] = useState(1);
+    const [isMuted, setIsMuted] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isDragging, setIsDragging] = useState(false);
+
+    const formatTime = (secs: number) => {
+        if (!isFinite(secs) || isNaN(secs)) return '0:00';
+        const m = Math.floor(secs / 60);
+        const s = Math.floor(secs % 60);
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
+    const togglePlay = useCallback(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        if (isPlaying) {
+            audio.pause();
+        } else {
+            audio.play().catch(() => { });
+        }
+    }, [isPlaying]);
+
+    const handleSeekClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        const audio = audioRef.current;
+        const bar = seekRef.current;
+        // Guard: only seek when duration is a real, finite, positive number
+        if (!audio || !bar || !isFinite(duration) || duration <= 0) return;
+        const rect = bar.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const newTime = ratio * duration;
+        if (isFinite(newTime)) {
+            audio.currentTime = newTime;
+            setCurrentTime(newTime);
+        }
+    };
+
+    const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const v = parseFloat(e.target.value);
+        setVolume(v);
+        if (audioRef.current) audioRef.current.volume = v;
+        setIsMuted(v === 0);
+    };
+
+    const toggleMute = () => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        if (isMuted) {
+            audio.volume = volume || 1;
+            audio.muted = false;
+            setIsMuted(false);
+        } else {
+            audio.muted = true;
+            setIsMuted(true);
+        }
+    };
+
+    const skip = (secs: number) => {
+        const audio = audioRef.current;
+        if (!audio || !isFinite(duration) || duration <= 0) return;
+        const newTime = Math.max(0, Math.min(duration, audio.currentTime + secs));
+        if (isFinite(newTime)) audio.currentTime = newTime;
+    };
+
+    // Playback speed — cycles through SPEEDS on each click
+    const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+    const [speed, setSpeed] = useState(1);
+    const changeSpeed = () => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
+        audio.playbackRate = next;
+        setSpeed(next);
+    };
+
+    // Seek range via sliders (values in seconds, live-update as you drag)
+    const [rangeStart, setRangeStart] = useState(0);
+    const [rangeEnd, setRangeEnd] = useState(0);
+
+    // Keep rangeEnd in sync when duration becomes known
+    useEffect(() => {
+        if (duration > 0) setRangeEnd(d => d === 0 ? duration : d);
+    }, [duration]);
+
+    const handleRangeStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const audio = audioRef.current;
+        const val = parseFloat(e.target.value);
+        const clamped = Math.min(val, rangeEnd - 1);
+        setRangeStart(clamped);
+        if (audio && isFinite(clamped)) {
+            audio.currentTime = clamped;
+            setCurrentTime(clamped);
+        }
+    };
+
+    const handleRangeEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = parseFloat(e.target.value);
+        setRangeEnd(Math.max(val, rangeStart + 1));
+    };
+
+    // Auto-stop at rangeEnd when it's been set to less than full duration
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio || !isFinite(duration) || duration <= 0) return;
+        if (rangeEnd < duration && isPlaying && currentTime >= rangeEnd) {
+            audio.pause();
+        }
+    }, [currentTime, rangeEnd, duration, isPlaying]);
+
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        const setFiniteDuration = () => {
+            if (isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
+            setIsLoading(false);
+        };
+        const onTimeUpdate = () => { if (!isDragging) setCurrentTime(audio.currentTime); };
+        const onPlay = () => setIsPlaying(true);
+        const onPause = () => setIsPlaying(false);
+        const onEnded = () => { setIsPlaying(false); setCurrentTime(0); };
+        const onWaiting = () => setIsLoading(true);
+        const onCanPlay = () => setIsLoading(false);
+
+        audio.addEventListener('loadedmetadata', setFiniteDuration);
+        audio.addEventListener('durationchange', setFiniteDuration);
+        audio.addEventListener('timeupdate', onTimeUpdate);
+        audio.addEventListener('play', onPlay);
+        audio.addEventListener('pause', onPause);
+        audio.addEventListener('ended', onEnded);
+        audio.addEventListener('waiting', onWaiting);
+        audio.addEventListener('canplay', onCanPlay);
+
+        return () => {
+            audio.removeEventListener('loadedmetadata', setFiniteDuration);
+            audio.removeEventListener('durationchange', setFiniteDuration);
+            audio.removeEventListener('timeupdate', onTimeUpdate);
+            audio.removeEventListener('play', onPlay);
+            audio.removeEventListener('pause', onPause);
+            audio.removeEventListener('ended', onEnded);
+            audio.removeEventListener('waiting', onWaiting);
+            audio.removeEventListener('canplay', onCanPlay);
+        };
+    }, [isDragging]);
+
+    const progressPct = (isFinite(duration) && duration > 0) ? (currentTime / duration) * 100 : 0;
+    const volPct = (isMuted ? 0 : volume) * 100;
+
     return (
         <div className="mt-6 p-5 border border-slate-200 rounded-xl bg-slate-50/50 shadow-sm">
-            <div className="flex items-center gap-3 mb-4">
-                <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-50 text-blue-600">
-                    <Volume2 className="h-4 w-4" />
+            {/* Hidden native audio element — all browser compat underneath */}
+            <audio ref={audioRef} src={audioUrl} preload="auto" style={{ display: 'none' }} />
+
+            {/* Header: title + download */}
+            <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-center h-8 w-8 rounded-full bg-blue-50 text-blue-600">
+                        <Volume2 className="h-4 w-4" />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-slate-900 leading-none">Call Recording</h3>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">Play to review conversation</p>
+                    </div>
                 </div>
-                <div>
-                    <h3 className="text-sm font-bold text-slate-900 leading-none">Call Recording</h3>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">Play to review conversation</p>
+                <a
+                    href={audioUrl}
+                    download
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-bold uppercase tracking-wide transition-colors"
+                    title="Download Recording"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Download
+                </a>
+            </div>
+
+            {/* Seek Bar */}
+            <div
+                ref={seekRef}
+                className="relative h-2.5 w-full rounded-full bg-slate-200 cursor-pointer mb-2 group"
+                onClick={handleSeekClick}
+                onMouseDown={() => setIsDragging(true)}
+                onMouseUp={() => setIsDragging(false)}
+                onMouseLeave={() => setIsDragging(false)}
+            >
+                <div
+                    className="absolute top-0 left-0 h-full rounded-full bg-blue-500"
+                    style={{ width: `${progressPct}%`, transition: isDragging ? 'none' : 'width 75ms linear' }}
+                />
+                <div
+                    className="absolute top-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-blue-600 shadow-md border-2 border-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ left: `calc(${progressPct}% - 8px)` }}
+                />
+            </div>
+
+            {/* Time display */}
+            <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-4">
+                <span>{formatTime(currentTime)}</span>
+                <span>{(isLoading && duration === 0) ? '–:––' : formatTime(duration)}</span>
+            </div>
+
+            {/* Controls */}
+            <div className="flex items-center justify-between mb-4">
+                {/* Skip-back + Play/Pause + Skip-forward */}
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => skip(-10)}
+                        className="h-8 w-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors text-[11px] font-bold"
+                        title="Rewind 10s"
+                    >
+                        ‑10
+                    </button>
+                    <button
+                        onClick={togglePlay}
+                        disabled={isLoading && duration === 0}
+                        className="h-10 w-10 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={isPlaying ? 'Pause' : 'Play'}
+                    >
+                        {(isLoading && !isPlaying) ? (
+                            <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                            </svg>
+                        ) : isPlaying ? (
+                            <Pause className="h-4 w-4" />
+                        ) : (
+                            <Play className="h-4 w-4 ml-0.5" />
+                        )}
+                    </button>
+                    <button
+                        onClick={() => skip(10)}
+                        className="h-8 w-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors text-[11px] font-bold"
+                        title="Forward 10s"
+                    >
+                        +10
+                    </button>
+                </div>
+
+                {/* Speed + Volume */}
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={changeSpeed}
+                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition-colors min-w-[44px] text-center"
+                        title="Cycle playback speed"
+                    >
+                        {speed === 1 ? '1×' : `${speed}×`}
+                    </button>
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            onClick={toggleMute}
+                            className="h-7 w-7 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500 transition-colors"
+                            title={isMuted ? 'Unmute' : 'Mute'}
+                        >
+                            {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                        </button>
+                        <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.05"
+                            value={isMuted ? 0 : volume}
+                            onChange={handleVolumeChange}
+                            className="w-20 cursor-pointer"
+                            title="Volume"
+                            style={{
+                                appearance: 'none',
+                                WebkitAppearance: 'none',
+                                height: '6px',
+                                borderRadius: '9999px',
+                                background: `linear-gradient(to right, #2563eb ${volPct}%, #e2e8f0 ${volPct}%)`
+                            }}
+                        />
+                    </div>
                 </div>
             </div>
-            <audio
-                src={audioUrl}
-                controls
-                className="w-full h-12"
-                preload="metadata"
-            />
+
+            
         </div>
     );
 }
