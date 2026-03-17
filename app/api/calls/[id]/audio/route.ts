@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// ─── CRITICAL for Vercel ─────────────────────────────────────────────────────
+// Serverless (Lambda) functions on Vercel buffer the entire response body before
+// sending anything. For a multi-minute audio file, that means the user waits the
+// full download time before a single byte reaches their browser.
+//
+// Edge Runtime runs at the CDN edge node closest to the user, has ZERO cold-start
+// time, and truly streams bytes as they arrive from ElevenLabs — so the browser
+// can start playing almost immediately.
+// ─────────────────────────────────────────────────────────────────────────────
+export const runtime = 'edge';
+
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
 
 export async function GET(
@@ -13,23 +24,30 @@ export async function GET(
         if (!apiKey) return NextResponse.json({ error: "Configuration error" }, { status: 500 });
 
         const upstream = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${id}/audio`, {
-            headers: { 'xi-api-key': apiKey }
+            headers: {
+                'xi-api-key': apiKey,
+                // Forward range request headers if the browser is seeking mid-file
+                ...(request.headers.get('Range') ? { 'Range': request.headers.get('Range')! } : {}),
+            }
         });
 
-        if (!upstream.ok) {
+        if (!upstream.ok && upstream.status !== 206) {
             throw new Error(`ElevenLabs error: ${upstream.status}`);
         }
 
-        // Stream the response body directly to the client instead of buffering
-        // the full file. This lets the browser start buffering and playing
-        // audio almost immediately rather than waiting for the full download.
+        // Stream ElevenLabs response body directly to the browser.
+        // On Edge Runtime this is a true zero-copy stream — no buffering.
         return new NextResponse(upstream.body, {
-            status: 200,
+            status: upstream.status,
             headers: {
                 'Content-Type': upstream.headers.get('Content-Type') || 'audio/mpeg',
                 'Content-Length': upstream.headers.get('Content-Length') || '',
-                // Cache for 1 hour so re-opening the same call is instant
+                // Allow browser to seek by byte range (needed for <audio> scrubbing)
+                'Accept-Ranges': 'bytes',
+                // Cache at CDN edge for 1h; instant on subsequent opens
                 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
+                // Suggested filename for download
+                'Content-Disposition': `inline; filename="call-${id}.mp3"`,
             },
         });
 

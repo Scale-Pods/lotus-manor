@@ -12,7 +12,7 @@ import { Play, Pause, Volume2, VolumeX, Phone, Clock, Calendar, ArrowRight, User
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
 interface CallDetailsModalProps {
     open: boolean;
@@ -23,6 +23,12 @@ interface CallDetailsModalProps {
 export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalProps) {
     const [fullCall, setFullCall] = useState<any>(null);
     const [localLoading, setLocalLoading] = useState(false);
+
+    const displayCall = fullCall || call || {};
+
+    const audioUrl = useMemo(() =>
+        displayCall.id ? `/api/calls/${displayCall.id}/audio` : null,
+        [displayCall.id]);
 
     useEffect(() => {
         if (open && call?.id) {
@@ -38,10 +44,6 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                 .finally(() => setLocalLoading(false));
         }
     }, [open, call]);
-
-    if (!call) return null;
-
-    const displayCall = fullCall || call;
 
     // Helper to get messages from various Vapi/ElevenLabs formats
     const getMessages = (data: any) => {
@@ -159,8 +161,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
         toLabel = "To (Customer)";
     }
 
-    // Determine Audio Proxy route (avoiding exposing XI_API_KEY directly frontend)
-    const audioUrl = displayCall.id ? `/api/calls/${displayCall.id}/audio` : null;
+    if (!call) return null;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -328,8 +329,9 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false); // Start false for instant interaction
     const [isDragging, setIsDragging] = useState(false);
+    const [isStalled, setIsStalled] = useState(false); // New state for actual buffering transitions
 
     const formatTime = (secs: number) => {
         if (!isFinite(secs) || isNaN(secs)) return '0:00';
@@ -441,18 +443,30 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
         const setFiniteDuration = () => {
             if (isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration);
             setIsLoading(false);
+            setIsStalled(false);
         };
         const onTimeUpdate = () => { if (!isDragging) setCurrentTime(audio.currentTime); };
-        const onPlay = () => setIsPlaying(true);
+        const onPlay = () => {
+            setIsPlaying(true);
+            setIsStalled(false);
+        };
         const onPause = () => setIsPlaying(false);
         const onEnded = () => { setIsPlaying(false); setCurrentTime(0); };
-        const onWaiting = () => setIsLoading(true);
-        const onCanPlay = () => setIsLoading(false);
+        const onWaiting = () => setIsStalled(true);
+        const onPlaying = () => {
+            setIsLoading(false);
+            setIsStalled(false);
+        };
+        const onCanPlay = () => {
+            setIsLoading(false);
+            setIsStalled(false);
+        };
 
         audio.addEventListener('loadedmetadata', setFiniteDuration);
         audio.addEventListener('durationchange', setFiniteDuration);
         audio.addEventListener('timeupdate', onTimeUpdate);
         audio.addEventListener('play', onPlay);
+        audio.addEventListener('playing', onPlaying);
         audio.addEventListener('pause', onPause);
         audio.addEventListener('ended', onEnded);
         audio.addEventListener('waiting', onWaiting);
@@ -463,6 +477,7 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
             audio.removeEventListener('durationchange', setFiniteDuration);
             audio.removeEventListener('timeupdate', onTimeUpdate);
             audio.removeEventListener('play', onPlay);
+            audio.removeEventListener('playing', onPlaying);
             audio.removeEventListener('pause', onPause);
             audio.removeEventListener('ended', onEnded);
             audio.removeEventListener('waiting', onWaiting);
@@ -542,11 +557,10 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
                     </button>
                     <button
                         onClick={togglePlay}
-                        disabled={isLoading && duration === 0}
-                        className="h-10 w-10 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="h-10 w-10 flex items-center justify-center rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-md transition-all active:scale-95 disabled:opacity-50"
                         title={isPlaying ? 'Pause' : 'Play'}
                     >
-                        {(isLoading && !isPlaying) ? (
+                        {isStalled ? (
                             <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
@@ -604,7 +618,7 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
                 </div>
             </div>
 
-            
+
         </div>
     );
 }
