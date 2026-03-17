@@ -68,8 +68,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     const messages = getMessages(displayCall);
     const recordingUrl = displayCall.audio_url || displayCall.recordingUrl || displayCall.recording_url || displayCall.artifact?.recordingUrl;
 
-    // Helper to format duration
-    const getDuration = (data: any) => {
+    const getDurationData = (data: any) => {
         let seconds = 0;
         // Check various ElevenLabs/normalized locations
         if (typeof data.call_duration_secs === 'number') seconds = data.call_duration_secs;
@@ -92,10 +91,13 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 
         const min = Math.floor(seconds / 60);
         const sec = Math.floor(seconds % 60);
-        return `${min}m ${sec}s`;
+        return {
+            formatted: `${min}m ${sec}s`,
+            seconds: seconds
+        };
     };
 
-    const durationDisplay = getDuration(displayCall);
+    const { formatted: durationDisplay, seconds: durationSeconds } = getDurationData(displayCall);
 
     // ElevenLabs Cost Mapping
     // Cost is pre-formatted in /api/calls route as "X credits", fallback to displayCall.cost
@@ -289,7 +291,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 
                             {/* Audio Player Section */}
                             {audioUrl && (
-                                <ModernAudioPlayer audioUrl={audioUrl} />
+                                <ModernAudioPlayer audioUrl={audioUrl} initialDuration={durationSeconds} />
                             )}
                         </div>
 
@@ -321,12 +323,12 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     );
 }
 
-function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
+function ModernAudioPlayer({ audioUrl, initialDuration = 0 }: { audioUrl: string, initialDuration?: number }) {
     const audioRef = useRef<HTMLAudioElement>(null);
     const seekRef = useRef<HTMLDivElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
-    const [duration, setDuration] = useState(0);
+    const [duration, setDuration] = useState(initialDuration);
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
     const [isLoading, setIsLoading] = useState(false); // Start false for instant interaction
@@ -388,12 +390,23 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
         const audio = audioRef.current;
         if (!audio || !isFinite(duration) || duration <= 0) return;
         const newTime = Math.max(0, Math.min(duration, audio.currentTime + secs));
-        if (isFinite(newTime)) audio.currentTime = newTime;
+        if (isFinite(newTime)) {
+            audio.currentTime = newTime;
+            setCurrentTime(newTime);
+        }
     };
 
-    // Playback speed — cycles through SPEEDS on each click
+    // Speed — cycles through SPEEDS on each click
     const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
     const [speed, setSpeed] = useState(1);
+
+    // Sync initial duration if provided and current duration is 0
+    useEffect(() => {
+        if (initialDuration > 0 && duration === 0) {
+            setDuration(initialDuration);
+        }
+    }, [initialDuration, duration]);
+
     const changeSpeed = () => {
         const audio = audioRef.current;
         if (!audio) return;
@@ -401,40 +414,6 @@ function ModernAudioPlayer({ audioUrl }: { audioUrl: string }) {
         audio.playbackRate = next;
         setSpeed(next);
     };
-
-    // Seek range via sliders (values in seconds, live-update as you drag)
-    const [rangeStart, setRangeStart] = useState(0);
-    const [rangeEnd, setRangeEnd] = useState(0);
-
-    // Keep rangeEnd in sync when duration becomes known
-    useEffect(() => {
-        if (duration > 0) setRangeEnd(d => d === 0 ? duration : d);
-    }, [duration]);
-
-    const handleRangeStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const audio = audioRef.current;
-        const val = parseFloat(e.target.value);
-        const clamped = Math.min(val, rangeEnd - 1);
-        setRangeStart(clamped);
-        if (audio && isFinite(clamped)) {
-            audio.currentTime = clamped;
-            setCurrentTime(clamped);
-        }
-    };
-
-    const handleRangeEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = parseFloat(e.target.value);
-        setRangeEnd(Math.max(val, rangeStart + 1));
-    };
-
-    // Auto-stop at rangeEnd when it's been set to less than full duration
-    useEffect(() => {
-        const audio = audioRef.current;
-        if (!audio || !isFinite(duration) || duration <= 0) return;
-        if (rangeEnd < duration && isPlaying && currentTime >= rangeEnd) {
-            audio.pause();
-        }
-    }, [currentTime, rangeEnd, duration, isPlaying]);
 
     useEffect(() => {
         const audio = audioRef.current;
