@@ -149,6 +149,7 @@ export default function WhatsappChatPage() {
     const [stats, setStats] = useState({
         totalLeads: 0,
         sentCount: 0,
+        uniqueSentCount: 0,
         deliveredCount: 0,
         readCount: 0,
         repliedCount: 0
@@ -207,6 +208,7 @@ export default function WhatsappChatPage() {
         };
 
         let totalSent = 0;
+        let uniqueSentCount = 0;
         let repliedCount = 0;
 
         filteredForStats.forEach(l => {
@@ -231,6 +233,7 @@ export default function WhatsappChatPage() {
                 }
             }
             totalSent += leadSent;
+            if (leadSent > 0) uniqueSentCount++;
 
             let leadReplied = false;
             const initialReplyRaw = lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"];
@@ -254,6 +257,7 @@ export default function WhatsappChatPage() {
         setStats({
             totalLeads: filteredForStats.length,
             sentCount: totalSent,
+            uniqueSentCount: uniqueSentCount,
             deliveredCount: Math.round(totalSent * 0.96),
             readCount: Math.round(totalSent * 0.82),
             repliedCount: repliedCount
@@ -443,8 +447,9 @@ export default function WhatsappChatPage() {
 
                 <div className="lg:col-span-3 space-y-4">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <MetricCard title="Messages Sent" value={loading ? "..." : stats.sentCount.toLocaleString()} desc="Total outgoing pulses" icon={Send} />
+                            <MetricCard title="Unique Msg Sent" value={loading ? "..." : stats.uniqueSentCount.toLocaleString()} desc="Unique leads contacted" icon={Users} />
                             <MetricCard title="Total Replies" value={loading ? "..." : stats.repliedCount.toLocaleString()} desc={`${stats.totalLeads > 0 ? ((stats.repliedCount / stats.totalLeads) * 100).toFixed(1) : 0}% Response Rate`} icon={MessageSquare} />
                         </div>
                         <Card className="border-slate-200 shadow-sm bg-white">
