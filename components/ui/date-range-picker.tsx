@@ -120,6 +120,15 @@ export function DateRangePicker({
         setOpen(false);
     };
 
+    const handleClear = () => {
+        setDate(undefined);
+        setTempDate(undefined);
+        setTempLabel(undefined);
+        if (onUpdate) {
+            onUpdate({ range: undefined, label: undefined });
+        }
+    };
+
     return (
         <div className={cn("grid gap-2", className)}>
             <Popover open={open} onOpenChange={setOpen}>
@@ -187,10 +196,13 @@ export function DateRangePicker({
                         </div>
                     </div>
                     <div className="p-3 border-t border-slate-100 flex items-center justify-end gap-2 bg-slate-50/50">
-                        <Button variant="ghost" size="sm" onClick={handleCancel} className="h-8 px-4 text-slate-500 hover:text-slate-900">
+                        <Button variant="ghost" size="sm" onClick={handleClear} className="h-8 px-4 text-red-500 hover:text-red-600 hover:bg-red-50 mr-auto font-medium">
+                            Clear
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={handleCancel} className="h-8 px-4 text-slate-500 hover:text-slate-900 font-medium">
                             Cancel
                         </Button>
-                        <Button size="sm" onClick={handleApply} className="h-8 px-4 bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                        <Button size="sm" onClick={handleApply} className="h-8 px-4 bg-blue-600 hover:bg-blue-700 text-white shadow-sm font-medium">
                             Apply
                         </Button>
                     </div>
