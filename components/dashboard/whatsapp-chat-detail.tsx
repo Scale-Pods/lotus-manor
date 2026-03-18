@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,94 +63,85 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                 if (!raw || !String(raw).trim()) return null;
                 const content = String(raw).trim();
 
-                // Look for ISO timestamp at the end of the message (bot messages often have this)
-                const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+                // Match ISO timestamp after one or two newlines at end of message
+                const isoRegex = /\n{1,2}(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
                 const isoMatch = content.match(isoRegex);
-
                 if (isoMatch) {
                     return {
                         type,
                         content: content.replace(isoRegex, '').trim(),
-                        label: label,
+                        label,
                         date: isoMatch[1],
                         sequence
                     };
                 }
 
-                // Special handling for W.P_Replied which sometimes has format: "message\n2026-01-29 15:30:00"
+                // Match "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD HH:MM:SS.mmm" on the last line
                 const lines = content.split('\n');
-                if (lines.length > 1) {
-                    const lastLine = lines[lines.length - 1].trim();
-                    const lastLineDate = new Date(lastLine.replace(' ', 'T')); // Handle space between date and time
-
-                    if (!isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+                const lastLine = lines[lines.length - 1].trim();
+                const spaceDateRegex = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
+                if (lines.length > 1 && spaceDateRegex.test(lastLine)) {
+                    const d = new Date(lastLine.replace(' ', 'T'));
+                    if (!isNaN(d.getTime())) {
                         return {
                             type,
-                            content: lines.slice(0, -1).join('\n').trim() || "Message Received",
-                            label: label,
-                            date: lastLineDate.toISOString(),
+                            content: lines.slice(0, -1).join('\n').trim() || 'Message Received',
+                            label,
+                            date: d.toISOString(),
                             sequence
                         };
                     }
                 }
 
-                return {
-                    type,
-                    content: content,
-                    label: label,
-                    date: null, // No fallback to found.created_at
-                    sequence
-                };
+                return { type, content, label, date: null, sequence };
+            };
+
+            // Helper: extract date from a TS field like "Delivered - 2026-03-12 10:00:00"
+            const parseTsDate = (tsRaw: string | null): string | null => {
+                if (!tsRaw) return null;
+                const parts = tsRaw.split(' - ');
+                if (parts.length < 2) return null;
+                const datePart = parts[1].trim();
+                const d = new Date(datePart.replace(/(^\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1').replace(' ', 'T'));
+                return isNaN(d.getTime()) ? null : d.toISOString();
             };
 
             const f = found as any;
             let seq = 1;
 
-            // Step 1: Initial Outreach (W.P_1) - Always the starting point
-            const wp1Raw = f[`W.P_1`] || f.stage_data?.[`WhatsApp 1`];
-            const wp1Msg = parseMsg(wp1Raw, `W.P_1`, 'bot', seq++);
-            if (wp1Msg) timeline.push(wp1Msg);
-
-            // Step 2: Check for any user reply to break the drip loop
-            let r1Raw = f[`W.P_Replied_1`];
-            if (!r1Raw || String(r1Raw).toLowerCase() === 'no' || String(r1Raw).toLowerCase() === 'none') {
-                r1Raw = f.whatsapp_replied || f.stage_data?.["WhatsApp Replied"];
-            }
-
-            const hasReply = r1Raw && String(r1Raw).trim() !== '' &&
-                String(r1Raw).toLowerCase() !== 'no' &&
-                String(r1Raw).toLowerCase() !== 'none';
-
-            // Determine drip range (Nurture has 12, others have 4)
-            const dripEnd = f.source_loop === "Nurture Loop" ? 12 : 4;
-
-            if (!hasReply) {
-                // NO REPLY branch: Show the rest of the drips (W.P_2 up to dripEnd)
-                for (let i = 2; i <= dripEnd; i++) {
-                    const raw = f[`W.P_${i}`] || f.stage_data?.[`WhatsApp ${i}`];
-                    const msg = parseMsg(raw, `W.P_${i}`, 'bot', seq++);
-                    if (msg) timeline.push(msg);
-                }
-            } else {
-                // REPLY branch: Skip remaining drips, go straight to the interaction conversation
-                for (let i = 1; i <= 10; i++) {
-                    // First: The Reply (User)
-                    let rRaw = (i === 1) ? r1Raw : f[`W.P_Replied_${i}`];
-                    const rMsg = parseMsg(rRaw, `W.P_Replied ${i}`, 'user', seq++);
-                    if (rMsg) timeline.push(rMsg);
-
-                    // Second: The FollowUp (Bot)
-                    let fRaw = f[`W.P_FollowUp_${i}`];
-                    if (i === 1 && !fRaw) {
-                        fRaw = f.stage_data?.["WhatsApp FollowUp"] || f["W.P_FollowUp"];
-                    }
-                    const fMsg = parseMsg(fRaw, `W.P_FollowUp ${i}`, 'bot', seq++);
-                    if (fMsg) timeline.push(fMsg);
+            // Drip sequence W.P_1 → W.P_12  (skip missing slots, no duplicates)
+            for (let i = 1; i <= 12; i++) {
+                const raw = f[`W.P_${i}`] || f.stage_data?.[`WhatsApp ${i}`];
+                if (!raw) continue;
+                const tsRaw: string | null = f[`W.P_${i} TS`] || null;
+                const msg = parseMsg(raw, `W.P_${i}`, 'bot', seq++);
+                if (msg) {
+                    (msg as any).tsStatus = tsRaw;
+                    // If content had no embedded timestamp, fall back to the TS field date
+                    if (!msg.date) msg.date = parseTsDate(tsRaw);
+                    timeline.push(msg);
                 }
             }
 
-            // Step 4: Strict priority sorting
-            timeline.sort((a, b) => a.sequence - b.sequence);
+            // Bot follow-up after initial reply
+            const initialFollowUpRaw = f["W.P_FollowUp"] || f.stage_data?.["WhatsApp FollowUp"];
+            const initialFollowUpMsg = parseMsg(initialFollowUpRaw, "W.P_FollowUp", "bot", seq++);
+            if (initialFollowUpMsg) timeline.push(initialFollowUpMsg);
+
+            // Paired reply / follow-up rounds (up to 10)
+            for (let i = 1; i <= 10; i++) {
+                const rRaw = f[`W.P_Replied_${i}`];
+                const rMsg = parseMsg(rRaw, `W.P_Replied_${i}`, 'user', seq++);
+                if (rMsg) timeline.push(rMsg);
+
+                const fRaw = f[`W.P_FollowUp_${i}`];
+                const fMsg = parseMsg(fRaw, `W.P_FollowUp_${i}`, 'bot', seq++);
+                if (fMsg) timeline.push(fMsg);
+            }
+
+            // No date sorting — insertion sequence IS the correct conversation order:
+            // W.P_1 → W.P_N drips, then WhatsApp Replied, then W.P_FollowUp,
+            // then paired W.P_Replied_i / W.P_FollowUp_i rounds.
 
             setMessages(timeline);
         } else {
@@ -181,7 +172,7 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
 
     return (
         <div className="space-y-6 flex flex-col h-full overflow-hidden max-h-[85vh]">
-            {/* Header Data */}
+            {/* Header */}
             <div className="flex items-center justify-between shrink-0">
                 <div>
                     <h2 className="text-xl font-bold text-slate-900">{lead.name}</h2>
@@ -191,7 +182,6 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                         <span>{lead.source_loop}</span>
                     </div>
                 </div>
-
                 <div className="flex items-center gap-2">
                     <Button
                         variant="ghost"
@@ -202,13 +192,12 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                         {copied ? <Check className="h-3.5 w-3.5" /> : <LinkIcon className="h-3.5 w-3.5" />}
                         {copied ? 'Copied' : 'Share Link'}
                     </Button>
-                    
                 </div>
             </div>
 
-            {/* Content Area */}
+            {/* Content */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 overflow-hidden min-h-0">
-                {/* Chat History */}
+                {/* Chat timeline */}
                 <div className="lg:col-span-2 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden h-full min-h-0">
                     <div className="bg-slate-50/50 border-b border-slate-100 p-3 px-4 flex justify-between items-center shrink-0">
                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Conversation Timeline</h3>
@@ -222,33 +211,53 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                                 <p className="text-sm">No WhatsApp messages found in database.</p>
                             </div>
                         ) : (
-                            messages.map((msg, idx) => (
-                                <div key={idx} className={`flex flex-col ${msg.type === 'user' ? 'items-start' : 'items-end'}`}>
-                                    <div className={`max-w-[85%] rounded-2xl p-4 shadow-sm ${msg.type === 'user'
-                                        ? 'bg-slate-50 text-slate-800 border border-slate-100 rounded-tl-none'
-                                        : 'bg-emerald-600 text-white rounded-tr-none'
-                                        }`}>
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className={`text-[10px] font-bold uppercase tracking-wide ${msg.type === 'user' ? 'text-slate-400' : 'text-emerald-100'}`}>
-                                                {msg.label}
-                                            </span>
-                                        </div>
-                                        <p className="text-sm leading-relaxed whitespace-pre-wrap font-sans">
-                                            {msg.content}
-                                        </p>
-                                    </div>
-                                    {msg.date && (
-                                        <span className="text-[10px] text-slate-400 mt-1 px-1">
-                                            {new Date(msg.date).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                            messages.map((msg, idx) => {
+                                // Build delivery-status pill for outgoing messages
+                                let tsPill: React.ReactNode = null;
+                                if (msg.type === 'bot' && (msg as any).tsStatus) {
+                                    const raw = String((msg as any).tsStatus);
+                                    const label = raw.split(' - ')[0].trim();
+                                    const formatted = label.charAt(0).toUpperCase() + label.slice(1).toLowerCase();
+                                    let cls = 'bg-emerald-500/30 text-emerald-100';
+                                    if (formatted.includes('Read')) cls = 'bg-blue-400/40 text-blue-100';
+                                    if (formatted.includes('Failed')) cls = 'bg-red-400/40 text-red-100';
+                                    if (formatted.includes('Sent')) cls = 'bg-white/20 text-emerald-50';
+                                    tsPill = (
+                                        <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${cls}`}>
+                                            {formatted}
                                         </span>
-                                    )}
-                                </div>
-                            ))
+                                    );
+                                }
+
+                                return (
+                                    <div key={idx} className={`flex flex-col ${msg.type === 'user' ? 'items-start' : 'items-end'}`}>
+                                        <div className={`max-w-[85%] rounded-2xl p-4 shadow-sm ${msg.type === 'user'
+                                            ? 'bg-slate-50 text-slate-800 border border-slate-100 rounded-tl-none'
+                                            : 'bg-emerald-600 text-white rounded-tr-none'
+                                            }`}>
+                                            <div className="flex items-center justify-between mb-2 gap-3">
+                                                <span className={`text-[10px] font-bold uppercase tracking-wide ${msg.type === 'user' ? 'text-slate-400' : 'text-emerald-100'}`}>
+                                                    {msg.label}
+                                                </span>
+                                                {tsPill}
+                                            </div>
+                                            <p className="text-sm leading-relaxed whitespace-pre-wrap font-sans">
+                                                {msg.content}
+                                            </p>
+                                        </div>
+                                        {msg.date && (
+                                            <span className="text-[10px] text-slate-400 mt-1 px-1">
+                                                {new Date(msg.date).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })
                         )}
                     </div>
                 </div>
 
-                {/* Lead Info Sidebar */}
+                {/* Sidebar */}
                 <div className="lg:col-span-1 space-y-4 overflow-y-auto pr-1 h-full pb-4">
                     <Card className="border-slate-200 shadow-sm bg-white">
                         <CardContent className="p-4 space-y-4">
