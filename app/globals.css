@@ -69,7 +69,8 @@ input[type="range"]::-webkit-slider-thumb {
     background: #2563eb;
     border: 2px solid #ffffff;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-    margin-top: -4px; /* vertically centre thumb on the track */
+    margin-top: -4px;
+    /* vertically centre thumb on the track */
     transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
@@ -107,4 +108,86 @@ input[type="range"]:focus-visible {
     outline: 2px solid #2563eb;
     outline-offset: 2px;
     border-radius: 4px;
+}
+
+/* Email Content Rendering Styles */
+.email-content {
+    word-break: break-word;
+}
+
+.email-content p {
+    margin-bottom: 1em;
+}
+
+.email-content h1,
+.email-content h2,
+.email-content h3,
+.email-content h4 {
+    font-weight: 700;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+    line-height: 1.2;
+}
+
+.email-content h1 {
+    font-size: 1.5rem;
+}
+
+.email-content h2 {
+    font-size: 1.25rem;
+}
+
+.email-content h3 {
+    font-size: 1.125rem;
+}
+
+.email-content ul {
+    list-style-type: disc;
+    margin-left: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.email-content ol {
+    list-style-type: decimal;
+    margin-left: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.email-content blockquote {
+    border-left: 4px solid #e2e8f0;
+    padding-left: 1rem;
+    margin-left: 0;
+    font-style: italic;
+    color: #64748b;
+}
+
+.email-content a {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.email-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
+}
+
+.email-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+    border: none !important;
+}
+
+.email-content th,
+.email-content td {
+    padding: 2px 4px;
+    text-align: left;
+    vertical-align: top;
+    border: none !important;
+    background: transparent !important;
+}
+
+.email-content th {
+    background-color: #f8fafc;
 }

@@ -369,6 +369,14 @@ export default function SentEmailsPage() {
 function SentEmailCard({ email }: { email: any }) {
     const [isOpen, setIsOpen] = useState(false);
 
+    // Simple helper to strip HTML tags for the text preview
+    const stripHtml = (html: string) => {
+        if (!html) return "";
+        // Replace <br> and other block tags with spaces for better truncation
+        const spaced = html.replace(/<(br|p|div|li|h[1-6])[^>]*>/gi, " ").replace(/<\/?[^>]+(>|$)/g, "");
+        return spaced;
+    };
+
     return (
         <Collapsible
             open={isOpen}
@@ -415,8 +423,8 @@ function SentEmailCard({ email }: { email: any }) {
                                 </div>
                                 <h4 className="text-lg font-bold text-slate-900">{email.recipient}</h4>
                                 {!isOpen && (
-                                    <p className="text-sm text-slate-500 truncate max-w-md">
-                                        {email.content.substring(0, 80)}...
+                                    <p className="text-sm text-slate-500 truncate max-w-md" >
+                                        {stripHtml(email.content).substring(0, 80)}...
                                     </p>
                                 )}
                             </div>
@@ -440,8 +448,11 @@ function SentEmailCard({ email }: { email: any }) {
                                 <span className="font-semibold text-slate-600">From:</span> {email.sender}
                             </p>
                         )}
-                        <div className="space-y-4 text-sm text-slate-700 leading-relaxed font-sans bg-slate-50/50 p-4 rounded-lg border border-slate-100">
-                            <p className="whitespace-pre-wrap">{email.content}</p>
+                        <div className="mt-4 text-sm text-slate-700 leading-relaxed font-sans overflow-auto max-w-full">
+                            <div
+                                className="email-content"
+                                dangerouslySetInnerHTML={{ __html: email.content }}
+                            />
                         </div>
                     </div>
                 </div>
