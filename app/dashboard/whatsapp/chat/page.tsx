@@ -57,19 +57,19 @@ const getLeadLatestActivity = (lead: any) => {
 
     // Check all bot messages (W.P_1 - W.P_12)
     for (let i = 1; i <= 12; i++) {
-        // Fallback to TS columns if available since actual message might not have timestamp
         const tsRaw = lead[`W.P_${i} TS`];
         let d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
 
         // Try extracting from TS string (e.g. "Delivered - 2026-03-12 10:00:00")
+        // Only use this as a fallback if the message content itself doesn't have a date
         if (!d && tsRaw && tsRaw.includes(' - ')) {
-            const datePart = tsRaw.split(' - ')[1].trim();
+            const parts = tsRaw.split(' - ');
+            const datePart = parts[parts.length - 1].trim();
             const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
             if (!isNaN(tsDate.getTime())) {
                 const rawLower = tsRaw.toLowerCase();
-                // If it's merely a status receipt, we strip the exact time.
-                // In a real chat app, reading a message doesn't bump the chat to the top.
-                if (rawLower.includes('read') || rawLower.includes('delivered')) {
+                // Status receipts like delivered/read/failed don't count as "activity" that bumps the lead to the top
+                if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
                     tsDate.setHours(0, 0, 0, 0);
                 }
                 d = tsDate;
@@ -200,10 +200,12 @@ export default function WhatsappChatPage() {
 
             const matchesMessageStatus = activeFilters.messageStatus.length === 0 ||
                 activeFilters.messageStatus.some(status => {
-                    const s1 = (lead["W.P_1 TS"] || "").toLowerCase();
-                    const s2 = (lead["W.P_2 TS"] || "").toLowerCase();
                     const target = status.toLowerCase();
-                    return s1.includes(target) || s2.includes(target);
+                    for (let i = 1; i <= 12; i++) {
+                        const s = (lead[`W.P_${i} TS`] || "").toLowerCase();
+                        if (s.includes(target)) return true;
+                    }
+                    return false;
                 });
 
             let matchesDate = true;
@@ -226,9 +228,14 @@ export default function WhatsappChatPage() {
     const stats = useMemo(() => {
         let sentCount = 0;
         let repliedCount = 0;
+        let failedCount = 0;
 
         filteredLeads.forEach(l => {
             const lead = l as any;
+            for (let i = 1; i <= 12; i++) {
+                const ts = (lead[`W.P_${i} TS`] || "").toLowerCase();
+                if (ts.includes("failed")) failedCount++;
+            }
 
             // Count bot outgoing messages — identical logic to CustomerRow.sentCount
             for (let i = 1; i <= 12; i++) {
@@ -272,6 +279,7 @@ export default function WhatsappChatPage() {
             sentCount,
             uniqueSentCount,
             repliedCount,
+            failedCount,
         };
     }, [filteredLeads]);
 
@@ -417,6 +425,9 @@ export default function WhatsappChatPage() {
                                 <div className="space-y-3">
                                     <StatusBar label="Sent" value={stats.sentCount} total={stats.sentCount || 1} color="bg-blue-400" />
                                     <StatusBar label="Replied" value={stats.repliedCount} total={stats.sentCount || 1} color="bg-emerald-500" />
+                                    {stats.failedCount > 0 && (
+                                        <StatusBar label="Failed" value={stats.failedCount} total={stats.sentCount || 1} color="bg-rose-500" />
+                                    )}
                                 </div>
                             </CardContent>
                         </Card>
@@ -549,6 +560,16 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
     if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) sentCount++;
     for (let i = 1; i <= 10; i++) { if (lead[`W.P_FollowUp_${i}`]) sentCount++; }
 
+    // Collect all available statuses
+    const allStatuses = [];
+    for (let i = 1; i <= 12; i++) {
+        if (lead[`W.P_${i} TS`]) {
+            allStatuses.push({ index: i, status: lead[`W.P_${i} TS`] });
+        }
+    }
+    // Just show the last 2 to keep UI clean, in chronological order
+    const displayStatuses = allStatuses.slice(-2);
+
     let hasReplied = false;
     if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
         hasReplied = true;
@@ -605,8 +626,10 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
             </td>
             <td className="px-4 py-3 text-center">
                 <div className="flex flex-col items-center gap-1.5">
-                    {lead["W.P_1 TS"] && <MessageStatusBadge index={1} status={lead["W.P_1 TS"]} />}
-                    {lead["W.P_2 TS"] && <MessageStatusBadge index={2} status={lead["W.P_2 TS"]} />}
+                    {displayStatuses.map((s) => (
+                        <MessageStatusBadge key={s.index} index={s.index} status={s.status} />
+                    ))}
+                    {displayStatuses.length === 0 && <span className="text-slate-300 text-[10px]">—</span>}
                 </div>
             </td>
             <td className="px-4 py-3 text-right text-slate-500 text-xs text-nowrap">
