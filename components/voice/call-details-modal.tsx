@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, Volume2, VolumeX, Phone, Clock, Calendar, ArrowRight, User } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Phone, Clock, Calendar, ArrowRight, User, Copy, Check } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,6 +23,7 @@ interface CallDetailsModalProps {
 export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalProps) {
     const [fullCall, setFullCall] = useState<any>(null);
     const [localLoading, setLocalLoading] = useState(false);
+    const [transcriptCopied, setTranscriptCopied] = useState(false);
 
     const displayCall = fullCall || call || {};
 
@@ -49,20 +50,22 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     const getMessages = (data: any) => {
         if (!data) return [];
 
-        // Priority 1: ElevenLabs transcript object
+        let rawMessages: any[] = [];
         if (Array.isArray(data.transcript) && data.transcript.length > 0) {
-            return data.transcript.map((msg: any) => ({
-                role: msg.role === 'agent' ? 'assistant' : 'user',
-                message: msg.message || msg.content || msg.text
-            }));
+            rawMessages = data.transcript;
+        } else if (Array.isArray(data.messages)) {
+            rawMessages = data.messages;
+        } else if (data.analysis && Array.isArray(data.analysis.transcript)) {
+            rawMessages = data.analysis.transcript;
+        } else if (typeof data.transcript === 'string') {
+            return [{ role: 'assistant', message: data.transcript }];
         }
 
-        // Fallbacks
-        if (Array.isArray(data.messages)) return data.messages;
-        if (data.analysis && Array.isArray(data.analysis.transcript)) return data.analysis.transcript;
-        if (typeof data.transcript === 'string') return [{ role: 'assistant', message: data.transcript }];
-
-        return [];
+        return rawMessages.map((msg: any) => ({
+            role: msg.role === 'agent' ? 'assistant' : (msg.role || 'user'),
+            message: msg.message || msg.content || msg.text || '',
+            startTime: msg.startTime ?? msg.start_time ?? msg.time ?? msg.timestamp
+        }));
     };
 
     const messages = getMessages(displayCall);
@@ -162,6 +165,40 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
         toSubInfo = calleeNumber !== "Unknown" ? calleeNumber : callerNumber;
         toLabel = "To (Customer)";
     }
+
+    const handleCopyTranscript = () => {
+        if (!messages || messages.length === 0) return;
+
+        const header = `CALL TRANSCRIPT\n` +
+            `==========================\n` +
+            `Date: ${startedAtDisplay}\n` +
+            `Duration: ${durationDisplay}\n` +
+            `From: ${fromName} (${fromSubInfo !== "Unknown" ? fromSubInfo : "N/A"})\n` +
+            `To: ${toName} (${toSubInfo !== "Unknown" ? toSubInfo : "N/A"})\n` +
+            `==========================\n\n`;
+
+        const transcriptText = messages
+            .filter((msg: any) => msg.role !== 'system')
+            .map((msg: any) => {
+                const role = (msg.role === 'assistant' || msg.role === 'agent' || msg.role === 'bot' || msg.role === 'model') ? 'AI' : 'User';
+                const text = msg.message || msg.content || msg.text || '';
+
+                // Try to get time if available
+                let timePrefix = '';
+                if (msg.startTime !== undefined && msg.startTime !== null) {
+                    const mins = Math.floor(msg.startTime / 60);
+                    const secs = Math.floor(msg.startTime % 60);
+                    timePrefix = `[${mins}:${secs.toString().padStart(2, '0')}] `;
+                }
+
+                return `${timePrefix}${role}: ${text}`;
+            })
+            .join('\n\n');
+
+        navigator.clipboard.writeText(header + transcriptText);
+        setTranscriptCopied(true);
+        setTimeout(() => setTranscriptCopied(false), 2000);
+    };
 
     if (!call) return null;
 
@@ -297,7 +334,18 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 
                         {/* Transcript */}
                         <div className="flex-1 min-h-[200px]">
-                            <h3 className="text-sm font-bold text-slate-900 mb-3 uppercase tracking-wide">Transcript</h3>
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Transcript</h3>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={`h-8 gap-2 text-[10px] font-bold uppercase transition-all ${transcriptCopied ? 'text-emerald-600 bg-emerald-50' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'}`}
+                                    onClick={handleCopyTranscript}
+                                >
+                                    {transcriptCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                    {transcriptCopied ? 'Copied' : 'Copy Transcript'}
+                                </Button>
+                            </div>
                             <ScrollArea className="h-[300px] w-full rounded-lg border border-slate-200 bg-slate-50 p-4">
                                 <div className="space-y-4">
                                     {Array.isArray(messages) && messages
