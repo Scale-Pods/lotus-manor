@@ -14,9 +14,10 @@ import {
     TrendingUp,
     ShieldCheck,
     AlertCircle,
-    Activity
+    Activity,
+    Users
 } from "lucide-react";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import {
     AreaChart,
@@ -137,38 +138,93 @@ export default function EmailAnalyticsPage() {
         }
     };
 
-    // Calculate metrics locally if generalData is array of daily stats or aggregates
-    let totalSent = 0;
+    const leadStats = useMemo(() => {
+        if (loadingLeads) return { totalSent: 0, totalReplies: 0, totalUnsubscribed: 0, totalLeads: 0 };
+
+        const start = dateRange?.from;
+        const end = dateRange?.to;
+
+        const filtered = allLeads.filter(lead => {
+            // Count as an email lead if it has any Email_N set
+            let hasEmail = false;
+            for (let i = 1; i <= 10; i++) {
+                if (lead[`Email_${i}`] || lead.stage_data?.[`Email_${i}`]) {
+                    hasEmail = true;
+                    break;
+                }
+            }
+            if (!hasEmail && !lead.email_replied) return false;
+
+            const dateRef = lead.last_contacted || lead.updated_at || lead.created_at;
+            if (!dateRef) return false;
+
+            const leadDate = new Date(dateRef);
+            if (start && leadDate < start) return false;
+            if (end) {
+                const toDate = new Date(end);
+                toDate.setHours(23, 59, 59, 999);
+                if (leadDate > toDate) return false;
+            }
+            return true;
+        });
+
+        let sent = 0;
+        let replies = 0;
+        let unsubscribed = 0;
+
+        filtered.forEach(lead => {
+            // Count sent emails
+            for (let i = 1; i <= 10; i++) {
+                const val = lead[`Email_${i}`] || lead.stage_data?.[`Email_${i}`];
+                if (val && String(val).trim() !== "" && String(val).toLowerCase() !== "no") {
+                    sent++;
+                }
+            }
+
+            // Count replies
+            const isReplied = lead.email_replied &&
+                String(lead.email_replied).toLowerCase() !== "no" &&
+                String(lead.email_replied).toLowerCase() !== "none";
+            if (isReplied) replies++;
+
+            // Count unsubscribed
+            const isUnsub = lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes");
+            if (isUnsub) unsubscribed++;
+        });
+
+        return {
+            totalSent: sent,
+            totalReplies: replies,
+            totalUnsubscribed: unsubscribed,
+            totalLeads: filtered.length
+        };
+    }, [allLeads, loadingLeads, dateRange]);
+
+    // Metrics from Instantly API (Opens/Clicks/Delivered)
     let totalDelivered = 0;
     let totalOpens = 0;
     let totalClicks = 0;
-    let totalUnsubscribed = 0;
-    let totalReplies = 0;
 
     if (generalData) {
-        if (Array.isArray(generalData)) {
-            generalData.forEach((day: any) => {
-                totalSent += (Number(day.total_sent) || Number(day.sent) || 0);
+        const dataArray = Array.isArray(generalData) ? generalData : (generalData.data || []);
+        if (dataArray.length > 0) {
+            dataArray.forEach((day: any) => {
                 totalDelivered += (Number(day.total_delivered) || Number(day.delivered) || 0);
                 totalOpens += (Number(day.total_opens) || Number(day.opens) || 0);
                 totalClicks += (Number(day.total_clicks) || Number(day.clicks) || 0);
-                totalReplies += (Number(day.replies) || 0);
             });
-        } else {
-            // Assuming single object
-            totalSent = Number(generalData.total_sent) || 0;
-            totalDelivered = Number(generalData.total_delivered) || 0;
-            totalOpens = Number(generalData.total_opens) || 0;
-            totalClicks = Number(generalData.total_clicks) || 0;
-            totalReplies = Number(generalData.replies) || 0;
+        } else if (typeof generalData === 'object') {
+            totalDelivered = Number(generalData.total_delivered) || Number(generalData.delivered) || 0;
+            totalOpens = Number(generalData.total_opens) || Number(generalData.opens) || 0;
+            totalClicks = Number(generalData.total_clicks) || Number(generalData.clicks) || 0;
         }
     }
 
-    totalUnsubscribed = unsubscribedCount;
+    const { totalSent, totalReplies, totalUnsubscribed, totalLeads } = leadStats;
 
     const ctr = totalSent > 0 ? ((totalClicks / totalSent) * 100).toFixed(2) : "0.00";
     const openRate = totalSent > 0 ? ((totalOpens / totalSent) * 100).toFixed(2) : "0.00";
-    const replyRate = totalSent > 0 ? ((totalReplies / totalSent) * 100).toFixed(2) : "0.00";
+    const replyRate = totalLeads > 0 ? ((totalReplies / totalLeads) * 100).toFixed(2) : "0.00";
 
 
     return (
@@ -203,7 +259,7 @@ export default function EmailAnalyticsPage() {
             {/* Campaign Performance Section */}
             <div className="space-y-4">
                 <h2 className="text-xl font-bold text-slate-900">Campaign Performance</h2>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4">
                     <MetricCard
                         label="Total Sent"
                         value={totalSent.toLocaleString()}
@@ -211,29 +267,7 @@ export default function EmailAnalyticsPage() {
                         iconBg="bg-blue-50"
                         iconColor="text-blue-600"
                     />
-                    <MetricCard
-                        label="Delivered"
-                        value={totalDelivered.toLocaleString()}
-                        icon={CheckCircle2}
-                        iconBg="bg-emerald-50"
-                        iconColor="text-emerald-600"
-                    />
-                    <MetricCard
-                        label="Opens"
-                        value={totalOpens.toLocaleString()}
-                        subtext={`${openRate}% Rate`}
-                        icon={TrendingUp}
-                        iconBg="bg-purple-50"
-                        iconColor="text-purple-600"
-                    />
-                    <MetricCard
-                        label="Clicks"
-                        value={totalClicks.toLocaleString()}
-                        subtext={`${ctr}% CTR`}
-                        icon={TrendingUp}
-                        iconBg="bg-indigo-50"
-                        iconColor="text-indigo-600"
-                    />
+                    
                     <MetricCard
                         label="Replies"
                         value={totalReplies.toLocaleString()}
@@ -248,6 +282,13 @@ export default function EmailAnalyticsPage() {
                         icon={AlertTriangle}
                         iconBg="bg-orange-50"
                         iconColor="text-orange-600"
+                    />
+                    <MetricCard
+                        label="Total Leads"
+                        value={totalLeads.toLocaleString()}
+                        icon={Users}
+                        iconBg="bg-slate-50"
+                        iconColor="text-slate-600"
                     />
                 </div>
             </div>
