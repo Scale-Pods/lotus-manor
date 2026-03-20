@@ -346,7 +346,7 @@ export default function EmailAnalyticsPage() {
                                             bg="bg-rose-50"
                                         />
                                         <MiniMetric
-                                            label="Total Sent"
+                                            label="Warmup Emails Sent"
                                             value={account.total_sent}
                                             icon={Send}
                                             color="text-blue-600"
