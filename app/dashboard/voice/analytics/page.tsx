@@ -25,10 +25,11 @@ import { format, parseISO, startOfDay, subDays } from "date-fns";
 import { useData } from "@/context/DataContext";
 
 export default function VoiceAnalyticsPage() {
-    const { calls: globalCalls, loadingCalls } = useData();
+    const { calls: globalCalls, loadingCalls, voiceBalance } = useData();
     const [statusFilter, setStatusFilter] = useState("all");
+    const [providerFilter, setProviderFilter] = useState("vapi");
     const [calls, setCalls] = useState<any[]>([]);
-    const [loadingLocal, setLoadingLocal] = useState(true);
+    const [loadingLocal, setLoadingLocal] = useState(false);
     const loading = loadingLocal || loadingCalls;
     const [dateRange, setDateRange] = useState<any>({
         from: subDays(new Date(), 7),
@@ -47,37 +48,29 @@ export default function VoiceAnalyticsPage() {
         typesData: [],
         characterCount: 0,
         characterLimit: 0,
+        vapiBalance: 0,
         inboundDuration: 0,
         outboundDuration: 0,
     });
 
     useEffect(() => {
-        const fetchBalance = async () => {
-            setLoadingLocal(true);
-            try {
-                const balanceRes = await fetch('/api/vapi/balance');
-                if (balanceRes.ok) {
-                    const balance = await balanceRes.json();
-                    setStats(prev => ({
-                        ...prev,
-                        characterCount: balance.character_count || 0,
-                        characterLimit: balance.character_limit || 0
-                    }));
-                }
-            } catch (err) {
-                console.error("Balance fetch error", err);
-            } finally {
-                setLoadingLocal(false);
-            }
-        };
-        fetchBalance();
-    }, []);
+        if (voiceBalance) {
+            setStats(prev => ({
+                ...prev,
+                characterCount: voiceBalance.elevenlabs?.character_count || voiceBalance.character_count || 0,
+                characterLimit: voiceBalance.elevenlabs?.character_limit || voiceBalance.character_limit || 0,
+                vapiBalance: voiceBalance.vapi?.balance || 0
+            }));
+        }
+    }, [voiceBalance]);
 
     useEffect(() => {
         if (loadingCalls) return;
 
         // Filter by date range if set
         const filteredCalls = globalCalls.filter((call: any) => {
+            if (providerFilter !== "all" && call.source !== providerFilter) return false;
+
             if (!dateRange?.from) return true;
 
             // Normalize startedAt for filtering
@@ -94,7 +87,7 @@ export default function VoiceAnalyticsPage() {
 
         setCalls(filteredCalls);
         processAnalytics(filteredCalls);
-    }, [globalCalls, loadingCalls, dateRange]);
+    }, [globalCalls, loadingCalls, dateRange, providerFilter]);
 
     const processAnalytics = (data: any[]) => {
         // Quick Stats
@@ -116,10 +109,12 @@ export default function VoiceAnalyticsPage() {
             const time = dateStr ? format(new Date(dateStr), 'MMM dd') : 'N/A';
             const dur = calculateDuration(call);
 
-            // Parse credits correctly
+            // Parse cost correctly (could be "X credits" or "$Y.ZZ")
             let cost = 0;
             if (typeof call.cost === 'string' && call.cost.includes('credits')) {
                 cost = parseInt(call.cost.replace(/\D/g, '')) || 0;
+            } else if (typeof call.cost === 'string' && call.cost.startsWith('$')) {
+                cost = parseFloat(call.cost.replace(/[^0-9.]/g, '')) || 0;
             } else if (typeof call.cost === 'number') {
                 cost = call.cost;
             }
@@ -218,16 +213,25 @@ export default function VoiceAnalyticsPage() {
                     <p className="text-slate-500">Comprehensive insights into voice agent performance.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
+                    <Select value={providerFilter} onValueChange={setProviderFilter}>
+                        <SelectTrigger className="w-[140px] h-10"><SelectValue placeholder="Provider" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Providers</SelectItem>
+                            <SelectItem value="vapi">Vapi</SelectItem>
+                            <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
+                        </SelectContent>
+                    </Select>
                     <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
                 </div>
             </div>
 
             {/* Key Metric Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
                 <StatCard title="Total Calls" value={stats.totalCalls} change="Historical" icon={<Phone className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
                 <StatCard title="Total Call Duration" value={formatDuration(stats.inboundDuration + stats.outboundDuration)} change="All Inbound + Outbound" icon={<Clock className="h-5 w-5" />} color="text-cyan-600" bg="bg-cyan-50" />
                 <StatCard title="Avg Duration" value={`${Math.round(stats.avgDuration)}s`} change="All Time" icon={<Clock className="h-5 w-5" />} color="text-purple-600" bg="bg-purple-50" />
-                <StatCard title="Real-Time Credits Used" value={stats.characterCount.toLocaleString()} change={`Max: ${stats.characterLimit.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} color="text-emerald-600" bg="bg-emerald-50" />
+                <StatCard title="ElevenLabs Credits" value={stats.characterCount.toLocaleString()} change={`Max: ${stats.characterLimit.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} color="text-emerald-600" bg="bg-emerald-50" />
+                <StatCard title="Vapi Wallet Balance" value={`$${stats.vapiBalance.toFixed(2)}`} change="Active Credit" icon={<DollarSign className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
             </div>
 
             {/* Charts Section */}

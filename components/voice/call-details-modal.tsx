@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, Volume2, VolumeX, Phone, Clock, Calendar, ArrowRight, User, Copy, Check } from "lucide-react";
+import { Play, Pause, Volume2, VolumeX, Phone, Clock, Calendar, ArrowRight, User, Copy, Check, FileText } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -27,9 +27,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 
     const displayCall = fullCall || call || {};
 
-    const audioUrl = useMemo(() =>
-        displayCall.id ? `/api/calls/${displayCall.id}/audio` : null,
-        [displayCall.id]);
+    const audioUrl = displayCall.audio_url || displayCall.recordingUrl || null;
 
     useEffect(() => {
         if (open && call?.id) {
@@ -126,10 +124,9 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     // Default call type 
     const callTypeDisplay = isInbound ? "Inbound" : "Outbound";
 
-    const callerNumber = displayCall.phone || displayCall.caller_number || displayCall.metadata?.caller_number || rawDynamicVars.caller_number || rawDynamicVars.caller || "Unknown";
-    const calleeNumber = displayCall.callee_number || displayCall.metadata?.callee_number || rawDynamicVars.callee_number || rawDynamicVars.callee || "Unknown";
-    const centralNumber = "97148714150";
-    const assistantName = displayCall.agent_name || "ElevenLabs AI Agent";
+    const guestNumber = displayCall.customer_number || displayCall.phone || displayCall.caller_number || "Unknown";
+    const assistantNumber = displayCall.phoneNumber || "Unknown";
+    const assistantName = displayCall.agent_name || (displayCall.source === 'vapi' ? "Vapi AI Assistant" : "AI Agent");
 
     // Reconstruct connection logic
     let fromName;
@@ -149,20 +146,20 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     if (isInbound) {
         // Customer calls us
         fromName = extractedGuestName;
-        fromSubInfo = callerNumber;
+        fromSubInfo = guestNumber;
         fromLabel = "From (Customer)";
 
         toName = assistantName;
-        toSubInfo = centralNumber;
+        toSubInfo = assistantNumber;
         toLabel = "To (Assistant)";
     } else {
         // We call the customer (or a Web Call simulating us calling)
         fromName = assistantName;
-        fromSubInfo = centralNumber;
+        fromSubInfo = assistantNumber;
         fromLabel = "From (Assistant)";
 
         toName = extractedGuestName;
-        toSubInfo = calleeNumber !== "Unknown" ? calleeNumber : callerNumber;
+        toSubInfo = guestNumber;
         toLabel = "To (Customer)";
     }
 
@@ -332,6 +329,54 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                             )}
                         </div>
 
+                        {/* Summary Section (Structured Data) */}
+                        {(() => {
+                            const analysis = displayCall.analysis || {};
+                            let summaryText = analysis.summary || displayCall.summary || displayCall.transcript_summary || "";
+
+                            // 1. Deep scan for "Call Summary" in structuredData or analysis objects
+                            if (!summaryText && (analysis.structuredData || analysis.structured_data)) {
+                                const sd = analysis.structuredData || analysis.structured_data;
+                                const entries = Array.isArray(sd) ? sd : Object.values(sd || {});
+                                for (const item of entries) {
+                                    if (typeof item === 'object' && item !== null) {
+                                        const name = (item.name || item.label || item.propertyName || "").toLowerCase();
+                                        if (name.includes('summary')) {
+                                            summaryText = item.result || item.value || item.response || "";
+                                            if (summaryText) break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2. Scan Artifacts (As suggested by Vapi Docs)
+                            if (!summaryText && displayCall.artifact?.messages) {
+                                const artMsgs = displayCall.artifact.messages;
+                                for (const msg of artMsgs) {
+                                    if (msg.role === 'assistant' && (msg.content?.toLowerCase().includes('summary') || msg.name?.toLowerCase().includes('summary'))) {
+                                        summaryText = msg.content;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!summaryText) return null;
+
+                            return (
+                                <div className="mb-8 p-6 bg-blue-50/40 border border-blue-100 rounded-xl shadow-sm">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <div className="h-6 w-6 rounded-full bg-blue-600 flex items-center justify-center">
+                                            <FileText className="h-3.5 w-3.5 text-white" />
+                                        </div>
+                                        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Call Summary</h3>
+                                    </div>
+                                    <p className="text-[13px] leading-relaxed text-slate-700 font-medium whitespace-pre-wrap">
+                                        {summaryText}
+                                    </p>
+                                </div>
+                            );
+                        })()}
+
                         {/* Transcript */}
                         <div className="flex-1 min-h-[200px]">
                             <div className="flex items-center justify-between mb-3">
@@ -464,6 +509,15 @@ function ModernAudioPlayer({ audioUrl, initialDuration = 0 }: { audioUrl: string
     };
 
     useEffect(() => {
+        if (audioRef.current && audioUrl) {
+            audioRef.current.load();
+            setIsPlaying(false);
+            setCurrentTime(0);
+            setIsLoading(true);
+        }
+    }, [audioUrl]);
+
+    useEffect(() => {
         const audio = audioRef.current;
         if (!audio) return;
 
@@ -518,7 +572,12 @@ function ModernAudioPlayer({ audioUrl, initialDuration = 0 }: { audioUrl: string
     return (
         <div className="mt-6 p-5 border border-slate-200 rounded-xl bg-slate-50/50 shadow-sm">
             {/* Hidden native audio element — all browser compat underneath */}
-            <audio ref={audioRef} src={audioUrl} preload="auto" style={{ display: 'none' }} />
+            <audio
+                ref={audioRef}
+                src={audioUrl && audioUrl.startsWith('http') ? `/api/audio-proxy?url=${encodeURIComponent(audioUrl)}` : audioUrl}
+                preload="metadata"
+                style={{ display: 'none' }}
+            />
 
             {/* Header: title + download */}
             <div className="flex items-center justify-between mb-5">

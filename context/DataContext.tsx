@@ -48,12 +48,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const fetchCalls = useCallback(async () => {
-        setLoadingCalls(true);
+        setLoadingCalls(prev => prev || true); // Only show loading if not already loading
         try {
             const response = await fetch('/api/calls');
-            if (!response.ok) throw new Error('Failed to fetch calls');
-            const data = await response.json();
-            setCalls(data);
+            if (response.ok) {
+                const data = await response.json();
+                if (Array.isArray(data)) setCalls(data);
+            }
         } catch (err: any) {
             console.error('DataProvider calls fetch error:', err);
         } finally {
@@ -62,26 +63,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const fetchBalances = useCallback(async () => {
-        setLoadingBalances(true);
         try {
             const [vapiRes, maqsamRes] = await Promise.all([
                 fetch('/api/vapi/balance'),
                 fetch('/api/maqsam/balance')
             ]);
-
-            if (vapiRes.ok) {
-                const vapiData = await vapiRes.json();
-                setVoiceBalance(vapiData);
-            }
-            if (maqsamRes.ok) {
-                const maqsamData = await maqsamRes.json();
-                setMaqsamBalance(maqsamData);
-            }
-        } catch (err) {
-            console.error('DataProvider balances fetch error:', err);
-        } finally {
-            setLoadingBalances(false);
-        }
+            if (vapiRes.ok) setVoiceBalance(await vapiRes.json());
+            if (maqsamRes.ok) setMaqsamBalance(await maqsamRes.json());
+        } catch (err) { }
+        finally { setLoadingBalances(false); }
     }, []);
 
     const refreshAll = useCallback(async () => {
@@ -90,49 +80,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         refreshAll();
-
-        // Real-time polling for calls and balances (every 30 seconds)
-        const pollInterval = setInterval(() => {
-            // console.log('Polling for new calls and balance updates...');
-            fetchCalls();
-            fetchBalances();
-        }, 30000);
-
-        // 🚀 OPTION 3: Supabase Realtime Implementation
-        // Subscribe to all 3 leads tables for instant updates
-        const leadsChannel = supabase
-            .channel('public:leads_changes')
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'nr_wf' },
-                () => {
-                    console.log('Realtime change detected in nr_wf -> Refreshing leads');
-                    fetchLeads();
-                }
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'followup' },
-                () => {
-                    console.log('Realtime change detected in followup -> Refreshing leads');
-                    fetchLeads();
-                }
-            )
-            .on(
-                'postgres_changes',
-                { event: '*', schema: 'public', table: 'nurture' },
-                () => {
-                    console.log('Realtime change detected in nurture -> Refreshing leads');
-                    fetchLeads();
-                }
-            )
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(leadsChannel);
-            clearInterval(pollInterval);
-        };
-    }, [refreshAll, fetchLeads, fetchCalls, fetchBalances]);
+    }, []);
 
     return (
         <DataContext.Provider value={{

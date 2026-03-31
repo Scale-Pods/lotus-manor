@@ -17,12 +17,13 @@ import {
     AreaChart,
     Area
 } from "recharts";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, parseISO, startOfDay, getHours, subDays } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
 export default function VoiceDashboardPage() {
-    const { calls: globalCalls, loadingCalls } = useData();
+    const [providerFilter, setProviderFilter] = useState("vapi");
     const [stats, setStats] = useState({
         totalCalls: 0,
         totalDuration: 0,
@@ -32,41 +33,32 @@ export default function VoiceDashboardPage() {
         successRate: 0,
         completedCalls: 0,
         characterCount: 0,
-        characterLimit: 0
+        characterLimit: 0,
+        vapiBalance: 0
     });
     const [dailyVolume, setDailyVolume] = useState<any[]>([]);
     const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
-    const [loadingLocal, setLoadingLocal] = useState(true);
+    const [loadingLocal, setLoadingLocal] = useState(false);
     const [dateRange, setDateRange] = useState<any>({
         from: subDays(new Date(), 7),
         to: new Date(),
     });
 
-    const loading = loadingLocal || loadingCalls;
+    const { calls: globalCalls, loadingCalls, voiceBalance, refreshAll } = useData();
 
     useEffect(() => {
-        const fetchBalance = async () => {
-            setLoadingLocal(true);
-            try {
-                const balanceRes = await fetch('/api/vapi/balance'); // Mapped to our ElevenLabs user endpoint
-                // Update real-time capacity stats independently
-                if (balanceRes.ok) {
-                    const balance = await balanceRes.json();
-                    setStats(prev => ({
-                        ...prev,
-                        characterCount: balance.character_count || 0,
-                        characterLimit: balance.character_limit || 0
-                    }));
-                }
-            } catch (error) {
-                console.error("Error fetching voice balance:", error);
-            } finally {
-                setLoadingLocal(false);
-            }
-        };
+        if (voiceBalance) {
+            setStats(prev => ({
+                ...prev,
+                characterCount: voiceBalance.elevenlabs?.character_count || voiceBalance.character_count || 0,
+                characterLimit: voiceBalance.elevenlabs?.character_limit || voiceBalance.character_limit || 0,
+                vapiBalance: voiceBalance.vapi?.balance || 0
+            }));
+            setLoadingLocal(false);
+        }
+    }, [voiceBalance]);
 
-        fetchBalance();
-    }, []);
+    const loading = loadingLocal || loadingCalls;
 
     useEffect(() => {
         if (loading) return;
@@ -79,8 +71,9 @@ export default function VoiceDashboardPage() {
         const dayMap = new Map();
         const hourMap = new Array(24).fill(0);
 
-        // Filter by date range if set
+        // Filter by date range and provider
         const filteredCalls = globalCalls.filter((call: any) => {
+            if (providerFilter !== "all" && call.source !== providerFilter) return false;
             if (!dateRange?.from) return true;
 
             // Get date from Vapi or ElevenLabs
@@ -186,14 +179,19 @@ export default function VoiceDashboardPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
+                    <Select value={providerFilter} onValueChange={setProviderFilter}>
+                        <SelectTrigger className="w-[140px] h-10 border-slate-200"><SelectValue placeholder="Provider" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Providers</SelectItem>
+                            <SelectItem value="vapi">Vapi</SelectItem>
+                            <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
+                        </SelectContent>
+                    </Select>
                     <Button
                         variant="outline"
-                        size="sm"
-                        onClick={() => {
-                            setLoadingLocal(true);
-                            useData().refreshCalls().then(() => setLoadingLocal(false));
-                        }}
-                        className="h-10 rounded-xl bg-white border-slate-200 text-slate-600 hover:bg-slate-50 transition-all flex items-center gap-2"
+                        className="flex items-center gap-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors h-10"
+                        onClick={refreshAll}
+                        disabled={loading}
                     >
                         <TrendingUp className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                         Refresh Data
@@ -203,7 +201,7 @@ export default function VoiceDashboardPage() {
             </div>
 
             {/* Metrics Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
                 <MetricCard
                     title="Total Executions"
                     value={`${stats.totalCalls} calls`}
@@ -216,10 +214,16 @@ export default function VoiceDashboardPage() {
                     icon={<Clock className="h-5 w-5 text-slate-600" />}
                 />
                 <MetricCard
-                    title="Real-Time Credits Used"
+                    title="ElevenLabs Credits"
                     value={`${stats.characterCount.toLocaleString()}`}
                     badge={`of ${stats.characterLimit.toLocaleString()} max`}
-                    icon={<DollarSign className="h-5 w-5 text-slate-600" />}
+                    icon={<DollarSign className="h-5 w-5 text-emerald-600" />}
+                />
+                <MetricCard
+                    title="Vapi Wallet Balance"
+                    value={`$${stats.vapiBalance.toFixed(2)}`}
+                    badge="Available Credits"
+                    icon={<DollarSign className="h-5 w-5 text-blue-600" />}
                 />
                 <MetricCard
                     title="Average Duration"

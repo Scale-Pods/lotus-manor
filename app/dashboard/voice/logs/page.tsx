@@ -4,7 +4,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { RefreshCw, Play, ChevronLeft, ChevronRight, User, Loader2, Download, ExternalLink, Search, Info } from "lucide-react";
+import { RefreshCw, Play, ChevronLeft, ChevronRight, User, Loader2, Download, ExternalLink, Search, Info, Activity } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LMLoader } from "@/components/lm-loader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -17,106 +18,80 @@ import { calculateDuration, formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
 // Progressive fetch for missing metadata (phone numbers/direction)
-const DynamicRowCells = ({ call }: { call: any }) => {
-    const [realType, setRealType] = useState(call.type);
-    const [guestNum, setGuestNum] = useState(call.phone);
-    const [guestName, setGuestName] = useState(call.name || "Guest");
-    const [isFetching, setIsFetching] = useState(false);
-    const [isInboundState, setIsInboundState] = useState(call.isInbound);
+// Static cells that rely on pre-fetched and normalized data from the API
+const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
+    // RESOLVE: Prioritize backend names, then Leads database, then Vapi/Maqsam metadata
+    let guestName = call.name || "Guest";
+    const guestNum = call.phone || "Unknown";
+    const realType = call.type || (call.isInbound ? "Inbound" : "Outbound");
+    const isInboundState = call.isInbound;
 
-    useEffect(() => {
-        // ALWAYS fetch deep data explicitly if the call is from ElevenLabs
-        // to progressively enhance direction detection just like the modal does.
-        if (call.source !== 'elevenlabs' || (isInboundState && guestNum !== "Unknown" && guestNum !== "+Unknown")) {
-            return;
+    // Eagerly resolve name from our Leads database based on phone if Guest
+    if ((!guestName || guestName === "Guest" || guestName === "Unknown") && call.phone && leads) {
+        const targetPhone = call.phone.replace(/\D/g, '');
+        if (targetPhone && targetPhone.length > 5) {
+            const foundLead = leads.find((l: any) => l.phone && l.phone.replace(/\D/g, '') === targetPhone);
+            if (foundLead && foundLead.name) {
+                guestName = foundLead.name;
+            }
         }
-
-        if (!isFetching && call.id) {
-            setIsFetching(true);
-            fetch(`/api/calls/${call.id}`)
-                .then(res => res.json())
-                .then(data => {
-                    const dv = data.conversation_initiation_client_data?.dynamic_variables || {};
-                    const metadata = data.metadata || {};
-                    const tel = data.telephony || {};
-                    const initType = (data.conversation_initiation_type || "").toLowerCase();
-                    const rawType = data.type || metadata.type || dv.direction || dv.type || "unknown";
-
-                    // Deep Direction matching the modal logic
-                    const deepIsInbound = rawType === 'inbound' || initType.includes('inbound') || (tel.direction || "").toLowerCase() === 'inbound';
-
-                    if (deepIsInbound) {
-                        setRealType("Inbound");
-                        setIsInboundState(true);
-                        call.isInbound = true;
-                        call.type = "Inbound";
-                    } else if (!deepIsInbound && realType !== 'Web Call') {
-                        setRealType("Outbound");
-                    }
-
-                    // Deep Phone matching the modal logic
-                    const caller = tel.caller_number || metadata.caller_number || dv.caller_number || dv.caller || "Unknown";
-                    const callee = tel.callee_number || metadata.callee_number || dv.callee_number || dv.callee || "Unknown";
-                    const centralNumber = "97148714150";
-
-                    let newNum = "Unknown";
-                    if (deepIsInbound) {
-                        newNum = caller;
-                    } else {
-                        newNum = (callee !== "Unknown" && !callee.toString().includes(centralNumber)) ? callee : caller;
-                    }
-
-                    if (newNum === "Unknown" && !initType.includes('telephony')) {
-                        if (!deepIsInbound) {
-                            setGuestNum("Website/API");
-                            setRealType("Web Call");
-                            call.type = "Web Call";
-                        }
-                    } else if (newNum !== "Unknown" && newNum !== "Website/API") {
-                        const formatted = `+${String(newNum).replace(/\+/g, '')}`;
-                        setGuestNum(formatted);
-                        call.phone = formatted;
-                    }
-
-                    // Deep Name Detection
-                    const detectedName = data.name || metadata.user_name || metadata.name || dv.custom__name || dv.audient__name || dv.user_name || dv.name || dv.customer_name || dv.first_name || (dv.first_name ? `${dv.first_name} ${dv.last_name || ''}` : null);
-
-                    if (detectedName && detectedName !== "Guest") {
-                        setGuestName(detectedName);
-                        call.name = detectedName;
-                    }
-
-                    call.raw = { ...call.raw, ...data };
-                })
-                .catch(() => { })
-                .finally(() => setIsFetching(false));
-        }
-    }, [call.id]);
+    }
 
     return (
         <>
             <TableCell className="font-semibold text-slate-900">
-                {guestName === "Guest" && isFetching ? (
-                    <span className="text-slate-400 animate-pulse text-xs italic">Loading...</span>
-                ) : (
-                    guestName
-                )}
+                <div className="flex items-center gap-2">
+                    <User className="h-3.5 w-3.5 text-slate-400" />
+                    {guestName}
+                </div>
             </TableCell>
             <TableCell className="font-medium text-slate-800">
-                {guestNum === "Unknown" && isFetching ? (
-                    <span className="text-slate-400 animate-pulse text-xs italic">Detecting...</span>
-                ) : (
-                    guestNum
-                )}
+                {guestNum}
             </TableCell>
             <TableCell>
                 <Badge variant={isInboundState ? "default" : "secondary"} className={`text-[10px] ${isInboundState ? 'bg-blue-600 outline-none border-none' : ''}`}>
                     {realType}
                 </Badge>
             </TableCell>
-            <TableCell className="text-slate-600 font-medium">{call.displayDuration}</TableCell>
-            <TableCell className="text-slate-500 text-xs">{isInboundState ? (call.country === "Unknown" ? "Local" : call.country || 'N/A') : (call.country || 'N/A')}</TableCell>
-            <TableCell className="font-bold text-emerald-600">{isInboundState ? "$0.02" : call.cost}</TableCell>
+            <TableCell className="text-slate-600 font-medium">{formatDuration(call.durationSeconds)}</TableCell>
+            <TableCell className="text-slate-500 text-xs">{call.country || 'Unknown'}</TableCell>
+            <TableCell className="font-bold text-emerald-600">
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <button
+                            className="hover:underline flex items-center gap-1 cursor-help"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                            }}
+                        >
+                            {call.cost}
+                            <Info className="h-3 w-3 text-slate-300" />
+                        </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-56 p-4 bg-white shadow-xl border-slate-200" onClick={(e) => e.stopPropagation()}>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 border-b pb-2">
+                                <Activity className="h-4 w-4 text-blue-600" />
+                                <h4 className="font-bold text-sm text-slate-900">Cost Breakdown</h4>
+                            </div>
+                            <div className="space-y-1.5">
+                                <div className="flex justify-between text-[11px] text-slate-500">
+                                    <span>Agent (Vapi/AI):</span>
+                                    <span className="font-mono text-slate-700">${(call.breakdown?.agent || 0).toFixed(3)}</span>
+                                </div>
+                                <div className="flex justify-between text-[11px] text-slate-500">
+                                    <span>Telephony (Provider):</span>
+                                    <span className="font-mono text-slate-700">${(call.breakdown?.telephony || 0).toFixed(3)}</span>
+                                </div>
+                            </div>
+                            <div className="border-t pt-2 mt-2 flex justify-between text-xs font-bold text-slate-900">
+                                <span>Total Estimated:</span>
+                                <span className="text-emerald-600">{call.cost}</span>
+                            </div>
+                        </div>
+                    </PopoverContent>
+                </Popover>
+            </TableCell>
         </>
     );
 };
@@ -135,6 +110,7 @@ export default function VoiceLogsPage() {
     });
     const [statusFilter, setStatusFilter] = useState("all");
     const [typeFilter, setTypeFilter] = useState("all");
+    const [providerFilter, setProviderFilter] = useState("vapi");
     const [phoneFilter, setPhoneFilter] = useState("");
     const [costModalOpen, setCostModalOpen] = useState(false);
 
@@ -174,11 +150,14 @@ export default function VoiceLogsPage() {
     // Reset to page 1 ONLY when the user explicitly changes a filter — not when background data enrichment updates allCallsMapped.
     useEffect(() => {
         setCurrentPage(1);
-    }, [dateRange, statusFilter, typeFilter, phoneFilter]);
+    }, [dateRange, statusFilter, typeFilter, providerFilter, phoneFilter]);
 
     // Re-apply filtering whenever data or filters change (no page reset here).
     useEffect(() => {
         const filteredCalls = allCallsMapped.filter((call: any) => {
+            // Priority 1: Provider Filter
+            if (providerFilter !== "all" && call.source !== providerFilter) return false;
+
             if (dateRange?.from) {
                 if (!call.startedAt) return false;
                 const callDate = new Date(call.startedAt);
@@ -207,7 +186,7 @@ export default function VoiceLogsPage() {
         });
 
         setCalls(filteredCalls);
-    }, [allCallsMapped, dateRange, statusFilter, typeFilter, phoneFilter]);
+    }, [allCallsMapped, dateRange, statusFilter, typeFilter, providerFilter, phoneFilter]);
 
     const handleRefresh = () => {
         refreshAll();
@@ -227,7 +206,7 @@ export default function VoiceLogsPage() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900">Call Logs</h1>
-                        <p className="text-slate-500">Comprehensive history including Maqsam & ElevenLabs calls.</p>
+                        <p className="text-slate-500">Comprehensive history including Vapi & ElevenLabs calls.</p>
                     </div>
                     <div className="flex items-center gap-3">
                         <Button variant="outline" className="text-slate-600 border-slate-200" onClick={() => setCostModalOpen(true)}>
@@ -252,6 +231,15 @@ export default function VoiceLogsPage() {
                             onChange={(e) => setPhoneFilter(e.target.value)}
                         />
                     </div>
+
+                    <Select value={providerFilter} onValueChange={setProviderFilter}>
+                        <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Provider" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Providers</SelectItem>
+                            <SelectItem value="vapi">Vapi</SelectItem>
+                            <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
+                        </SelectContent>
+                    </Select>
                     <Select value={typeFilter} onValueChange={setTypeFilter}>
                         <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Type" /></SelectTrigger>
                         <SelectContent>
@@ -292,13 +280,13 @@ export default function VoiceLogsPage() {
                             ) : calls.length === 0 ? (
                                 <TableRow><TableCell colSpan={8} className="h-24 text-center text-slate-500">No calls matching filters.</TableCell></TableRow>
                             ) : (
-                                paginatedCalls.map((call) => (
+                                (paginatedCalls as any[]).map((call) => (
                                     <TableRow
                                         key={call.id}
                                         className="cursor-pointer hover:bg-slate-50/50 transition-colors"
                                         onClick={() => handleRowClick(call)}
                                     >
-                                        <DynamicRowCells call={call} />
+                                        <DynamicRowCells call={call} leads={leads} />
                                         <TableCell>
                                             <Badge variant="outline" className={`text-[10px] uppercase border-${call.status === 'answered' ? 'emerald' : 'slate'}-200 text-${call.status === 'answered' ? 'emerald' : 'slate'}-600`}>
                                                 {call.status}

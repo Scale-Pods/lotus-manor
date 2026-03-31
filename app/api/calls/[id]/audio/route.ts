@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 // time, and truly streams bytes as they arrive from ElevenLabs — so the browser
 // can start playing almost immediately.
 // ─────────────────────────────────────────────────────────────────────────────
-export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
 
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
 
@@ -18,35 +18,76 @@ export async function GET(
     context: { params: Promise<{ id: string }> }
 ) {
     try {
-        const apiKey = process.env.ELEVENLABS_API_KEY;
+        const elApiKey = process.env.ELEVENLABS_API_KEY;
+        const vapiPrivKey = process.env.VAPI_PRIVATE_KEY;
         const { id } = await context.params;
 
-        if (!apiKey) return NextResponse.json({ error: "Configuration error" }, { status: 500 });
+        // 1. Try Vapi First (since IDs are distinct)
+        if (vapiPrivKey) {
+            console.log(`[AudioProxy] Attempting Vapi lookup for: ${id}`);
+            const vapiRes = await fetch(`https://api.vapi.ai/call/${id}`, {
+                headers: { 'Authorization': `Bearer ${vapiPrivKey}`, 'Content-Type': 'application/json' }
+            });
+
+            if (vapiRes.ok) {
+                const callData = await vapiRes.json();
+                const recordingUrl = callData.recordingUrl;
+                if (recordingUrl) {
+                    console.log(`[AudioProxy] Found Vapi Recording URL for ${id}: ${recordingUrl.substring(0, 40)}...`);
+                    const audioRes = await fetch(recordingUrl, {
+                        headers: {
+                            ...(request.headers.get('Range') ? { 'Range': request.headers.get('Range')! } : {}),
+                        }
+                    });
+                    if (audioRes.ok || audioRes.status === 206) {
+                        const contentType = audioRes.headers.get('Content-Type');
+                        const finalContentType = (contentType && contentType.includes('audio')) ? contentType : 'audio/mpeg';
+
+                        console.log(`[AudioProxy] Streaming Vapi Audio: ${id}, Status: ${audioRes.status}, Type: ${finalContentType}`);
+                        return new NextResponse(audioRes.body, {
+                            status: audioRes.status,
+                            headers: {
+                                'Content-Type': finalContentType,
+                                'Content-Length': audioRes.headers.get('Content-Length') || '',
+                                'Accept-Ranges': 'bytes',
+                                'Cache-Control': 'public, max-age=3600',
+                                'Content-Disposition': `inline; filename="vapi-call-${id}.mp3"`,
+                            },
+                        });
+                    } else {
+                        console.warn(`[AudioProxy] Vapi Stream failure for ${id}: ${audioRes.status}`);
+                    }
+                } else {
+                    console.warn(`[AudioProxy] Vapi call found but no recordingUrl: ${id}`);
+                }
+            } else {
+                console.log(`[AudioProxy] Vapi lookup failed (${vapiRes.status}) for ${id}`);
+            }
+        }
+
+        // 2. Fallback to ElevenLabs
+        if (!elApiKey) return NextResponse.json({ error: "Configuration error" }, { status: 500 });
 
         const upstream = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${id}/audio`, {
             headers: {
-                'xi-api-key': apiKey,
-                // Forward range request headers if the browser is seeking mid-file
+                'xi-api-key': elApiKey,
                 ...(request.headers.get('Range') ? { 'Range': request.headers.get('Range')! } : {}),
             }
         });
 
         if (!upstream.ok && upstream.status !== 206) {
-            throw new Error(`ElevenLabs error: ${upstream.status}`);
+            // Log for debugging since we're hitting 404s
+            console.warn(`[AudioProxy] ElevenLabs returned ${upstream.status} for ${id}`);
+            return NextResponse.json({ error: "Audio not found" }, { status: upstream.status });
         }
 
-        // Stream ElevenLabs response body directly to the browser.
-        // On Edge Runtime this is a true zero-copy stream — no buffering.
         return new NextResponse(upstream.body, {
             status: upstream.status,
             headers: {
                 'Content-Type': upstream.headers.get('Content-Type') || 'audio/mpeg',
                 'Content-Length': upstream.headers.get('Content-Length') || '',
-                // Allow browser to seek by byte range (needed for <audio> scrubbing)
                 'Accept-Ranges': 'bytes',
-                // Cache at CDN edge for 1h; instant on subsequent opens
                 'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
-                // Suggested filename for download
                 'Content-Disposition': `inline; filename="call-${id}.mp3"`,
             },
         });

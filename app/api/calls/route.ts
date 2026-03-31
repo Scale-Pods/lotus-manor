@@ -8,7 +8,8 @@ const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
 function cleanPhoneNumber(num: any): string {
     if (!num) return "Unknown";
     const str = String(num).replace(/\s+/g, '').replace(/\+/g, '').replace(/\D/g, '');
-    if (!str || str.length < 5) return "Unknown";
+    // Standard phone numbers are between 5 and 20 digits to accommodate all international formats.
+    if (!str || str.length < 5 || str.length > 22) return "Unknown";
     return str;
 }
 
@@ -24,12 +25,38 @@ function getRateInfo(phoneNumber: string) {
     return matches[0];
 }
 
-function calculateCostValue(durationSecs: number, phoneNumber: string, isInbound: boolean) {
-    if (isInbound) return durationSecs > 0 ? 0.02 : 0; // Inbound is $0.02 if answered
+function calculateTelephonyCost(durationSecs: number, phoneNumber: string, isInbound: boolean, providerNumber?: string) {
+    if (isInbound) return durationSecs > 0 ? 0.02 : 0;
     if (!durationSecs || durationSecs <= 0) return 0;
+
+    const botIsUS = providerNumber?.startsWith('1');
+    const botIsUK = providerNumber?.startsWith('44');
+    const targetIsUAE = phoneNumber.startsWith('971');
+    const targetIsUS = phoneNumber.startsWith('1');
+    const targetIsUK = phoneNumber.startsWith('44');
+
+    // 🚀 Custom Twilio Partner Rates (Manual Overrides)
+    if (botIsUS || botIsUK) {
+        // US/UK call to UAE
+        if (targetIsUAE) return (durationSecs / 60) * 0.2426;
+
+        // US to US local
+        if (botIsUS && targetIsUS) return (durationSecs / 60) * 0.013;
+
+        // UK to UK local
+        if (botIsUK && targetIsUK) return (durationSecs / 60) * 0.0305;
+
+        // Fallback for Twilio international calls if no specific rule above is matched
+        return (durationSecs / 60) * 0.05;
+    }
+
+    // Default rate lookup from rates.json for other regions/providers
     const rate = getRateInfo(phoneNumber);
-    if (!rate || !rate.Rate) return 0;
-    return (durationSecs / 60) * rate.Rate;
+    return (durationSecs / 60) * (rate?.Rate ?? 0);
+}
+
+function calculateCostValue(durationSecs: number, phoneNumber: string, isInbound: boolean) {
+    return calculateTelephonyCost(durationSecs, phoneNumber, isInbound);
 }
 
 function getMaqsamSignature(method: string, endpoint: string, timestamp: string, accessSecret: string) {
@@ -40,8 +67,71 @@ function getMaqsamSignature(method: string, endpoint: string, timestamp: string,
         .digest("base64");
 }
 
+// --- 1. Leads Cache (Supabase) ---
+async function fetchLeadsCache() {
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+    const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    if (!supabaseUrl || !secretKey) return new Map();
+
+    const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
+    const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
+    const leadsMap = new Map<string, string>();
+
+    try {
+        const tables = ["nr_wf", "followup", "nurture"];
+        const results = await Promise.all(tables.map(t => fetch(`${baseUrl}/${t}?select=name,phone`, { headers }).then(r => r.json())));
+
+        results.forEach(data => {
+            if (Array.isArray(data)) {
+                data.forEach(l => {
+                    const clean = cleanPhoneNumber(l.phone);
+                    if (clean !== "Unknown" && l.name) leadsMap.set(clean, l.name);
+                });
+            }
+        });
+    } catch (e) { console.error("Leads cache error:", e); }
+    return leadsMap;
+}
+
+// --- 2. Vapi Phone Cache ---
+async function fetchVapiPhonesCache(vapiPrivKey: string) {
+    const phoneMap = new Map<string, string>();
+
+    // 🚀 Manual Overrides (User Provided)
+    phoneMap.set('4a7e7a31-0bbc-4fde-831e-2489119ee226', '17624000439');
+    phoneMap.set('e66fe46b-9fe2-4628-a32b-08ced680bc04', '97144396291');
+    phoneMap.set('4baf3613-ba3d-4860-9ea1-62156686b6f1', '447462179309');
+    phoneMap.set('66dff692-d2a5-47d4-bbe0-245509dc7404', '14782159151');
+    phoneMap.set('d91ba874-2522-4d62-adf6-681f2a0bf4fe', '97148714150');
+
+    if (!vapiPrivKey) return phoneMap;
+
+    try {
+        const res = await fetch('https://api.vapi.ai/phone-number', {
+            headers: { 'Authorization': `Bearer ${vapiPrivKey}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data.data || []);
+            list.forEach((p: any) => {
+                if (p.id && (p.number || p.phoneNumber)) {
+                    const clean = cleanPhoneNumber(p.number || p.phoneNumber);
+                    if (clean !== "Unknown") phoneMap.set(p.id, clean);
+                }
+            });
+        }
+    } catch (e) { console.error("Vapi phone cache error:", e); }
+    return phoneMap;
+}
+
 export async function GET(req: Request) {
     try {
+        const vapiPrivKey = process.env.VAPI_PRIVATE_KEY || "";
+        const [leadsCache, vapiPhoneCache] = await Promise.all([
+            fetchLeadsCache(),
+            fetchVapiPhonesCache(vapiPrivKey)
+        ]);
+
         const { searchParams } = new URL(req.url);
         const fromParam = searchParams.get('from');
         const toParam = searchParams.get('to');
@@ -101,7 +191,8 @@ export async function GET(req: Request) {
                 }
 
                 // Enrichment: Fetch details for relevant conversations
-                // We enrich the most recent ones to get duration/telephony info
+                // --- 1.2. ElevenLabs Enrichment ---
+                // Fetch detailed data for each conversation to get costs/duration
                 const enrichmentLimit = 200;
                 const enrichmentMap = new Map();
 
@@ -146,25 +237,31 @@ export async function GET(req: Request) {
                     const isInbound = initType.includes('inbound') || direction === 'inbound' || rawType === 'inbound';
                     const isWeb = initType === 'web' || src === 'react_sdk';
 
-                    const centralNumber = "97148714150";
-                    const isCalleeCentral = callee.includes(centralNumber);
-                    const phoneRaw = isInbound || isCalleeCentral ? caller : callee;
-                    const phone = isInbound || isCalleeCentral ? (caller !== "Unknown" ? `+${caller}` : "Inbound (Unknown)")
-                        : (callee !== "Unknown" ? `+${callee}` : (isWeb ? "Website/API" : "Unknown"));
+                    // Clean Inbound/Outbound Logic
+                    const phoneRaw = isInbound ? caller : callee;
+                    const phone = (phoneRaw !== "Unknown") ? `+${phoneRaw}` : (isWeb ? "Website/API" : "Unknown");
 
                     const duration = merged.call_duration_secs || merged.duration_secs || meta.call_duration_secs || 0;
                     const rateEntry: any = getRateInfo(phoneRaw);
                     const costUSD = calculateCostValue(duration, phoneRaw, isInbound);
 
                     const startTimeSec = merged.start_time_unix_secs || merged.start_time || 0;
-                    const startedAt = startTimeSec ? new Date(startTimeSec * 1000).toISOString() : new Date().toISOString();
+                    if (!startTimeSec) return null; // FIX: Skip ghost entries with no date 
+                    const startedAt = new Date(startTimeSec * 1000).toISOString();
 
                     // Name Detection
                     const firstName = dv.first_name || meta.first_name || "";
                     const lastName = dv.last_name || meta.last_name || "";
                     const fullName = (firstName && lastName) ? `${firstName} ${lastName}` : (firstName || lastName);
+                    let name = fullName || meta.user_name || meta.name || dv.user_name || dv.name || "Guest";
 
-                    const name = fullName || meta.user_name || meta.name || dv.user_name || dv.name || dv.custom__name || dv.audient__name || dv.customer_name || "Guest";
+                    const resolvedFromLead = leadsCache.get(phoneRaw);
+                    if (resolvedFromLead) name = resolvedFromLead;
+
+                    // Filter out phone numbers as names
+                    if (name && /^\d+$/.test(name.replace(/\D/g, '')) && name.length > 5) {
+                        name = "Guest";
+                    }
 
                     return {
                         id: merged.conversation_id,
@@ -173,17 +270,168 @@ export async function GET(req: Request) {
                         durationSeconds: duration,
                         cost: costUSD > 0 ? `$${costUSD.toFixed(3)}` : (meta.cost ? `${meta.cost} credits` : "$0.00"),
                         costValue: costUSD,
+                        breakdown: {
+                            agent: 0,
+                            telephony: costUSD,
+                            total: costUSD
+                        },
                         type: isInbound ? "Inbound" : (isWeb ? "Web Call" : "Outbound"),
                         isInbound,
                         phone,
+                        phoneNumber: callee,
                         country: rateEntry?.Country || (phone.startsWith('+') ? "Other" : "Unknown"),
                         source: 'elevenlabs',
                         status: (merged.status === 'success' || merged.status === 'done' || merged.status === 'completed' || merged.call_successful === 'success') ? 'answered' : (merged.status || 'answered')
                     };
-                });
+                }).filter(Boolean);
             }
         } catch (e) {
             console.error("ElevenLabs aggregation fail:", e);
+        }
+
+        // --- 1.2. Twilio Telephony Aggregation ---
+        // Fetch real-time billing data from Twilio (BYOC carrier)
+        const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+        const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+        let twilioLookup: Map<string, any> = new Map();
+
+        try {
+            if (twilioSid && twilioToken) {
+                console.log(`[TwilioSync] Syncing billing for account: ${twilioSid}`);
+                const twRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Calls.json?PageSize=100`, {
+                    headers: {
+                        'Authorization': 'Basic ' + Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64'),
+                    }
+                });
+                if (twRes.ok) {
+                    const twData = await twRes.json();
+                    const callArray = twData.calls || [];
+                    console.log(`[TwilioSync] Successfully fetched ${callArray.length} billing records`);
+                    callArray.forEach((c: any) => {
+                        const to = cleanPhoneNumber(c.to);
+                        const from = cleanPhoneNumber(c.from);
+                        const key = `${to}_${from}_${new Date(c.start_time).getTime().toString().substring(0, 7)}`;
+                        twilioLookup.set(key, c);
+                    });
+                } else {
+                    console.error(`[TwilioSync] Failed: ${twRes.status} ${twRes.statusText}`);
+                }
+            }
+        } catch (e) {
+            console.error("Twilio fetch fail:", e);
+        }
+
+        // --- 1.5. Vapi Aggregation ---
+        let vapiNormalized: any[] = [];
+        try {
+            const vapiPrivKey = process.env.VAPI_PRIVATE_KEY;
+            console.log(`[VapiSync] Checking key: ${vapiPrivKey ? 'Exists' : 'MISSING'}`);
+            if (vapiPrivKey) {
+                let vapiListUrl = `https://api.vapi.ai/call?limit=1000`;
+                if (fromDate) vapiListUrl += `&createdAtGe=${fromDate.toISOString()}`;
+                if (toDate) vapiListUrl += `&createdAtLe=${toDate.toISOString()}`;
+
+                const vapiRes = await fetch(vapiListUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${vapiPrivKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (vapiRes.ok) {
+                    const vapiListData = await vapiRes.json();
+                    const list = Array.isArray(vapiListData) ? vapiListData : (vapiListData.data || []);
+                    console.log(`[VapiSync] Successfully fetched ${list.length} calls`);
+
+                    vapiNormalized = list.map((vc: any) => {
+                        const isInbound = vc.type === 'inbound';
+                        const customer = vc.customer || {};
+                        // GUEST NUMBER ALWAYS COMES FROM CUSTOMER (DO NOT FALLBACK TO BOT NUMBER)
+                        const phoneRaw = cleanPhoneNumber(customer.number);
+
+                        const durationPref = vc.durationSeconds ?? vc.duration ?? 0;
+                        if (!vc.startedAt) return null; // FIX: Skip Vapi ghost entries
+                        const startedAt = vc.startedAt;
+                        const endedAt = vc.endedAt;
+
+                        let safeDuration = durationPref;
+                        if (safeDuration === 0 && endedAt && startedAt) {
+                            safeDuration = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
+                        }
+
+                        const rateEntry: any = getRateInfo(phoneRaw);
+
+                        const agentCost = vc.cost || 0;
+
+                        // --- Assistant Number Resolution ---
+                        // 1. Try expanded phoneNumber object from API first
+                        // 2. Try global phone cache as secondary
+                        // 3. Try numberId/providerId as last resort
+                        const assistantNumRaw = vc.phoneNumber?.number || vapiPhoneCache.get(vc.phoneNumberId) || vc.phoneNumberId || vc.phoneCallProviderId || "Unknown";
+                        let vapiAssistantNum = cleanPhoneNumber(assistantNumRaw);
+
+                        if (vapiAssistantNum === "Unknown" && (vc.phoneNumberId || vc.phoneCallProviderId)) {
+                            vapiAssistantNum = "Internal-Line";
+                        }
+
+                        const vapiTimeKey = `${phoneRaw}_${vapiAssistantNum}_${new Date(startedAt).getTime().toString().substring(0, 7)}`;
+                        const twMatched = twilioLookup.get(vapiTimeKey);
+
+                        let vapiTelephonyCost = calculateTelephonyCost(safeDuration, phoneRaw, isInbound, vapiAssistantNum);
+                        if (twMatched) {
+                            vapiTelephonyCost = Math.abs(parseFloat(twMatched.price || 0));
+                            if (isNaN(vapiTelephonyCost)) vapiTelephonyCost = 0;
+                            vc.telephonyVerified = true;
+                        }
+
+                        const vapiTotalCost = agentCost + vapiTelephonyCost;
+
+                        // Improved name detection with Lead integration
+                        let vapiName = customer.name || "Guest";
+                        if (vapiName === "Guest" || !vapiName || (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5)) {
+                            const metadata = vc.metadata || {};
+                            const overrides = vc.assistantOverrides?.variableValues || {};
+                            vapiName = metadata.customerName || metadata.name || overrides.customerName || overrides.name || "Guest";
+                        }
+
+                        const resolvedFromLead = leadsCache.get(phoneRaw);
+                        if (resolvedFromLead) vapiName = resolvedFromLead;
+
+                        // Final check: if name is still just a phone number, set to Guest
+                        if (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5) {
+                            vapiName = "Guest";
+                        }
+
+                        return {
+                            id: vc.id,
+                            name: vapiName,
+                            startedAt: startedAt,
+                            durationSeconds: safeDuration,
+                            cost: vapiTotalCost > 0 ? `$${vapiTotalCost.toFixed(3)}` : "$0.00",
+                            costValue: vapiTotalCost,
+                            breakdown: {
+                                agent: agentCost,
+                                telephony: vapiTelephonyCost,
+                                total: vapiTotalCost
+                            },
+                            type: isInbound ? "Inbound" : "Outbound",
+                            isInbound,
+                            phone: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
+                            country: rateEntry?.Country || "Unknown",
+                            source: 'vapi',
+                            status: vc.status === 'completed' ? 'answered' : (vc.status || 'answered'),
+                            phoneNumber: vapiAssistantNum,
+                            customer_number: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
+                            raw: vc
+                        };
+                    }).filter(Boolean);
+                } else {
+                    const errBody = await vapiRes.text();
+                    console.error(`[VapiSync] API Failed: ${vapiRes.status} ${errBody}`);
+                }
+            }
+        } catch (e) {
+            console.error("Vapi aggregation fail:", e);
         }
 
         // --- 2. Maqsam Aggregation ---
@@ -229,13 +477,22 @@ export async function GET(req: Request) {
                         const nameValue = isInbound ? (mc.caller || mc.contact_name) : (mc.callee || mc.contact_name);
                         const isNotNumber = nameValue && !nameValue.match(/^\+?\d+$/);
 
+                        const mcDuration = parseInt(mc.duration || 0);
+                        const mCostTelephony = calculateTelephonyCost(mcDuration, phoneRaw, isInbound);
+                        const mCostTotal = mCostTelephony;
+
                         return {
                             id: (mc.id || mc.uuid || Math.random()).toString(),
                             name: isNotNumber ? nameValue : "Guest",
                             startedAt: mc.timestamp ? new Date(mc.timestamp * 1000).toISOString() : (mc.start_time || mc.created_at || new Date().toISOString()),
-                            durationSeconds: parseInt(mc.duration || 0),
-                            cost: calculateCostValue(parseInt(mc.duration || 0), phoneRaw, isInbound) > 0 ? `$${calculateCostValue(parseInt(mc.duration || 0), phoneRaw, isInbound).toFixed(3)}` : "$0.00",
-                            costValue: calculateCostValue(parseInt(mc.duration || 0), phoneRaw, isInbound),
+                            durationSeconds: mcDuration,
+                            cost: mCostTotal > 0 ? `$${mCostTotal.toFixed(3)}` : "$0.00",
+                            costValue: mCostTotal,
+                            breakdown: {
+                                agent: 0,
+                                telephony: mCostTelephony,
+                                total: mCostTotal
+                            },
                             type: isInbound ? "Inbound" : (mc.type === 'campaign' ? "Campaign" : "Outbound"),
                             isInbound,
                             phone: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
@@ -254,7 +511,7 @@ export async function GET(req: Request) {
         }
 
         // --- 3. Final Aggregation ---
-        const final = [...elNormalized, ...maqsamNormalized].sort((a, b) =>
+        const final = [...elNormalized, ...maqsamNormalized, ...vapiNormalized].sort((a, b) =>
             new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
         );
 
