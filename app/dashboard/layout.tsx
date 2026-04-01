@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Mail, MessageCircle, Mic, Settings, LogOut, ChevronDown, Wallet, BarChart2, Users, Send, Key, ExternalLink } from "lucide-react";
+import { LayoutDashboard, Mail, MessageCircle, Mic, Settings, LogOut, ChevronDown, Wallet, BarChart2, Users, Send, Key, ExternalLink, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import {
@@ -42,63 +42,147 @@ const sidebarItems = [
     },
 ];
 
-function WalletModal({ isOpen, onClose, type, details }: { isOpen: boolean, onClose: () => void, type: 'vapi' | 'maqsam', details?: any }) {
-    const isVapi = type === 'vapi';
-    const title = isVapi ? 'ElevenLabs' : 'Maqsam';
+function WalletModal({ isOpen, onClose, type, details, calls }: { isOpen: boolean, onClose: () => void, type: 'vapi' | 'elevenlabs' | 'maqsam' | 'twilio', details?: any, calls?: any[] }) {
+    const { voiceBalance, maqsamBalance } = useData();
 
-    // Parse the data
-    const used = details ? (isVapi ? details.character_count : details.used) : null;
-    const limit = details ? (isVapi ? details.character_limit : details.limit) : null;
-    const left = (typeof limit === 'number' && typeof used === 'number') ? limit - used : null;
+    const title = (() => {
+        switch (type) {
+            case 'vapi': return 'Vapi Wallet';
+            case 'elevenlabs': return 'ElevenLabs Credits';
+            case 'maqsam': return 'Maqsam Telephony';
+            case 'twilio': return 'Twilio Account';
+            default: return 'Balance Detail';
+        }
+    })();
+
+    const icon = (() => {
+        switch (type) {
+            case 'vapi': return <Mic className="h-5 w-5 text-blue-600" />;
+            case 'elevenlabs': return <Settings className="h-5 w-5 text-amber-600" />;
+            case 'maqsam': return <Wallet className="h-5 w-5 text-cyan-600" />;
+            case 'twilio': return <Smartphone className="h-5 w-5 text-rose-600" />;
+            default: return <Wallet className="h-5 w-5" />;
+        }
+    })();
+
+    const vapiAgentUsed = useMemo(() => {
+        if (!calls || !Array.isArray(calls)) return 0;
+        return calls.filter((c: any) => c.source === 'vapi').reduce((acc: number, call: any) => acc + (call.breakdown?.agent || 0), 0);
+    }, [calls]);
+
+    const maqsamUsedCost = useMemo(() => {
+        if (!calls || !Array.isArray(calls)) return 0;
+        return calls.filter((c: any) => {
+            const isMaqsam = c.source === 'maqsam';
+            const phoneStr = String(c.phone || c.customer_number || "");
+            const isUAE = phoneStr.startsWith('+971') || phoneStr.startsWith('971');
+            return isMaqsam || isUAE;
+        }).reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
+    }, [calls]);
+
+    const vapiDetails = voiceBalance?.vapi;
+    const elDetails = voiceBalance?.elevenlabs || (voiceBalance?.character_limit ? voiceBalance : null);
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className={isVapi ? "sm:max-w-[420px]" : "sm:max-w-[650px]"}>
+            <DialogContent className={type === 'maqsam' ? "sm:max-w-[550px]" : "sm:max-w-[420px]"}>
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Wallet className={`h-5 w-5 ${isVapi ? 'text-yellow-600' : 'text-cyan-600'}`} />
-                        <span>{title} Balance</span>
+                        {icon}
+                        <span>{title}</span>
                     </DialogTitle>
                 </DialogHeader>
-                <div className="py-6 space-y-6">
-                    {isVapi ? (
-                        <div className="bg-slate-50 rounded-xl p-4 sm:p-6 border border-slate-100 flex flex-col gap-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="flex flex-col text-center bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
-                                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Left Credits </span>
-                                    <span className={limit ? "text-xl font-bold text-emerald-600" : "text-xl font-bold text-slate-400"}>
-                                        {typeof left === 'number' ? left.toLocaleString() : "---"}
-                                    </span>
-                                </div>
-                                <div className="flex flex-col text-center bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
-                                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Used Credits</span>
-                                    <span className={limit ? "text-xl font-bold text-rose-600" : "text-xl font-bold text-slate-400"}>
-                                        {typeof used === 'number' ? used.toLocaleString() : "---"}
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex flex-col text-center bg-white p-4 rounded-lg border border-slate-100 shadow-sm content-center items-center justify-center">
-                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Max Credits</span>
-                                <span className={limit ? "text-3xl font-bold text-slate-800" : "text-2xl font-bold text-slate-400"}>
-                                    {typeof limit === 'number' ? limit.toLocaleString() : "Api Key Undetected"}
+                <div className="py-2 space-y-6">
+                    {type === 'vapi' && (
+                        <div className="bg-blue-50/50 rounded-xl p-6 border border-blue-100 flex flex-col gap-4">
+                            <div className="flex flex-col text-center bg-white p-8 rounded-lg border border-blue-100 shadow-sm">
+                                <span className="text-sm font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Vapi Credits Used</span>
+                                <span className="text-5xl font-black text-blue-600">
+                                    ${vapiAgentUsed.toFixed(2)}
                                 </span>
+                                <p className="text-[10px] text-blue-500 mt-4 font-semibold bg-blue-50 px-3 py-1 rounded-full self-center border border-blue-100">
+                                    Lifetime Workspace Usage
+                                </p>
                             </div>
+                            <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2 h-12" onClick={() => window.open('https://vapi.ai', '_blank')}>
+                                <ExternalLink className="h-4 w-4" /> Vapi Dashboard
+                            </Button>
                         </div>
-                    ) : (
-                        <MaqsamBalanceDetail initialBalance={details} />
                     )}
 
-                    <Button
-                        className={`w-full text-white h-12 font-bold shadow-lg gap-2 ${isVapi ? 'bg-yellow-600 hover:bg-yellow-700 shadow-yellow-500/20' : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-500/20'}`}
-                        onClick={() => {
-                            if (isVapi) window.open('https://elevenlabs.io/app/subscription', '_blank');
-                            else window.open('https://maqsam.com', '_blank');
-                            onClose();
-                        }}
-                    >
-                        <ExternalLink className="h-4 w-4" />
-                        Manage Subscription
-                    </Button>
+                    {type === 'elevenlabs' && (
+                        <div className="bg-amber-50/50 rounded-xl p-5 border border-amber-100 flex flex-col gap-4">
+                            <div className="flex flex-col text-center bg-white p-6 rounded-lg border border-amber-100 shadow-sm">
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Characters Left</span>
+                                <span className="text-4xl font-black text-amber-600">
+                                    {elDetails ? ((elDetails.character_limit - elDetails.character_count) || 0).toLocaleString() : "---"}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="flex flex-col text-center bg-white p-3 rounded-lg border border-amber-100 shadow-sm">
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Character</span>
+                                    <span className="text-lg font-bold text-slate-700">
+                                        {(elDetails?.character_limit || 0).toLocaleString()}
+                                    </span>
+                                </div>
+                                <div className="flex flex-col text-center bg-white p-3 rounded-lg border border-amber-100 shadow-sm">
+                                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Used Character</span>
+                                    <span className="text-lg font-bold text-slate-500">
+                                        {(elDetails?.character_count || 0).toLocaleString()}
+                                    </span>
+                                </div>
+                            </div>
+                            <Button className="bg-amber-600 hover:bg-amber-700 text-white gap-2" onClick={() => window.open('https://elevenlabs.io/app/subscription', '_blank')}>
+                                <ExternalLink className="h-4 w-4" /> Manage Subscription
+                            </Button>
+                        </div>
+                    )}
+
+                    {type === 'twilio' && (
+                        <div className="bg-rose-50/50 rounded-xl p-5 border border-rose-100 flex flex-col gap-4">
+                            <div className="grid grid-cols-1 gap-4">
+                                <div className="flex flex-col text-center bg-white p-6 rounded-lg border border-rose-100 shadow-sm">
+                                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Remaining Balance</span>
+                                    <span className="text-4xl font-black text-rose-600">
+                                        {typeof details?.balance === 'number' ? `$${details.balance.toFixed(2)}` : "---"}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 mt-2 font-mono uppercase">{details?.account_sid || "Account SID Loading..."}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="flex flex-col text-center bg-white p-3 rounded-lg border border-rose-100 shadow-sm">
+                                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Pay-As-You-Go</span>
+                                        <span className="text-lg font-bold text-slate-700">
+                                            {typeof details?.total_recharge === 'number' ? `$${details.total_recharge.toFixed(2)}` : "---"}
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-col text-center bg-white p-3 rounded-lg border border-rose-100 shadow-sm">
+                                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Used to Date</span>
+                                        <span className="text-lg font-bold text-slate-500">
+                                            {typeof details?.used === 'number' ? `$${details.used.toFixed(2)}` : "---"}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            <Button className="bg-rose-600 hover:bg-rose-700 text-white gap-2" onClick={() => window.open('https://console.twilio.com', '_blank')}>
+                                <ExternalLink className="h-4 w-4" /> Twilio Console
+                            </Button>
+                        </div>
+                    )}
+
+                    {type === 'maqsam' && (
+                        <div className="space-y-4">
+                            <div className="flex flex-col text-center bg-cyan-50/50 p-6 rounded-lg border border-cyan-100 shadow-sm relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-3 opacity-10">
+                                    <Wallet className="h-12 w-12" />
+                                </div>
+                                <span className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Telephony Used</span>
+                                <span className="text-5xl font-black text-cyan-700">
+                                    ${maqsamUsedCost.toFixed(2)}
+                                </span>
+                            </div>
+                            <MaqsamBalanceDetail initialBalance={maqsamBalance} />
+                        </div>
+                    )}
                 </div>
             </DialogContent>
         </Dialog>
@@ -179,16 +263,29 @@ function DashboardContent({
         calls,
         voiceBalance,
         maqsamBalance,
-        loadingBalances: loadingMaqsam,
-        loadingBalances: loadingVoice,
+        twilioBalance,
+        loadingBalances,
         loadingCalls
     } = useData();
-
-    const calculatedTelephonyCost = useMemo(() => {
+    const vapiAgentUsed = useMemo(() => {
         if (!calls || !Array.isArray(calls)) return 0;
-        return calls.reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
+        return calls.filter((c: any) => c.source === 'vapi').reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
     }, [calls]);
-    const [walletModal, setWalletModal] = useState<{ isOpen: boolean, type: 'vapi' | 'maqsam' }>({ isOpen: false, type: 'vapi' });
+
+    const maqsamUsedCost = useMemo(() => {
+        if (!calls || !Array.isArray(calls)) return 0;
+        return calls.filter((c: any) => {
+            const isMaqsam = c.source === 'maqsam';
+            const phoneStr = String(c.phone || c.customer_number || "");
+            const isUAE = phoneStr.startsWith('+971') || phoneStr.startsWith('971');
+            return isMaqsam || isUAE;
+        }).reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
+    }, [calls]);
+
+    const [walletModal, setWalletModal] = useState<{ isOpen: boolean, type: 'vapi' | 'elevenlabs' | 'maqsam' | 'twilio' }>({
+        isOpen: false,
+        type: 'vapi'
+    });
 
 
     const content = (() => {
@@ -292,38 +389,64 @@ function DashboardContent({
                             </h1>
 
                             {currentContext === "master" && (
-                                <div className="flex items-center gap-3">
-                                    {/* Vapi Wallet Button */}
+                                <div className="flex items-center gap-2">
+                                    {/* Vapi Balance Button */}
                                     <Button
                                         variant="outline"
-                                        className="h-10 px-4 border-yellow-200 bg-yellow-50/30 hover:bg-yellow-50 text-yellow-700 gap-3 flex items-center shadow-sm transition-all"
+                                        className="h-10 px-3 border-blue-200 bg-blue-50/30 hover:bg-blue-50 text-blue-700 gap-2 flex items-center shadow-sm"
                                         onClick={() => setWalletModal({ isOpen: true, type: 'vapi' })}
                                     >
-                                        <div className="p-1.5 bg-yellow-100 rounded-md">
-                                            <Mic className="h-4 w-4" />
-                                        </div>
+                                        <Mic className="h-3.5 w-3.5" />
                                         <div className="flex flex-col items-start leading-[1.1]">
-                                            <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">11Labs Credits</span>
-                                            <span className="text-sm font-bold">
-                                                {loadingVoice ? "..." : (voiceBalance !== null ? (voiceBalance.character_limit - voiceBalance.character_count).toLocaleString() : "N/A")}
+                                            <span className="text-[9px] font-bold uppercase opacity-70">Vapi Used</span>
+                                            <span className="text-xs font-bold">
+                                                {loadingCalls ? "..." : `$${vapiAgentUsed.toFixed(2)}`}
+                                            </span>
+                                        </div>
+                                    </Button>
+
+                                    {/* 11Labs Button */}
+                                    <Button
+                                        variant="outline"
+                                        className="h-10 px-3 border-amber-200 bg-amber-50/30 hover:bg-amber-50 text-amber-700 gap-2 flex items-center shadow-sm"
+                                        onClick={() => setWalletModal({ isOpen: true, type: 'elevenlabs' })}
+                                    >
+                                        <Settings className="h-3.5 w-3.5" />
+                                        <div className="flex flex-col items-start leading-[1.1]">
+                                            <span className="text-[9px] font-bold uppercase opacity-70">11Labs</span>
+                                            <span className="text-xs font-bold">
+                                                {loadingBalances ? "..." : (voiceBalance ? ((voiceBalance.elevenlabs?.character_limit || voiceBalance.character_limit || 0) - (voiceBalance.elevenlabs?.character_count || voiceBalance.character_count || 0)).toLocaleString() : "N/A")}
+                                            </span>
+                                        </div>
+                                    </Button>
+
+                                    {/* Twilio Button */}
+                                    <Button
+                                        variant="outline"
+                                        className="h-10 px-3 border-rose-200 bg-rose-50/30 hover:bg-rose-50 text-rose-700 gap-2 flex items-center shadow-sm"
+                                        onClick={() => setWalletModal({ isOpen: true, type: 'twilio' })}
+                                    >
+                                        <Smartphone className="h-3.5 w-3.5" />
+                                        <div className="flex flex-col items-start leading-[1.1]">
+                                            <span className="text-[9px] font-bold uppercase opacity-70">Twilio</span>
+                                            <span className="text-xs font-bold">
+                                                {loadingBalances ? "..." : (twilioBalance?.balance !== undefined ? `$${twilioBalance.balance.toFixed(2)}` : "N/A")}
                                             </span>
                                         </div>
                                     </Button>
 
 
-                                    {/* Maqsam Wallet Button */}
+                                    {/* Maqsam Button */}
                                     <Button
                                         variant="outline"
-                                        className="h-10 px-4 border-cyan-200 bg-cyan-50/30 hover:bg-cyan-50 text-cyan-700 gap-3 flex items-center shadow-sm transition-all"
+                                        className="h-10 px-3 border-cyan-200 bg-cyan-50/30 hover:bg-cyan-50 text-cyan-700 gap-2 flex items-center shadow-sm"
                                         onClick={() => setWalletModal({ isOpen: true, type: 'maqsam' })}
                                     >
-                                        <div className="p-1.5 bg-cyan-100 rounded-md">
-                                            <Wallet className="h-4 w-4" />
-                                        </div>
+                                        <Wallet className="h-3.5 w-3.5" />
                                         <div className="flex flex-col items-start leading-[1.1]">
-                                            <span className="text-[10px] font-bold uppercase tracking-tight opacity-70">Maqsam Usage</span>
-                                            <span className="text-sm font-bold">
-                                                {loadingCalls ? "..." : `$${calculatedTelephonyCost.toFixed(2)}`}
+                                            <span className="text-[9px] font-bold uppercase opacity-70">Maqsam Used</span>
+                                            <span className="text-xs font-bold">
+                                                {loadingCalls ? "..." : `$${maqsamUsedCost.toFixed(2)}`}
                                             </span>
                                         </div>
                                     </Button>
@@ -335,7 +458,16 @@ function DashboardContent({
                     <WalletModal
                         isOpen={walletModal.isOpen}
                         type={walletModal.type}
-                        details={walletModal.type === 'vapi' ? voiceBalance : (walletModal.type === 'maqsam' ? maqsamBalance : null)}
+                        details={(() => {
+                            switch (walletModal.type) {
+                                case 'vapi': return voiceBalance?.vapi;
+                                case 'elevenlabs': return voiceBalance?.elevenlabs || (voiceBalance?.character_limit ? voiceBalance : null);
+                                case 'twilio': return twilioBalance;
+                                case 'maqsam': return maqsamBalance;
+                                default: return null;
+                            }
+                        })()}
+                        calls={calls}
                         onClose={() => setWalletModal({ ...walletModal, isOpen: false })}
                     />
 

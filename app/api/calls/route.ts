@@ -325,110 +325,122 @@ export async function GET(req: Request) {
         let vapiNormalized: any[] = [];
         try {
             const vapiPrivKey = process.env.VAPI_PRIVATE_KEY;
-            console.log(`[VapiSync] Checking key: ${vapiPrivKey ? 'Exists' : 'MISSING'}`);
             if (vapiPrivKey) {
-                let vapiListUrl = `https://api.vapi.ai/call?limit=1000`;
-                if (fromDate) vapiListUrl += `&createdAtGe=${fromDate.toISOString()}`;
-                if (toDate) vapiListUrl += `&createdAtLe=${toDate.toISOString()}`;
+                let allVapiCalls: any[] = [];
+                let hasMoreVapi = true;
+                let lastCreatedAt = null;
+                const batchSize = 1000;
 
-                const vapiRes = await fetch(vapiListUrl, {
-                    headers: {
-                        'Authorization': `Bearer ${vapiPrivKey}`,
-                        'Content-Type': 'application/json'
+                // Fetch up to 5000 calls for lifetime view (adjust if needed)
+                let batchedFetched = 0;
+                while (hasMoreVapi && batchedFetched < 5) {
+                    let vapiListUrl = `https://api.vapi.ai/call?limit=${batchSize}`;
+                    if (lastCreatedAt) {
+                        // Vapi uses createdAtLe for pagination moving backwards
+                        vapiListUrl += `&createdAtLe=${lastCreatedAt}`;
                     }
-                });
 
-                if (vapiRes.ok) {
+                    const vapiRes = await fetch(vapiListUrl, {
+                        headers: { 'Authorization': `Bearer ${vapiPrivKey}`, 'Content-Type': 'application/json' }
+                    });
+
+                    if (!vapiRes.ok) break;
                     const vapiListData = await vapiRes.json();
                     const list = Array.isArray(vapiListData) ? vapiListData : (vapiListData.data || []);
-                    console.log(`[VapiSync] Successfully fetched ${list.length} calls`);
 
-                    vapiNormalized = list.map((vc: any) => {
-                        const isInbound = vc.type === 'inbound';
-                        const customer = vc.customer || {};
-                        // GUEST NUMBER ALWAYS COMES FROM CUSTOMER (DO NOT FALLBACK TO BOT NUMBER)
-                        const phoneRaw = cleanPhoneNumber(customer.number);
+                    if (list.length === 0) break;
 
-                        const durationPref = vc.durationSeconds ?? vc.duration ?? 0;
-                        if (!vc.startedAt) return null; // FIX: Skip Vapi ghost entries
-                        const startedAt = vc.startedAt;
-                        const endedAt = vc.endedAt;
+                    // Filter out duplicates if any
+                    const newList = list.filter((c: any) => !allVapiCalls.find((existing: any) => existing.id === c.id));
+                    if (newList.length === 0) break;
 
-                        let safeDuration = durationPref;
-                        if (safeDuration === 0 && endedAt && startedAt) {
-                            safeDuration = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
-                        }
+                    allVapiCalls = [...allVapiCalls, ...newList];
 
-                        const rateEntry: any = getRateInfo(phoneRaw);
+                    // Update cursor: use the createdAt of the last item minus 1ms to get older items
+                    const oldestCall = list[list.length - 1];
+                    lastCreatedAt = oldestCall.createdAt;
 
-                        const agentCost = vc.cost || 0;
-
-                        // --- Assistant Number Resolution ---
-                        // 1. Try expanded phoneNumber object from API first
-                        // 2. Try global phone cache as secondary
-                        // 3. Try numberId/providerId as last resort
-                        const assistantNumRaw = vc.phoneNumber?.number || vapiPhoneCache.get(vc.phoneNumberId) || vc.phoneNumberId || vc.phoneCallProviderId || "Unknown";
-                        let vapiAssistantNum = cleanPhoneNumber(assistantNumRaw);
-
-                        if (vapiAssistantNum === "Unknown" && (vc.phoneNumberId || vc.phoneCallProviderId)) {
-                            vapiAssistantNum = "Internal-Line";
-                        }
-
-                        const vapiTimeKey = `${phoneRaw}_${vapiAssistantNum}_${new Date(startedAt).getTime().toString().substring(0, 7)}`;
-                        const twMatched = twilioLookup.get(vapiTimeKey);
-
-                        let vapiTelephonyCost = calculateTelephonyCost(safeDuration, phoneRaw, isInbound, vapiAssistantNum);
-                        if (twMatched) {
-                            vapiTelephonyCost = Math.abs(parseFloat(twMatched.price || 0));
-                            if (isNaN(vapiTelephonyCost)) vapiTelephonyCost = 0;
-                            vc.telephonyVerified = true;
-                        }
-
-                        const vapiTotalCost = agentCost + vapiTelephonyCost;
-
-                        // Improved name detection with Lead integration
-                        let vapiName = customer.name || "Guest";
-                        if (vapiName === "Guest" || !vapiName || (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5)) {
-                            const metadata = vc.metadata || {};
-                            const overrides = vc.assistantOverrides?.variableValues || {};
-                            vapiName = metadata.customerName || metadata.name || overrides.customerName || overrides.name || "Guest";
-                        }
-
-                        const resolvedFromLead = leadsCache.get(phoneRaw);
-                        if (resolvedFromLead) vapiName = resolvedFromLead;
-
-                        // Final check: if name is still just a phone number, set to Guest
-                        if (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5) {
-                            vapiName = "Guest";
-                        }
-
-                        return {
-                            id: vc.id,
-                            name: vapiName,
-                            startedAt: startedAt,
-                            durationSeconds: safeDuration,
-                            cost: vapiTotalCost > 0 ? `$${vapiTotalCost.toFixed(3)}` : "$0.00",
-                            costValue: vapiTotalCost,
-                            breakdown: {
-                                agent: agentCost,
-                                telephony: vapiTelephonyCost,
-                                total: vapiTotalCost
-                            },
-                            type: isInbound ? "Inbound" : "Outbound",
-                            isInbound,
-                            phone: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
-                            country: rateEntry?.Country || "Unknown",
-                            source: 'vapi',
-                            status: vc.status === 'completed' ? 'answered' : (vc.status || 'answered'),
-                            phoneNumber: vapiAssistantNum,
-                            customer_number: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
-                            raw: vc
-                        };
-                    }).filter(Boolean);
-                } else {
-                    const errBody = await vapiRes.text();
-                    console.error(`[VapiSync] API Failed: ${vapiRes.status} ${errBody}`);
+                    if (list.length < batchSize) hasMoreVapi = false;
+                    batchedFetched++;
                 }
+
+                vapiNormalized = allVapiCalls.map((vc: any) => {
+                    const isInbound = vc.type === 'inbound';
+                    const customer = vc.customer || {};
+                    const phoneRaw = cleanPhoneNumber(customer.number);
+                    const durationPref = vc.durationSeconds ?? vc.duration ?? 0;
+                    if (!vc.startedAt) return null;
+                    const startedAt = vc.startedAt;
+                    const endedAt = vc.endedAt;
+
+                    let safeDuration = durationPref;
+                    if (safeDuration === 0 && endedAt && startedAt) {
+                        safeDuration = (new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000;
+                    }
+
+                    const rateEntry: any = getRateInfo(phoneRaw);
+                    const agentCost = vc.cost || 0;
+
+                    const assistantNumRaw = vc.phoneNumber?.number || vapiPhoneCache.get(vc.phoneNumberId) || vc.phoneNumberId || vc.phoneCallProviderId || "Unknown";
+                    let vapiAssistantNum = cleanPhoneNumber(assistantNumRaw);
+
+                    if (vapiAssistantNum === "Unknown" && (vc.phoneNumberId || vc.phoneCallProviderId)) {
+                        vapiAssistantNum = "Internal-Line";
+                    }
+
+                    const vapiTimeKey = `${phoneRaw}_${vapiAssistantNum}_${new Date(startedAt).getTime().toString().substring(0, 7)}`;
+                    const twMatched = twilioLookup.get(vapiTimeKey);
+
+                    let vapiTelephonyCost = 0;
+                    if (twMatched) {
+                        vapiTelephonyCost = Math.abs(parseFloat(twMatched.price || 0));
+                        if (isNaN(vapiTelephonyCost)) vapiTelephonyCost = 0;
+                    } else if (agentCost === 0) {
+                        // Fallback to internal calc only if Vapi hasn't reported a cost yet
+                        vapiTelephonyCost = calculateTelephonyCost(safeDuration, phoneRaw, isInbound, vapiAssistantNum);
+                    }
+
+                    // Vapi's 'agentCost' (vc.cost) is already the TOTAL cost (LLM + Agent + Telephony)
+                    // We only add our own calculated telephony cost if Vapi's native cost is 0.
+                    const vapiTotalCost = agentCost > 0 ? agentCost : vapiTelephonyCost;
+
+                    let vapiName = customer.name || "Guest";
+                    if (vapiName === "Guest" || !vapiName || (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5)) {
+                        const metadata = vc.metadata || {};
+                        const overrides = vc.assistantOverrides?.variableValues || {};
+                        vapiName = metadata.customerName || metadata.name || overrides.customerName || overrides.name || "Guest";
+                    }
+
+                    const resolvedFromLead = leadsCache.get(phoneRaw);
+                    if (resolvedFromLead) vapiName = resolvedFromLead;
+
+                    if (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5) {
+                        vapiName = "Guest";
+                    }
+
+                    return {
+                        id: vc.id,
+                        name: vapiName,
+                        startedAt: startedAt,
+                        durationSeconds: safeDuration,
+                        cost: vapiTotalCost > 0 ? `$${vapiTotalCost.toFixed(3)}` : "$0.00",
+                        costValue: vapiTotalCost,
+                        breakdown: {
+                            agent: agentCost > 0 ? agentCost : 0,
+                            telephony: agentCost > 0 ? 0 : vapiTelephonyCost,
+                            total: vapiTotalCost
+                        },
+                        type: isInbound ? "Inbound" : "Outbound",
+                        isInbound,
+                        phone: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
+                        country: rateEntry?.Country || "Unknown",
+                        source: 'vapi',
+                        status: vc.status === 'completed' ? 'answered' : (vc.status || 'answered'),
+                        phoneNumber: vapiAssistantNum,
+                        customer_number: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
+                        raw: vc
+                    };
+                }).filter(Boolean);
             }
         } catch (e) {
             console.error("Vapi aggregation fail:", e);
@@ -458,53 +470,66 @@ export async function GET(req: Request) {
                     return fetch(mUrl, { method, headers });
                 };
 
-                let mRes = await fetchMaqsam("/v2/calls", true);
-                if (!mRes.ok) {
-                    mRes = await fetchMaqsam("/v1/account/calls", false); // Try Balance-style Signature auth
+                let allMaqsamCalls: any[] = [];
+                let mPage = 1;
+                let hasMoreMaqsam = true;
+                const MAX_M_PAGES = 3; // Batch fetch up to 300 calls for balance accuracy
+
+                while (hasMoreMaqsam && mPage <= MAX_M_PAGES) {
+                    let mRes = await fetchMaqsam(`/v2/calls?page=${mPage}&limit=100`, true);
+                    if (!mRes.ok) {
+                        mRes = await fetchMaqsam("/v1/account/calls", false); // Fallback to older API
+                        hasMoreMaqsam = false;
+                    }
+
+                    if (mRes.ok) {
+                        const mData = await mRes.json();
+                        const mcList = Array.isArray(mData.message) ? mData.message : (mData.data || mData.calls || []);
+                        if (mcList.length === 0) break;
+
+                        allMaqsamCalls = [...allMaqsamCalls, ...mcList];
+                        if (mcList.length < 100) hasMoreMaqsam = false;
+                        mPage++;
+                    } else break;
                 }
 
-                if (mRes.ok) {
-                    const mData = await mRes.json();
-                    const mcList = Array.isArray(mData.message) ? mData.message : (mData.data || mData.calls || []);
+                maqsamNormalized = allMaqsamCalls.map((mc: any) => {
+                    const direction = (mc.direction || "").toLowerCase();
+                    const isInbound = direction === 'inbound' || direction === 'incoming';
+                    const callerNum = cleanPhoneNumber(mc.callerNumber || mc.caller || mc.from);
+                    const calleeNum = cleanPhoneNumber(mc.calleeNumber || mc.callee || mc.to);
+                    const phoneRaw = isInbound ? callerNum : calleeNum;
 
-                    maqsamNormalized = mcList.map((mc: any) => {
-                        const direction = (mc.direction || "").toLowerCase();
-                        const isInbound = direction === 'inbound' || direction === 'incoming';
-                        const callerNum = cleanPhoneNumber(mc.callerNumber || mc.caller || mc.from);
-                        const calleeNum = cleanPhoneNumber(mc.calleeNumber || mc.callee || mc.to);
-                        const phoneRaw = isInbound ? callerNum : calleeNum;
+                    const nameValue = isInbound ? (mc.caller || mc.contact_name) : (mc.callee || mc.contact_name);
+                    const isNotNumber = nameValue && !nameValue.match(/^\+?\d+$/);
 
-                        const nameValue = isInbound ? (mc.caller || mc.contact_name) : (mc.callee || mc.contact_name);
-                        const isNotNumber = nameValue && !nameValue.match(/^\+?\d+$/);
+                    const mcDuration = parseInt(mc.duration || 0);
+                    // Priority: Native cost from Maqsam > Internal Rate calculation
+                    const nativePrice = parseFloat(mc.price || mc.cost || 0);
+                    const internalRate = calculateTelephonyCost(mcDuration, phoneRaw, isInbound);
+                    const mCostTelephony = nativePrice > 0 ? nativePrice : internalRate;
+                    const mCostTotal = mCostTelephony;
 
-                        const mcDuration = parseInt(mc.duration || 0);
-                        const mCostTelephony = calculateTelephonyCost(mcDuration, phoneRaw, isInbound);
-                        const mCostTotal = mCostTelephony;
-
-                        return {
-                            id: (mc.id || mc.uuid || Math.random()).toString(),
-                            name: isNotNumber ? nameValue : "Guest",
-                            startedAt: mc.timestamp ? new Date(mc.timestamp * 1000).toISOString() : (mc.start_time || mc.created_at || new Date().toISOString()),
-                            durationSeconds: mcDuration,
-                            cost: mCostTotal > 0 ? `$${mCostTotal.toFixed(3)}` : "$0.00",
-                            costValue: mCostTotal,
-                            breakdown: {
-                                agent: 0,
-                                telephony: mCostTelephony,
-                                total: mCostTotal
-                            },
-                            type: isInbound ? "Inbound" : (mc.type === 'campaign' ? "Campaign" : "Outbound"),
-                            isInbound,
-                            phone: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
-                            country: getRateInfo(phoneRaw)?.Country || "Unknown",
-                            source: 'maqsam',
-                            status: (mc.state === 'completed' || mc.state === 'serviced' || mc.status === 'answered') ? 'answered' : (mc.state || mc.status || 'answered')
-                        };
-                    });
-                } else if (mRes.status !== 401) {
-                    const err = await mRes.text();
-                    console.error("[Maqsam] Request Failed:", { status: mRes.status, response: err });
-                }
+                    return {
+                        id: (mc.id || mc.uuid || Math.random()).toString(),
+                        name: isNotNumber ? nameValue : "Guest",
+                        startedAt: mc.timestamp ? new Date(mc.timestamp * 1000).toISOString() : (mc.start_time || mc.created_at || new Date().toISOString()),
+                        durationSeconds: mcDuration,
+                        cost: mCostTotal > 0 ? `$${mCostTotal.toFixed(3)}` : "$0.00",
+                        costValue: mCostTotal,
+                        breakdown: {
+                            agent: 0,
+                            telephony: mCostTelephony,
+                            total: mCostTotal
+                        },
+                        type: isInbound ? "Inbound" : (mc.type === 'campaign' ? "Campaign" : "Outbound"),
+                        isInbound,
+                        phone: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
+                        country: getRateInfo(phoneRaw)?.Country || "Unknown",
+                        source: 'maqsam',
+                        status: (mc.state === 'completed' || mc.state === 'serviced' || mc.status === 'answered') ? 'answered' : (mc.state || mc.status || 'answered')
+                    };
+                });
             }
         } catch (e) {
             console.error("Maqsam aggregation fail:", e);

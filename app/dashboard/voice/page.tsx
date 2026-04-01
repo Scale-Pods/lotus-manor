@@ -34,7 +34,9 @@ export default function VoiceDashboardPage() {
         completedCalls: 0,
         characterCount: 0,
         characterLimit: 0,
-        vapiBalance: 0
+        vapiBalance: 0,
+        lifetimeCostVapi: 0,
+        lifetimeCostEL: 0
     });
     const [dailyVolume, setDailyVolume] = useState<any[]>([]);
     const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
@@ -93,22 +95,36 @@ export default function VoiceDashboardPage() {
         // console.log(`Global Calls: ${globalCalls.length}, Filtered: ${filteredCalls.length} (Range: ${dateRange.from.toLocaleDateString()} - ${dateRange.to?.toLocaleDateString()})`);
 
 
-        filteredCalls.forEach((call: any) => {
-            // Normalize ElevenLabs fields from the /api/calls endpoint
-            const status = call.status;
-            const startedAtDate = call.startedAt ? new Date(call.startedAt) : null;
-            const duration = call.durationSeconds || 0;
+        let lifetimeCostVapi = 0;
+        let lifetimeCostEL = 0;
 
-            // Extract numeric credits from string like "176 credits" or fallback to 0
+        // Separate calculation for lifetime totals (ignoring date filter)
+        globalCalls.forEach((call: any) => {
             let cost = 0;
-            if (typeof call.cost === 'string' && call.cost.includes('credits')) {
-                cost = parseInt(call.cost.replace(/\D/g, '')) || 0;
+            if (typeof call.cost === 'string') {
+                cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
             } else if (typeof call.cost === 'number') {
                 cost = call.cost;
             }
 
-            // Metrics
-            if (status === 'done' || status === 'ended' || status === 'completed' || status === 'success') {
+            if (call.source === 'vapi') lifetimeCostVapi += cost;
+            if (call.source === 'elevenlabs') lifetimeCostEL += cost;
+        });
+
+        filteredCalls.forEach((call: any) => {
+            const status = call.status;
+            const startedAtDate = call.startedAt ? new Date(call.startedAt) : null;
+            const duration = call.durationSeconds || 0;
+
+            let cost = 0;
+            if (typeof call.cost === 'string') {
+                const numericStr = call.cost.replace(/[^\d.]/g, '');
+                cost = parseFloat(numericStr) || 0;
+            } else if (typeof call.cost === 'number') {
+                cost = call.cost;
+            }
+
+            if (status === 'done' || status === 'ended' || status === 'completed' || status === 'success' || status === 'answered') {
                 completed++;
                 successCount++;
             }
@@ -116,9 +132,7 @@ export default function VoiceDashboardPage() {
             totalDuration += duration;
             totalCost += cost;
 
-            // Charts processing
             if (startedAtDate) {
-                // Use a proper date key for sorting
                 const dayKey = format(startedAtDate, 'yyyy-MM-dd');
                 const displayKey = format(startedAtDate, 'MMM dd');
 
@@ -145,24 +159,25 @@ export default function VoiceDashboardPage() {
             totalCost,
             avgCost,
             successRate,
-            completedCalls: completed
+            completedCalls: completed,
+            lifetimeCostVapi,
+            lifetimeCostEL
         }));
 
-        // Format Daily Volume - Ensure chronological order
         const dailyData = Array.from(dayMap.entries())
             .map(([dayKey, data]) => ({ dayKey, name: data.display, calls: data.count }))
             .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
 
-        setDailyVolume(dailyData); // Show all days available in the range data
+        setDailyVolume(dailyData);
 
-        // Format Hourly Distribution
         const hourlyData = hourMap.map((calls, hour) => ({
             name: `${hour.toString().padStart(2, '0')}:00`,
             calls
-        })).filter((_, i) => i % 3 === 0); // Sample every 3 hours for cleaner chart
+        })).filter((_, i) => i % 3 === 0);
 
         setHourlyDistribution(hourlyData);
-    }, [globalCalls, dateRange, loading]);
+    }, [globalCalls, dateRange, providerFilter, loading]);
+    // Added providerFilter here
 
     return (
         <div className="space-y-8 pb-10 relative min-h-[500px]">
@@ -173,9 +188,7 @@ export default function VoiceDashboardPage() {
                     <h1 className="text-2xl font-bold text-slate-900">Voice Agent Dashboard</h1>
                     <div className="flex items-center gap-2 text-slate-500">
                         <p>Monitor your AI voice agent performance.</p>
-                        <span className="text-xs px-2 py-0.5 bg-slate-100 rounded-full">
-                            Last refreshed: {new Date().toLocaleTimeString()}
-                        </span>
+
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -201,11 +214,10 @@ export default function VoiceDashboardPage() {
             </div>
 
             {/* Metrics Overview */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 ${providerFilter === 'all' ? 'xl:grid-cols-5' : 'xl:grid-cols-4'} gap-6`}>
                 <MetricCard
                     title="Total Executions"
                     value={`${stats.totalCalls} calls`}
-                    badge={stats.totalCalls < globalCalls.length ? `Showing ${stats.totalCalls} of ${globalCalls.length} logs` : undefined}
                     icon={<Phone className="h-5 w-5 text-slate-600" />}
                 />
                 <MetricCard
@@ -214,22 +226,26 @@ export default function VoiceDashboardPage() {
                     icon={<Clock className="h-5 w-5 text-slate-600" />}
                 />
                 <MetricCard
-                    title="ElevenLabs Credits"
-                    value={`${stats.characterCount.toLocaleString()}`}
-                    badge={`of ${stats.characterLimit.toLocaleString()} max`}
-                    icon={<DollarSign className="h-5 w-5 text-emerald-600" />}
-                />
-                <MetricCard
-                    title="Vapi Wallet Balance"
-                    value={`$${stats.vapiBalance.toFixed(2)}`}
-                    badge="Available Credits"
-                    icon={<DollarSign className="h-5 w-5 text-blue-600" />}
-                />
-                <MetricCard
                     title="Average Duration"
                     value={`${Math.round(stats.avgDuration)}s`}
                     icon={<Timer className="h-5 w-5 text-slate-600" />}
                 />
+                {(providerFilter === 'all' || providerFilter === 'vapi') && (
+                    <MetricCard
+                        title="Vapi Credits Used"
+                        value={`$${(stats as any).lifetimeCostVapi.toFixed(2)}`}
+                        badge="Total Used"
+                        icon={<DollarSign className="h-5 w-5 text-blue-600" />}
+                    />
+                )}
+                {(providerFilter === 'all' || providerFilter === 'elevenlabs') && (
+                    <MetricCard
+                        title="ElevenLabs Remaining"
+                        value={`${(stats.characterLimit - stats.characterCount).toLocaleString()}`}
+                        badge={`of ${stats.characterLimit.toLocaleString()}`}
+                        icon={<DollarSign className="h-5 w-5 text-emerald-600" />}
+                    />
+                )}
             </div>
 
             {/* Charts Section */}

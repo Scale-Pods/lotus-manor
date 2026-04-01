@@ -267,7 +267,7 @@ export default function EmailAnalyticsPage() {
                         iconBg="bg-blue-50"
                         iconColor="text-blue-600"
                     />
-                    
+
                     <MetricCard
                         label="Replies"
                         value={totalReplies.toLocaleString()}
@@ -373,7 +373,7 @@ export default function EmailAnalyticsPage() {
                                         <div className="h-[400px] w-full mt-4">
                                             <h4 className="text-sm font-semibold text-slate-500 mb-4">Daily Performance</h4>
                                             <ResponsiveContainer width="100%" height="100%">
-                                                <AreaChart data={account.history} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                                                <AreaChart data={account.history} margin={{ top: 20, right: 60, left: 10, bottom: 30 }}>
                                                     <defs>
                                                         <linearGradient id={`colorInbox-${account.email}`} x1="0" y1="0" x2="0" y2="1">
                                                             <stop offset="5%" stopColor="#10b981" stopOpacity={0.1} />

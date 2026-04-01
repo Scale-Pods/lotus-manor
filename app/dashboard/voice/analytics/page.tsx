@@ -90,9 +90,7 @@ export default function VoiceAnalyticsPage() {
     }, [globalCalls, loadingCalls, dateRange, providerFilter]);
 
     const processAnalytics = (data: any[]) => {
-        // Quick Stats
         const totalCalls = data.length;
-
         let totalDuration = 0;
         let totalCredits = 0;
         let successCount = 0;
@@ -104,61 +102,53 @@ export default function VoiceAnalyticsPage() {
         let inboundSum = 0;
         let outboundSum = 0;
 
+        // Lifetime calculations (all time)
+        let lifetimeVapiUsed = 0;
+        let lifetimeELUsed = 0;
+        globalCalls.forEach(call => {
+            let cost = 0;
+            if (typeof call.cost === 'string') {
+                cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
+            } else if (typeof call.cost === 'number') {
+                cost = call.cost;
+            }
+            if (call.source === 'vapi') lifetimeVapiUsed += cost;
+            if (call.source === 'elevenlabs') lifetimeELUsed += cost;
+        });
+
         data.forEach(call => {
             const dateStr = call.startedAt || null;
             const time = dateStr ? format(new Date(dateStr), 'MMM dd') : 'N/A';
             const dur = calculateDuration(call);
 
-            // Parse cost correctly (could be "X credits" or "$Y.ZZ")
             let cost = 0;
-            if (typeof call.cost === 'string' && call.cost.includes('credits')) {
-                cost = parseInt(call.cost.replace(/\D/g, '')) || 0;
-            } else if (typeof call.cost === 'string' && call.cost.startsWith('$')) {
-                cost = parseFloat(call.cost.replace(/[^0-9.]/g, '')) || 0;
+            if (typeof call.cost === 'string') {
+                cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
             } else if (typeof call.cost === 'number') {
                 cost = call.cost;
             }
 
-            if (call.status === 'done' || call.status === 'ended' || call.status === 'completed' || call.status === 'success') {
+            if (call.status === 'done' || call.status === 'ended' || call.status === 'completed' || call.status === 'success' || call.status === 'answered') {
                 successCount++;
             }
 
             totalDuration += dur;
             totalCredits += cost;
 
-            // HYPER-AGGRESSIVE Inbound Detection
             const raw = call.raw || call;
-            const metadata = raw.metadata || {};
-            const dv = raw.conversation_initiation_client_data?.dynamic_variables || {};
-            const telephony = raw.telephony || {};
-            const initType = (raw.conversation_initiation_type || "").toLowerCase();
-            const directionProp = (telephony.direction || raw.direction || metadata.direction || dv.direction || raw.type || "").toLowerCase();
-
-            const isInbound =
-                call.isInbound === true ||
-                (typeof call.type === 'string' && (call.type.toLowerCase() === 'inbound' || call.type === 'Inbound')) ||
-                directionProp.includes('inbound') ||
-                directionProp.includes('incoming') ||
-                initType.includes('inbound') ||
-                initType.includes('incoming') ||
-                (call.calleeNumber && call.calleeNumber.toString().replace(/\D/g, '').includes("97148714150"));
-
-            const isWebCall =
-                (typeof call.type === 'string' && call.type.toLowerCase() === 'web call') ||
-                (call.phone === 'Website/API') ||
-                (!initType.includes('telephony') && !directionProp.includes('telephony'));
+            const directionProp = (raw.telephony?.direction || raw.direction || "").toLowerCase();
+            const isInbound = call.isInbound === true || directionProp.includes('inbound') || directionProp.includes('incoming');
+            const isWebCall = (typeof call.type === 'string' && call.type.toLowerCase() === 'web call') || (call.phone === 'Website/API');
 
             if (isInbound) {
                 inboundSum += dur;
             } else {
-                // Outbound includes both telephony-outbound AND Web Calls
                 outboundSum += dur;
             }
 
             const typeLabel = isInbound ? 'Inbound' : (isWebCall ? 'Web Call' : 'Outbound');
             typesMap.set(typeLabel, (typesMap.get(typeLabel) || 0) + 1);
 
-            // Chart maps
             const dayObj = dayMap.get(time) || { calls: 0, credits: 0 };
             dayMap.set(time, {
                 calls: dayObj.calls + 1,
@@ -180,27 +170,20 @@ export default function VoiceAnalyticsPage() {
             successRate: totalCalls > 0 ? Math.round((successCount / totalCalls) * 100) : 0,
             typesData: Array.from(typesMap.entries()) as any,
             inboundDuration: inboundSum,
-            outboundDuration: outboundSum
+            outboundDuration: outboundSum,
+            lifetimeVapiUsed,
+            lifetimeELUsed
         }));
 
-        // Ensure chronological sort for charts
         const sortedDays = Array.from(dayMap.entries()).sort((a, b) => {
             const dateA = new Date(`${a[0]} ${new Date().getFullYear()}`).getTime();
             const dateB = new Date(`${b[0]} ${new Date().getFullYear()}`).getTime();
             return dateA - dateB;
         });
 
-        // Volume Chart (Line)
-        const vData = sortedDays.map(([name, obj]) => ({ name, value: obj.calls }));
-        setVolumeData(vData);
-
-        // Duration Chart (Bar)
-        const dData = Object.entries(durationBuckets).map(([name, value]) => ({ name, value }));
-        setDurationData(dData);
-
-        // Credits Analysis mapped
-        const cData = sortedDays.map(([name, obj]) => ({ name, value: obj.credits }));
-        setCostData(cData);
+        setVolumeData(sortedDays.map(([name, obj]) => ({ name, value: obj.calls })));
+        setDurationData(Object.entries(durationBuckets).map(([name, value]) => ({ name, value })));
+        setCostData(sortedDays.map(([name, obj]) => ({ name, value: obj.credits })));
     };
 
     return (
@@ -230,8 +213,22 @@ export default function VoiceAnalyticsPage() {
                 <StatCard title="Total Calls" value={stats.totalCalls} change="Historical" icon={<Phone className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
                 <StatCard title="Total Call Duration" value={formatDuration(stats.inboundDuration + stats.outboundDuration)} change="All Inbound + Outbound" icon={<Clock className="h-5 w-5" />} color="text-cyan-600" bg="bg-cyan-50" />
                 <StatCard title="Avg Duration" value={`${Math.round(stats.avgDuration)}s`} change="All Time" icon={<Clock className="h-5 w-5" />} color="text-purple-600" bg="bg-purple-50" />
-                <StatCard title="ElevenLabs Credits" value={stats.characterCount.toLocaleString()} change={`Max: ${stats.characterLimit.toLocaleString()}`} icon={<DollarSign className="h-5 w-5" />} color="text-emerald-600" bg="bg-emerald-50" />
-                <StatCard title="Vapi Wallet Balance" value={`$${stats.vapiBalance.toFixed(2)}`} change="Active Credit" icon={<DollarSign className="h-5 w-5" />} color="text-blue-600" bg="bg-blue-50" />
+                <StatCard
+                    title="ElevenLabs Left"
+                    value={(stats.characterLimit - stats.characterCount).toLocaleString()}
+                    change={`of ${stats.characterLimit.toLocaleString()} cap`}
+                    icon={<DollarSign className="h-5 w-5" />}
+                    color="text-emerald-600"
+                    bg="bg-emerald-50"
+                />
+                <StatCard
+                    title="Vapi Credits Used"
+                    value={`$${(stats as any).lifetimeVapiUsed?.toFixed(2) || '0.00'}`}
+                    change="All Time Count"
+                    icon={<DollarSign className="h-5 w-5" />}
+                    color="text-blue-600"
+                    bg="bg-blue-50"
+                />
             </div>
 
             {/* Charts Section */}

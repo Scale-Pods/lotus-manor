@@ -12,6 +12,7 @@ interface DataContextType {
     loadingBalances: boolean;
     voiceBalance: any;
     maqsamBalance: any;
+    twilioBalance: any;
     error: string | null;
     refreshLeads: () => Promise<void>;
     refreshCalls: () => Promise<void>;
@@ -29,6 +30,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const [loadingBalances, setLoadingBalances] = useState(true);
     const [voiceBalance, setVoiceBalance] = useState<any>(null);
     const [maqsamBalance, setMaqsamBalance] = useState<any>(null);
+    const [twilioBalance, setTwilioBalance] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
 
     const fetchLeads = useCallback(async () => {
@@ -64,12 +66,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     const fetchBalances = useCallback(async () => {
         try {
-            const [vapiRes, maqsamRes] = await Promise.all([
+            const [vapiRes, maqsamRes, twilioRes] = await Promise.all([
                 fetch('/api/vapi/balance'),
-                fetch('/api/maqsam/balance')
+                fetch('/api/maqsam/balance'),
+                fetch('/api/twilio/balance')
             ]);
             if (vapiRes.ok) setVoiceBalance(await vapiRes.json());
             if (maqsamRes.ok) setMaqsamBalance(await maqsamRes.json());
+            if (twilioRes.ok) setTwilioBalance(await twilioRes.json());
         } catch (err) { }
         finally { setLoadingBalances(false); }
     }, []);
@@ -91,6 +95,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             loadingBalances,
             voiceBalance,
             maqsamBalance,
+            twilioBalance,
             error,
             refreshLeads: fetchLeads,
             refreshCalls: fetchCalls,

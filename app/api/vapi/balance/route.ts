@@ -20,12 +20,18 @@ export async function GET() {
                     character_count: data.character_count,
                     character_limit: data.character_limit,
                     reset_at: data.next_character_count_reset_unix,
-                    usage_percent: (data.character_count / data.character_limit) * 100
+                    usage_percent: (data.character_count / data.character_limit) * 100,
+                    status: data.status
                 };
+            } else {
+                elData = { error: `Fetch failed (${elRes.status})` };
             }
         } catch (e) {
             console.error('ElevenLabs Balance Fetch Error:', e);
+            elData = { error: 'Fetch exception' };
         }
+    } else {
+        elData = { error: 'API Key Missing' };
     }
 
     if (vapiPrivKey) {
@@ -36,32 +42,76 @@ export async function GET() {
             });
 
             if (vapiRes.ok) {
-                const rawVapi = await vapiRes.json();
+                let rawVapi = await vapiRes.json();
+                console.log('[Vapi API Debug] Org Response Type:', typeof rawVapi, Array.isArray(rawVapi) ? 'Array' : 'Object');
+
+                // If it's an array, take the first org
+                if (Array.isArray(rawVapi) && rawVapi.length > 0) {
+                    rawVapi = rawVapi[0];
+                }
+
                 const balance = rawVapi.balance ??
                     rawVapi.billing?.balance ??
                     rawVapi.credits ??
                     rawVapi.creditsBalance ??
+                    rawVapi.org?.balance ??
                     rawVapi.billingPlan?.balance ??
+                    rawVapi.billing?.credits ??
+                    rawVapi.billing?.balance_amount ??
                     0;
 
-                vapiData = { ...rawVapi, balance };
+                const used = rawVapi.billing?.totalSpent ??
+                    rawVapi.org?.usage?.totalCost ??
+                    rawVapi.billing?.total_spent ??
+                    0;
+
+                const total = balance + used;
+
+                vapiData = {
+                    ...rawVapi,
+                    balance,
+                    used,
+                    total_recharge: total > balance ? total : balance
+                };
             } else {
-                // Fallback to /me
                 const vapiMeRes = await fetch('https://api.vapi.ai/me', {
                     headers: { 'Authorization': `Bearer ${vapiPrivKey}`, 'Content-Type': 'application/json' }
                 });
+
                 if (vapiMeRes.ok) {
-                    const rawMe = await vapiMeRes.json();
-                    const balance = rawMe.balance ?? rawMe.org?.balance ?? rawMe.billingPlan?.balance ?? 0;
-                    vapiData = { ...rawMe, balance };
+                    let rawMe = await vapiMeRes.json();
+                    const org = rawMe.org || rawMe.organization || rawMe;
+
+                    const balance = org.balance ??
+                        org.billing?.balance ??
+                        org.credits ??
+                        org.billingPlan?.balance ??
+                        0;
+
+                    const used = org.billing?.totalSpent ??
+                        org.usage?.totalCost ??
+                        0;
+
+                    const total = balance + used;
+
+                    vapiData = {
+                        ...rawMe,
+                        balance,
+                        used,
+                        total_recharge: total > balance ? total : balance
+                    };
                 } else {
-                    const errText = await vapiRes.text();
-                    console.error(`[Vapi Balance Error] Org Status: ${vapiRes.status}, Me Status: ${vapiMeRes.status}, Body: ${errText}`);
+                    const errStatus = vapiRes.status;
+                    const errMeStatus = vapiMeRes.status;
+                    vapiData = { error: `Fetch failed (Org: ${errStatus}, Me: ${errMeStatus})` };
                 }
             }
         } catch (e) {
             console.error('Vapi Balance Fetch Error:', e);
+            vapiData = { error: 'Fetch exception' };
         }
+    } else {
+        vapiData = { error: 'API Key Missing' };
     }
 
     return NextResponse.json({

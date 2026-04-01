@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Mail, MessageCircle, Mic, ExternalLink, Copy, Eye, EyeOff, ShieldCheck, Wallet, Phone, BarChart3 } from "lucide-react";
+import { Mail, MessageCircle, Mic, ExternalLink, Copy, Eye, EyeOff, ShieldCheck, Wallet, Phone, BarChart3, Settings, Smartphone } from "lucide-react";
 import React, { useState } from "react";
 import { MaqsamBalanceDetail } from "@/components/dashboard/maqsam-balance-detail";
 import { useRouter } from "next/navigation";
@@ -13,7 +13,23 @@ import { useRouter } from "next/navigation";
 import { useData } from "@/context/DataContext";
 
 export default function CredentialsPage() {
-    const { voiceBalance, maqsamBalance, loadingBalances: loadingMaqsam } = useData();
+    const { calls, voiceBalance, maqsamBalance, twilioBalance, loadingBalances } = useData();
+
+    const vapiAgentUsed = React.useMemo(() => {
+        if (!calls || !Array.isArray(calls)) return 0;
+        return calls.filter((c: any) => c.source === 'vapi').reduce((acc: number, call: any) => acc + (call.breakdown?.agent || 0), 0);
+    }, [calls]);
+
+    const maqsamUsedCost = React.useMemo(() => {
+        if (!calls || !Array.isArray(calls)) return 0;
+        return calls.filter((c: any) => {
+            const isMaqsam = c.source === 'maqsam';
+            const phoneStr = String(c.phone || c.customer_number || "");
+            const isUAE = phoneStr.startsWith('+971') || phoneStr.startsWith('971');
+            return isMaqsam || isUAE;
+        }).reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
+    }, [calls]);
+
     const [senderEmails, setSenderEmails] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const router = useRouter();
@@ -39,6 +55,9 @@ export default function CredentialsPage() {
 
         fetchEmails();
     }, []);
+
+    const vapiDetails = voiceBalance?.vapi;
+    const elDetails = voiceBalance?.elevenlabs || (voiceBalance?.character_limit ? voiceBalance : null);
 
     return (
         <div className="space-y-8 pb-10 max-w-5xl mx-auto">
@@ -88,8 +107,8 @@ export default function CredentialsPage() {
 
                 {/* Voice Section */}
                 <CredentialSection
-                    title="Voice Agent (ElevenLabs)"
-                    description="ElevenLabs.io credentials and subscription management."
+                    title="Voice Agent (Vapi & ElevenLabs)"
+                    description="AI Voice configuration and wallet balances."
                     icon={Mic}
                     iconColor="text-blue-600"
                     iconBg="bg-blue-50"
@@ -99,31 +118,59 @@ export default function CredentialsPage() {
                                 <BarChart3 className="h-4 w-4" />
                                 Detailed Cost Analysis
                             </Button>
-                            <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2" onClick={() => window.open('https://elevenlabs.io/app/subscription', '_blank')}>
+                            <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2" onClick={() => window.open('https://dashboard.vapi.ai/login', '_blank')}>
                                 <Wallet className="h-4 w-4" />
-                                Manage Subscription
+                                Vapi Wallet
                             </Button>
                         </div>
                     }
                 >
-                    <div className="space-y-6">
-                        <div className="bg-slate-50 rounded-lg p-4 border border-slate-100 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-white rounded-md border border-slate-200">
-                                    <ShieldCheck className="h-5 w-5 text-emerald-600" />
+                    <div className="grid gap-6">
+                        {/* Vapi Details */}
+                        <div className="bg-blue-50/50 rounded-lg p-5 border border-blue-100 flex flex-col gap-4">
+                            <div className="flex flex-col text-center bg-white p-8 rounded-lg border border-blue-100 shadow-sm">
+                                <span className="text-sm font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Vapi Credits Used</span>
+                                <span className="text-5xl font-black text-blue-600">
+                                    ${vapiAgentUsed.toFixed(2)}
+                                </span>
+                                <p className="text-[10px] text-blue-500 mt-4 font-semibold bg-blue-50 px-3 py-1 rounded-full self-center border border-blue-100 italic">
+                                    Total Lifetime Consumption
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* ElevenLabs Details */}
+                        <div className="bg-amber-50/50 rounded-lg p-5 border border-amber-100 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-white rounded-md border border-amber-200">
+                                        <Settings className="h-5 w-5 text-amber-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-bold text-slate-900">ElevenLabs Credits</p>
+                                        <p className="text-xs text-slate-500">Subscription Status: {elDetails?.status || 'Active'}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-sm font-bold text-slate-900">Total Credits (Limit)</p>
-                                    <p className="text-xs text-slate-500">
-                                        {voiceBalance ? `${voiceBalance.character_limit.toLocaleString()} chars` : 'Loading...'}
+                                <div className="text-right">
+                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Characters Left</p>
+                                    <p className="text-2xl font-black text-emerald-600 uppercase">
+                                        {elDetails ? `${((elDetails.character_limit - elDetails.character_count) || 0).toLocaleString()}` : '...'}
                                     </p>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Remaining Credits</p>
-                                <p className="text-xl font-bold text-emerald-600">
-                                    {voiceBalance ? `${(voiceBalance.character_limit - voiceBalance.character_count).toLocaleString()}` : '...'}
-                                </p>
+                            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-amber-100">
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Plan Capacity</p>
+                                    <p className="text-sm font-bold text-slate-700">
+                                        {(elDetails?.character_limit || 0).toLocaleString()}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Used Characters</p>
+                                    <p className="text-sm font-bold text-slate-500">
+                                        {(elDetails?.character_count || 0).toLocaleString()}
+                                    </p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -142,7 +189,58 @@ export default function CredentialsPage() {
                         </Button>
                     }
                 >
+                    
                     <MaqsamBalanceDetail initialBalance={maqsamBalance} />
+                </CredentialSection>
+
+                {/* Twilio Section */}
+                <CredentialSection
+                    title="Twilio Telephony"
+                    description="Real-time balance and usage records for Twilio."
+                    icon={Smartphone}
+                    iconColor="text-rose-600"
+                    iconBg="bg-rose-50"
+                    action={
+                        <Button className="bg-rose-600 hover:bg-rose-700 text-white gap-2" onClick={() => window.open('https://console.twilio.com', '_blank')}>
+                            <ExternalLink className="h-4 w-4" />
+                            Twilio Console
+                        </Button>
+                    }
+                >
+                    <div className="space-y-4">
+                        <div className="bg-rose-50/50 rounded-lg p-4 border border-rose-100 flex items-center justify-between shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white rounded-md border border-rose-200">
+                                    <Smartphone className="h-5 w-5 text-rose-600" />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-slate-900">Twilio Account</p>
+                                    <p className="text-xs text-slate-500 font-mono">{twilioBalance?.account_sid || '---'}</p>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Available Balance</p>
+                                <p className="text-2xl font-black text-rose-600">
+                                    {twilioBalance?.balance !== undefined ? `$${twilioBalance.balance.toFixed(2)}` : '---'}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-white p-4 rounded-lg border border-slate-100 text-center shadow-sm">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Recharge (PAYG)</p>
+                                <p className="text-lg font-bold text-slate-800">
+                                    {twilioBalance?.total_recharge !== undefined ? `$${twilioBalance.total_recharge.toFixed(2)}` : '---'}
+                                </p>
+                            </div>
+                            <div className="bg-white p-4 rounded-lg border border-slate-100 text-center shadow-sm">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Used</p>
+                                <p className="text-lg font-bold text-slate-600">
+                                    {twilioBalance?.used !== undefined ? `$${twilioBalance.used.toFixed(2)}` : '---'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 </CredentialSection>
             </div>
         </div>

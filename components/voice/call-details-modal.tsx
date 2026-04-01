@@ -1,5 +1,6 @@
 "use client";
 
+import { LMLoader } from "@/components/lm-loader";
 import {
     Dialog,
     DialogContent,
@@ -206,7 +207,12 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                     <DialogTitle className="text-xl font-semibold">Call Details</DialogTitle>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-auto">
+                <div className="flex-1 overflow-auto relative">
+                    {localLoading && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
+                            <LMLoader fullScreen={false} />
+                        </div>
+                    )}
                     {/* Call Overview */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-6 p-6 bg-slate-50/50 border-b border-slate-100 items-start">
                         {/* Column 1: Status & Type */}
@@ -245,29 +251,35 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 
                         {/* Column 3: Cost breakdown Top */}
                         <div className="space-y-6">
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Call Cost</p>
-                                <span className="font-bold text-slate-900">{displayCall.metadata?.charging?.call_charge || 0} credits</span>
-                            </div>
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Credits (LLM)</p>
-                                <span className="font-bold text-slate-900">{displayCall.llm_charge || displayCall.metadata?.charging?.llm_charge || 0}</span>
-                            </div>
+                            {(displayCall.metadata?.charging?.call_charge > 0) && (
+                                <div>
+                                    <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Call Cost</p>
+                                    <span className="font-bold text-slate-900">{displayCall.metadata.charging.call_charge} credits</span>
+                                </div>
+                            )}
+                            {(displayCall.llm_charge > 0 || displayCall.metadata?.charging?.llm_charge > 0) && (
+                                <div>
+                                    <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Credits (LLM)</p>
+                                    <span className="font-bold text-slate-900">{displayCall.llm_charge || displayCall.metadata?.charging?.llm_charge}</span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Column 4: LLM Cost & Name */}
                         <div className="space-y-6">
-                            <div>
-                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">LLM Cost</p>
-                                <div className="flex flex-col">
-                                    <span className="font-bold text-slate-900">
-                                        ${((displayCall.llm_price || displayCall.metadata?.charging?.llm_price || 0) / Math.max(1, (displayCall.durationSeconds / 60) || 1)).toFixed(4)} / min
-                                    </span>
-                                    <span className="text-xs text-slate-500 mt-0.5">
-                                        Total: ${(displayCall.llm_price || displayCall.metadata?.charging?.llm_price || 0).toFixed(4)}
-                                    </span>
+                            {(displayCall.llm_price > 0 || displayCall.metadata?.charging?.llm_price > 0) && (
+                                <div>
+                                    <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">LLM Cost</p>
+                                    <div className="flex flex-col">
+                                        <span className="font-bold text-slate-900">
+                                            ${((displayCall.llm_price || displayCall.metadata?.charging?.llm_price || 0) / Math.max(1, (displayCall.durationSeconds / 60) || 1)).toFixed(4)} / min
+                                        </span>
+                                        <span className="text-xs text-slate-500 mt-0.5">
+                                            Total: ${(displayCall.llm_price || displayCall.metadata?.charging?.llm_price || 0).toFixed(4)}
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                             <div>
                                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Guest Name</p>
                                 <div className="flex items-center gap-2">
