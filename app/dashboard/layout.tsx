@@ -66,9 +66,14 @@ function WalletModal({ isOpen, onClose, type, details, calls }: { isOpen: boolea
     })();
 
     const vapiAgentUsed = useMemo(() => {
+        // Prioritize Vapi API's native 'used' value if available
+        if (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) {
+            return voiceBalance.vapi.used;
+        }
         if (!calls || !Array.isArray(calls)) return 0;
+        // Fallback to summing 'agent' costs from logs specifically
         return calls.filter((c: any) => c.source === 'vapi').reduce((acc: number, call: any) => acc + (call.breakdown?.agent || 0), 0);
-    }, [calls]);
+    }, [calls, voiceBalance]);
 
     const maqsamUsedCost = useMemo(() => {
         if (!calls || !Array.isArray(calls)) return 0;
@@ -268,9 +273,14 @@ function DashboardContent({
         loadingCalls
     } = useData();
     const vapiAgentUsed = useMemo(() => {
+        // Prioritize Vapi API's native 'used' value if available
+        if (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) {
+            return voiceBalance.vapi.used;
+        }
         if (!calls || !Array.isArray(calls)) return 0;
-        return calls.filter((c: any) => c.source === 'vapi').reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
-    }, [calls]);
+        // Fallback to summing 'agent' costs from logs specifically
+        return calls.filter((c: any) => c.source === 'vapi').reduce((acc: number, call: any) => acc + (call.breakdown?.agent || 0), 0);
+    }, [calls, voiceBalance]);
 
     const maqsamUsedCost = useMemo(() => {
         if (!calls || !Array.isArray(calls)) return 0;

@@ -395,14 +395,16 @@ export async function GET(req: Request) {
                     if (twMatched) {
                         vapiTelephonyCost = Math.abs(parseFloat(twMatched.price || 0));
                         if (isNaN(vapiTelephonyCost)) vapiTelephonyCost = 0;
-                    } else if (agentCost === 0) {
-                        // Fallback to internal calc only if Vapi hasn't reported a cost yet
+                    }
+
+                    // Always calculate fallback if we don't have a Twilio match
+                    if (vapiTelephonyCost === 0) {
                         vapiTelephonyCost = calculateTelephonyCost(safeDuration, phoneRaw, isInbound, vapiAssistantNum);
                     }
 
-                    // Vapi's 'agentCost' (vc.cost) is already the TOTAL cost (LLM + Agent + Telephony)
-                    // We only add our own calculated telephony cost if Vapi's native cost is 0.
-                    const vapiTotalCost = agentCost > 0 ? agentCost : vapiTelephonyCost;
+                    // Sum both Vapi's reported cost and our calculated telephony cost
+                    // Vapi (Platform/AI) + Telephony (Carrier) = Total Unified Cost
+                    const vapiTotalCost = agentCost + vapiTelephonyCost;
 
                     let vapiName = customer.name || "Guest";
                     if (vapiName === "Guest" || !vapiName || (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5)) {
@@ -426,8 +428,9 @@ export async function GET(req: Request) {
                         cost: vapiTotalCost > 0 ? `$${vapiTotalCost.toFixed(3)}` : "$0.00",
                         costValue: vapiTotalCost,
                         breakdown: {
-                            agent: agentCost > 0 ? agentCost : 0,
-                            telephony: agentCost > 0 ? 0 : vapiTelephonyCost,
+                            // Agent cost is now exactly what Vapi reports (Platform fee)
+                            agent: agentCost,
+                            telephony: vapiTelephonyCost,
                             total: vapiTotalCost
                         },
                         type: isInbound ? "Inbound" : "Outbound",

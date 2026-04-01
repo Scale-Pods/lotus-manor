@@ -103,8 +103,8 @@ export default function VoiceAnalyticsPage() {
         let outboundSum = 0;
 
         // Lifetime calculations (all time)
-        let lifetimeVapiUsed = 0;
-        let lifetimeELUsed = 0;
+        let lifetimeVapiUsedSum = 0;
+        let lifetimeELUsedSum = 0;
         globalCalls.forEach(call => {
             let cost = 0;
             if (typeof call.cost === 'string') {
@@ -112,8 +112,12 @@ export default function VoiceAnalyticsPage() {
             } else if (typeof call.cost === 'number') {
                 cost = call.cost;
             }
-            if (call.source === 'vapi') lifetimeVapiUsed += cost;
-            if (call.source === 'elevenlabs') lifetimeELUsed += cost;
+
+            if (call.source === 'vapi') {
+                // Specifically sum the agent/Vapi portion for credits metric
+                lifetimeVapiUsedSum += (call.breakdown?.agent !== undefined) ? call.breakdown.agent : cost;
+            }
+            if (call.source === 'elevenlabs') lifetimeELUsedSum += cost;
         });
 
         data.forEach(call => {
@@ -171,8 +175,8 @@ export default function VoiceAnalyticsPage() {
             typesData: Array.from(typesMap.entries()) as any,
             inboundDuration: inboundSum,
             outboundDuration: outboundSum,
-            lifetimeVapiUsed,
-            lifetimeELUsed
+            lifetimeVapiUsed: (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) ? voiceBalance.vapi.used : lifetimeVapiUsedSum,
+            lifetimeELUsed: lifetimeELUsedSum
         }));
 
         const sortedDays = Array.from(dayMap.entries()).sort((a, b) => {

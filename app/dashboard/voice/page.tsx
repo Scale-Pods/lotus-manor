@@ -95,8 +95,8 @@ export default function VoiceDashboardPage() {
         // console.log(`Global Calls: ${globalCalls.length}, Filtered: ${filteredCalls.length} (Range: ${dateRange.from.toLocaleDateString()} - ${dateRange.to?.toLocaleDateString()})`);
 
 
-        let lifetimeCostVapi = 0;
-        let lifetimeCostEL = 0;
+        let lifetimeCostVapiSum = 0;
+        let lifetimeCostELSum = 0;
 
         // Separate calculation for lifetime totals (ignoring date filter)
         globalCalls.forEach((call: any) => {
@@ -107,8 +107,11 @@ export default function VoiceDashboardPage() {
                 cost = call.cost;
             }
 
-            if (call.source === 'vapi') lifetimeCostVapi += cost;
-            if (call.source === 'elevenlabs') lifetimeCostEL += cost;
+            if (call.source === 'vapi') {
+                // Sum the specific agent part for credits
+                lifetimeCostVapiSum += (call.breakdown?.agent !== undefined) ? call.breakdown.agent : cost;
+            }
+            if (call.source === 'elevenlabs') lifetimeCostELSum += cost;
         });
 
         filteredCalls.forEach((call: any) => {
@@ -160,8 +163,8 @@ export default function VoiceDashboardPage() {
             avgCost,
             successRate,
             completedCalls: completed,
-            lifetimeCostVapi,
-            lifetimeCostEL
+            lifetimeCostVapi: (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) ? voiceBalance.vapi.used : lifetimeCostVapiSum,
+            lifetimeCostEL: lifetimeCostELSum
         }));
 
         const dailyData = Array.from(dayMap.entries())

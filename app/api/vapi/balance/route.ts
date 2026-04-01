@@ -60,9 +60,13 @@ export async function GET() {
                     rawVapi.billing?.balance_amount ??
                     0;
 
-                const used = rawVapi.billing?.totalSpent ??
+                const used = rawVapi.totalSpent ??
+                    rawVapi.billing?.totalSpent ??
+                    rawVapi.usage?.totalCost ??
                     rawVapi.org?.usage?.totalCost ??
                     rawVapi.billing?.total_spent ??
+                    rawVapi.consumed_credits ??
+                    rawVapi.used_credits ??
                     0;
 
                 const total = balance + used;
