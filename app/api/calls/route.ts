@@ -29,11 +29,14 @@ function calculateTelephonyCost(durationSecs: number, phoneNumber: string, isInb
     if (isInbound) return durationSecs > 0 ? 0.02 : 0;
     if (!durationSecs || durationSecs <= 0) return 0;
 
-    const botIsUS = providerNumber?.startsWith('1');
-    const botIsUK = providerNumber?.startsWith('44');
-    const targetIsUAE = phoneNumber.startsWith('971');
-    const targetIsUS = phoneNumber.startsWith('1');
-    const targetIsUK = phoneNumber.startsWith('44');
+    const pClean = (providerNumber || "").replace(/\D/g, '');
+    const tClean = (phoneNumber || "").replace(/\D/g, '');
+
+    const botIsUS = pClean.startsWith('1');
+    const botIsUK = pClean.startsWith('44');
+    const targetIsUAE = tClean.startsWith('971');
+    const targetIsUS = tClean.startsWith('1');
+    const targetIsUK = tClean.startsWith('44');
 
     // 🚀 Custom Twilio Partner Rates (Manual Overrides)
     if (botIsUS || botIsUK) {
@@ -51,7 +54,7 @@ function calculateTelephonyCost(durationSecs: number, phoneNumber: string, isInb
     }
 
     // Default rate lookup from rates.json for other regions/providers
-    const rate = getRateInfo(phoneNumber);
+    const rate = getRateInfo(tClean);
     return (durationSecs / 60) * (rate?.Rate ?? 0);
 }
 
@@ -149,7 +152,7 @@ export async function GET(req: Request) {
                 let hasMore = true;
                 let lastId = null;
                 let pagesFetched = 0;
-                const MAX_PAGES = 30; // Fetch up to 3000 records to stay within limits
+                const MAX_PAGES = 50; // Increased to catch over 5000 records
 
                 while (hasMore && pagesFetched < MAX_PAGES) {
                     let listUrl = `${ELEVENLABS_BASE_URL}/convai/conversations?page_size=100`;
@@ -193,7 +196,7 @@ export async function GET(req: Request) {
                 // Enrichment: Fetch details for relevant conversations
                 // --- 1.2. ElevenLabs Enrichment ---
                 // Fetch detailed data for each conversation to get costs/duration
-                const enrichmentLimit = 200;
+                const enrichmentLimit = 800; // Increased to cover all of user's 643+ calls
                 const enrichmentMap = new Map();
 
                 // Fetch details in batches to avoid overwhelming the API
@@ -476,7 +479,7 @@ export async function GET(req: Request) {
                 let allMaqsamCalls: any[] = [];
                 let mPage = 1;
                 let hasMoreMaqsam = true;
-                const MAX_M_PAGES = 3; // Batch fetch up to 300 calls for balance accuracy
+                const MAX_M_PAGES = 50; // Batch fetch up to 5000 calls to stay accurate across channels
 
                 while (hasMoreMaqsam && mPage <= MAX_M_PAGES) {
                     let mRes = await fetchMaqsam(`/v2/calls?page=${mPage}&limit=100`, true);

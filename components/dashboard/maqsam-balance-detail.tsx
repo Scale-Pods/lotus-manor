@@ -5,9 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info, PhoneIncoming, PhoneOutgoing, Wallet } from "lucide-react";
+import { Info, PhoneIncoming, PhoneOutgoing, Wallet, ExternalLink, CreditCard } from "lucide-react";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
+import { Button } from "@/components/ui/button";
 import { startOfDay, endOfDay, isWithinInterval } from "date-fns";
 
 export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }) {
@@ -18,9 +19,14 @@ export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }
 
         const filtered = calls.filter((call: any) => {
             const isMaqsam = call.source === 'maqsam';
+            const provisionedNum = String(call.phoneNumber || "");
+            const isSpecificMaqsamNum = provisionedNum.replace(/\D/g, '') === '97148714150';
+
+            // Detection based on customer number prefix (legacy/fallback)
             const phoneStr = String(call.phone || call.customer_number || "");
             const isUAE = phoneStr.startsWith('+971') || phoneStr.startsWith('971');
-            return isMaqsam || isUAE;
+
+            return isMaqsam || isUAE || isSpecificMaqsamNum;
         });
 
         let inbound = 0;
@@ -36,7 +42,8 @@ export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }
             } else {
                 outbound += duration;
             }
-            totalCost += (call.costValue || 0);
+            // Use the specific telephony breakdown cost, fallback to costValue
+            totalCost += (call.breakdown?.telephony || call.costValue || 0);
         });
 
         const total = inbound + outbound;
@@ -46,19 +53,34 @@ export function MaqsamBalanceDetail({ initialBalance }: { initialBalance?: any }
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 bg-slate-50 p-8 rounded-xl border border-slate-100 shadow-inner">
-                <div className="flex flex-col items-center gap-3">
-                    <div className="p-4 bg-cyan-100 rounded-full text-cyan-700 shadow-sm">
-                        <Wallet className="h-8 w-8" />
+            <div className="bg-white rounded-2xl p-8 border border-cyan-100 shadow-sm relative overflow-hidden text-center">
+                <div className="flex flex-col items-center">
+                    <div className="p-3 bg-cyan-50 rounded-full text-cyan-600 mb-4">
+                        <Wallet className="h-6 w-6" />
                     </div>
-                    <div className="text-center">
-                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total Telephony Spend (USD)</p>
-                        <p className="text-5xl font-black text-slate-900 tracking-tighter">
-                            ${(stats.cost || 0).toFixed(3)}
-                        </p>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">
+                        Total Lifetime Consumption (USD)
+                    </span>
+                    <div className="flex items-baseline gap-1">
+                        <span className="text-2xl font-bold text-cyan-600">$</span>
+                        <span className="text-6xl font-black tracking-tighter text-slate-900">
+                            {stats.cost.toFixed(2)}
+                        </span>
                     </div>
+
                 </div>
             </div>
+
+            <Button
+                className="w-full h-12 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold gap-2 shadow-lg shadow-cyan-100 transition-all active:scale-[0.98]"
+                onClick={() => window.open('https://portal.maqsam.com', '_blank')}
+            >
+                <CreditCard className="h-4 w-4" />
+                Add Funds to Maqsam
+                <ExternalLink className="h-3 w-3 opacity-50" />
+            </Button>
+
+
 
             {loadingCalls && (
                 <p className="text-center text-xs text-slate-400 animate-pulse">Syncing lifetime logs...</p>

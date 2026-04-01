@@ -79,10 +79,18 @@ function WalletModal({ isOpen, onClose, type, details, calls }: { isOpen: boolea
         if (!calls || !Array.isArray(calls)) return 0;
         return calls.filter((c: any) => {
             const isMaqsam = c.source === 'maqsam';
+            const provisionedNum = String(c.phoneNumber || "");
+            const isSpecificMaqsamNum = provisionedNum.replace(/\D/g, '') === '97148714150';
+
+            // Detection based on customer number prefix (legacy)
             const phoneStr = String(c.phone || c.customer_number || "");
             const isUAE = phoneStr.startsWith('+971') || phoneStr.startsWith('971');
-            return isMaqsam || isUAE;
-        }).reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
+
+            return isMaqsam || isUAE || isSpecificMaqsamNum;
+        }).reduce((acc: number, call: any) => {
+            // For Maqsam/Telephony, specifically sum the telephony-only portion
+            return acc + (call.breakdown?.telephony || call.costValue || 0);
+        }, 0);
     }, [calls]);
 
     const vapiDetails = voiceBalance?.vapi;
@@ -105,12 +113,10 @@ function WalletModal({ isOpen, onClose, type, details, calls }: { isOpen: boolea
                                 <span className="text-5xl font-black text-blue-600">
                                     ${vapiAgentUsed.toFixed(2)}
                                 </span>
-                                <p className="text-[10px] text-blue-500 mt-4 font-semibold bg-blue-50 px-3 py-1 rounded-full self-center border border-blue-100">
-                                    Lifetime Workspace Usage
-                                </p>
+                                
                             </div>
                             <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2 h-12" onClick={() => window.open('https://vapi.ai', '_blank')}>
-                                <ExternalLink className="h-4 w-4" /> Vapi Dashboard
+                                <ExternalLink className="h-4 w-4" /> Add Funds to VAPI
                             </Button>
                         </div>
                     )}
@@ -138,7 +144,7 @@ function WalletModal({ isOpen, onClose, type, details, calls }: { isOpen: boolea
                                 </div>
                             </div>
                             <Button className="bg-amber-600 hover:bg-amber-700 text-white gap-2" onClick={() => window.open('https://elevenlabs.io/app/subscription', '_blank')}>
-                                <ExternalLink className="h-4 w-4" /> Manage Subscription
+                                <ExternalLink className="h-4 w-4" />Add Funds to Elevenlabs
                             </Button>
                         </div>
                     )}
@@ -169,22 +175,13 @@ function WalletModal({ isOpen, onClose, type, details, calls }: { isOpen: boolea
                                 </div>
                             </div>
                             <Button className="bg-rose-600 hover:bg-rose-700 text-white gap-2" onClick={() => window.open('https://console.twilio.com', '_blank')}>
-                                <ExternalLink className="h-4 w-4" /> Twilio Console
+                                <ExternalLink className="h-4 w-4" /> Add Funds to Twilio 
                             </Button>
                         </div>
                     )}
 
                     {type === 'maqsam' && (
                         <div className="space-y-4">
-                            <div className="flex flex-col text-center bg-cyan-50/50 p-6 rounded-lg border border-cyan-100 shadow-sm relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-3 opacity-10">
-                                    <Wallet className="h-12 w-12" />
-                                </div>
-                                <span className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Telephony Used</span>
-                                <span className="text-5xl font-black text-cyan-700">
-                                    ${maqsamUsedCost.toFixed(2)}
-                                </span>
-                            </div>
                             <MaqsamBalanceDetail initialBalance={maqsamBalance} />
                         </div>
                     )}
@@ -286,10 +283,18 @@ function DashboardContent({
         if (!calls || !Array.isArray(calls)) return 0;
         return calls.filter((c: any) => {
             const isMaqsam = c.source === 'maqsam';
+            const provisionedNum = String(c.phoneNumber || "");
+            const isSpecificMaqsamNum = provisionedNum.replace(/\D/g, '') === '97148714150';
+
+            // Detection based on customer number prefix (legacy)
             const phoneStr = String(c.phone || c.customer_number || "");
             const isUAE = phoneStr.startsWith('+971') || phoneStr.startsWith('971');
-            return isMaqsam || isUAE;
-        }).reduce((acc: number, call: any) => acc + (call.costValue || 0), 0);
+
+            return isMaqsam || isUAE || isSpecificMaqsamNum;
+        }).reduce((acc: number, call: any) => {
+            // For Maqsam/Telephony, specifically sum the telephony-only portion
+            return acc + (call.breakdown?.telephony || call.costValue || 0);
+        }, 0);
     }, [calls]);
 
     const [walletModal, setWalletModal] = useState<{ isOpen: boolean, type: 'vapi' | 'elevenlabs' | 'maqsam' | 'twilio' }>({
