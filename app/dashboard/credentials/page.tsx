@@ -99,9 +99,37 @@ export default function CredentialsPage() {
                     iconBg="bg-emerald-50"
                 >
                     <div className="grid gap-6 md:grid-cols-2">
-                        <ReadOnlyField label="Phone Number " value="+971 55 xxx xx74" />
-                        <ReadOnlyField label="WhatsApp Business Account ID" value="277xxxxxxxxx4717" />
+                        <ReadOnlyField label="WhatsApp Account 1 " value="+971 52 563 3027" />
+                        <ReadOnlyField label="WhatsApp Account 2" value="+971 52 563 2921" />
+                    </div>
+                </CredentialSection>
 
+                {/* Provisioned Numbers Section */}
+                <CredentialSection
+                    title="Provisioned Phone Numbers"
+                    description="Active telephony lines for Voice and WhatsApp."
+                    icon={Phone}
+                    iconColor="text-cyan-600"
+                    iconBg="bg-cyan-50"
+                >
+                    <div className="grid gap-8 md:grid-cols-3">
+                        {/* UK Section */}
+                        <div className="space-y-4 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                            <ReadOnlyField label="Twilio (UK)" value="+44 (7462) 179309" />
+                            <ReadOnlyField label="Agent ID" value="918c25eb-9882-452e-86df-b4851d464852" />
+                        </div>
+
+                        {/* US Section */}
+                        <div className="space-y-4 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                            <ReadOnlyField label="Twilio (US)" value="+1 (478) 215 9151" />
+                            <ReadOnlyField label="Agent ID" value="b35e3032-7865-4913-ba22-a913b5d4117b" />
+                        </div>
+
+                        {/* UAE Section */}
+                        <div className="space-y-4 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                            <ReadOnlyField label="Maqsam (UAE)" value="+97148714150" />
+                            <ReadOnlyField label="Agent ID" value="70f05e16-18f3-4f6e-964a-f47b299c6c1d" />
+                        </div>
                     </div>
                 </CredentialSection>
 
@@ -189,7 +217,7 @@ export default function CredentialsPage() {
                         </Button>
                     }
                 >
-                    
+
                     <MaqsamBalanceDetail initialBalance={maqsamBalance} />
                 </CredentialSection>
 
