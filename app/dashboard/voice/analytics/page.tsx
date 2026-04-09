@@ -35,6 +35,58 @@ export default function VoiceAnalyticsPage() {
         from: subDays(new Date(), 7),
         to: new Date(),
     });
+    const [llmCache, setLlmCache] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+        try {
+            const cached = localStorage.getItem("call_llm_intents");
+            if (cached) setLlmCache(JSON.parse(cached));
+        } catch (e) {}
+    }, []);
+
+    // LLM Evaluation Sync Effect
+    useEffect(() => {
+        if (!calls || calls.length === 0) return;
+        const summariesToEval = calls
+            .filter(c => (!c.llmIntent && !llmCache[c.id]) && ((c.callSummary && c.callSummary.trim().length > 2) || (c.source === 'vapi' && !c.callSummary)))
+            .map(c => ({ id: c.id, text: (c.callSummary || "").trim(), source: c.source }));
+            
+        if (summariesToEval.length > 0) {
+            const processSummaries = async () => {
+                try {
+                    // Lowered batch size to safely respect VAPI rate limits over concurrent loading
+                    const batch = summariesToEval.slice(0, 5);
+                    const res = await fetch("/api/llm-eval", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ summaries: batch })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        
+                        // Patch missing Vapi summaries locally so they reflect in any UI table
+                        if (data.updatedSummaries && Object.keys(data.updatedSummaries).length > 0) {
+                            setCalls(prev => prev.map(c => {
+                                if (data.updatedSummaries[c.id]) {
+                                    return { ...c, callSummary: data.updatedSummaries[c.id] };
+                                }
+                                return c;
+                            }));
+                        }
+                        
+                        if (data.results && Object.keys(data.results).length > 0) {
+                            setLlmCache(prev => {
+                                const next = { ...prev, ...data.results };
+                                localStorage.setItem("call_llm_intents", JSON.stringify(next));
+                                return next;
+                            });
+                        }
+                    }
+                } catch (e) {}
+            };
+            processSummaries();
+        }
+    }, [calls, llmCache]);
 
     // Processed Data States
     const [volumeData, setVolumeData] = useState<any[]>([]);
@@ -51,6 +103,9 @@ export default function VoiceAnalyticsPage() {
         vapiBalance: 0,
         inboundDuration: 0,
         outboundDuration: 0,
+        pickupRate: 0,
+        completionRate: 0,
+        positiveRate: 0,
     });
 
     useEffect(() => {
@@ -86,10 +141,10 @@ export default function VoiceAnalyticsPage() {
         });
 
         setCalls(filteredCalls);
-        processAnalytics(filteredCalls);
-    }, [globalCalls, loadingCalls, dateRange, providerFilter]);
+        processAnalytics(filteredCalls, llmCache);
+    }, [globalCalls, loadingCalls, dateRange, providerFilter, llmCache]);
 
-    const processAnalytics = (data: any[]) => {
+    const processAnalytics = (data: any[], currentLlmCache = llmCache) => {
         const totalCalls = data.length;
         let totalDuration = 0;
         let totalCredits = 0;
@@ -101,6 +156,11 @@ export default function VoiceAnalyticsPage() {
 
         let inboundSum = 0;
         let outboundSum = 0;
+
+        let connectedCount = 0;
+        let qualifiedCount = 0;
+        let positiveCount = 0;
+        let intentDetectedCount = 0;
 
         // Lifetime calculations (all time)
         let lifetimeVapiUsedSum = 0;
@@ -164,7 +224,66 @@ export default function VoiceAnalyticsPage() {
             else if (dur < 120) durationBuckets['1m-2m']++;
             else if (dur < 300) durationBuckets['2m-5m']++;
             else durationBuckets['5m+']++;
-        });
+
+            // ── Funnel Metrics Calculation ──────────────────────────────────
+            // 1. PICK-UP RATE: call was answered (duration > 18s AND terminal status)
+            const isConnected = dur > 18 && (
+                call.status === 'done' || call.status === 'ended' ||
+                call.status === 'completed' || call.status === 'answered' || call.status === 'success'
+            );
+            if (isConnected) connectedCount++;
+
+            if (isConnected) {
+                // 2. COMPLETION RATE: it should analyze the summary and use LLM to define positive or negative or reaches a defined qualification stage
+                const summary: string = (call.callSummary || "").trim();
+                let intent = call.llmIntent || currentLlmCache[call.id] || "none";
+                
+                // Source A: Vapi successEvaluation (explicit pass/fail from assistant config)
+                const evalResult = call.successEvaluation ?? (call.raw?.analysis?.successEvaluation);
+                const evalPassed = evalResult === true || String(evalResult).toLowerCase() === 'true' || evalResult === 1 || String(evalResult).toLowerCase() === 'success';
+
+                // Fallback to local heuristic if LLM hasn't responded yet or returned none
+                if (intent === "none") {
+                    const sl = summary.toLowerCase();
+                    const posKeywords = [
+                        'interested', 'positive', 'callback', 'schedule', 'book',
+                        'follow-up', 'send info', 'send details', 'wants to know more',
+                        'agreed', 'confirmed', 'happy to', 'good time', 'convenient',
+                        'yes', 'ok', 'sure', 'sounds good'
+                    ];
+                    const negKeywords = [
+                        'not interested', 'no thank', 'wrong number', "don't call",
+                        'do not call', 'stop calling', 'busy', 'refused', 'declined',
+                        'ended due to silence', 'silence before any', 'not a good time',
+                        'cannot talk', 'voicemail'
+                    ];
+                    
+                    const hasPositive = summary ? posKeywords.some(kw => sl.includes(kw)) : false;
+                    const hasNegative = summary ? negKeywords.some(kw => sl.includes(kw)) : false;
+
+                    if (hasPositive && !hasNegative) {
+                        intent = "positive";
+                    } else if (hasNegative) {
+                        intent = "negative";
+                    } else if (evalPassed || summary.length > 10) {
+                        intent = "qualified";
+                    }
+                }
+
+                // Convert into 1 and then this will be the count hence can get the completion rate
+                const isCompleted = intent === "positive" || intent === "negative" || intent === "qualified";
+                
+                if (isCompleted) {
+                    qualifiedCount++; // Completed calls where qualification was met
+                    intentDetectedCount++; // Track for positive response rate base
+
+                    // 3. POSITIVE RESPONSE RATE: only the count of Positive intents hence that counts
+                    if (intent === "positive") {
+                        positiveCount++;
+                    }
+                }
+            }
+        }); // end data.forEach
 
         setStats(prev => ({
             ...prev,
@@ -176,7 +295,10 @@ export default function VoiceAnalyticsPage() {
             inboundDuration: inboundSum,
             outboundDuration: outboundSum,
             lifetimeVapiUsed: (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) ? voiceBalance.vapi.used : lifetimeVapiUsedSum,
-            lifetimeELUsed: lifetimeELUsedSum
+            lifetimeELUsed: lifetimeELUsedSum,
+            pickupRate: totalCalls > 0 ? (connectedCount / totalCalls) * 100 : 0,
+            completionRate: connectedCount > 0 ? (qualifiedCount / connectedCount) * 100 : 0,
+            positiveRate: intentDetectedCount > 0 ? (positiveCount / intentDetectedCount) * 100 : 0
         }));
 
         const sortedDays = Array.from(dayMap.entries()).sort((a, b) => {
@@ -233,6 +355,40 @@ export default function VoiceAnalyticsPage() {
                     color="text-blue-600"
                     bg="bg-blue-50"
                 />
+            </div>
+
+            {/* AI Voice Call Funnel Analytics */}
+            <div>
+                <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <span className="p-1.5 bg-blue-600 rounded-lg"><PhoneIncoming className="h-4 w-4 text-white" /></span>
+                    AI Voice Call Funnel Analytics
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <StatCard 
+                        title="Call Pick-up Rate" 
+                        value={`${stats.pickupRate.toFixed(1)}%`} 
+                        change="Connected vs Total" 
+                        icon={<Phone className="h-5 w-5" />} 
+                        color="text-indigo-600" 
+                        bg="bg-indigo-50" 
+                    />
+                    <StatCard 
+                        title="Call Completion Rate" 
+                        value={`${stats.completionRate.toFixed(1)}%`} 
+                        change="Qualified vs Connected" 
+                        icon={<CheckCircle className="h-5 w-5" />} 
+                        color="text-emerald-600" 
+                        bg="bg-emerald-50" 
+                    />
+                    <StatCard 
+                        title="Positive Response Rate" 
+                        value={`${stats.positiveRate.toFixed(1)}%`} 
+                        change="Intent vs Not Interested" 
+                        icon={<CheckCircle className="h-5 w-5" />} 
+                        color="text-orange-600" 
+                        bg="bg-orange-50" 
+                    />
+                </div>
             </div>
 
             {/* Charts Section */}

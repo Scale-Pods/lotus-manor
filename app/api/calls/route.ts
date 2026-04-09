@@ -96,6 +96,28 @@ async function fetchLeadsCache() {
     return leadsMap;
 }
 
+// --- 1.5. Evaluations Cache (Supabase) ---
+async function fetchLlmEvaluationsCache() {
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+    const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    if (!supabaseUrl || !secretKey) return new Map();
+
+    const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
+    const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
+    const evalMap = new Map<string, string>();
+
+    try {
+        const res = await fetch(`${baseUrl}/call_evaluations?select=id,intent`, { headers });
+        if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+                data.forEach(e => evalMap.set(e.id, e.intent));
+            }
+        }
+    } catch (e) {} // Silent fail if table doesn't exist yet
+    return evalMap;
+}
+
 // --- 2. Vapi Phone Cache ---
 async function fetchVapiPhonesCache(vapiPrivKey: string) {
     const phoneMap = new Map<string, string>();
@@ -130,9 +152,10 @@ async function fetchVapiPhonesCache(vapiPrivKey: string) {
 export async function GET(req: Request) {
     try {
         const vapiPrivKey = process.env.VAPI_PRIVATE_KEY || "";
-        const [leadsCache, vapiPhoneCache] = await Promise.all([
+        const [leadsCache, vapiPhoneCache, evalCache] = await Promise.all([
             fetchLeadsCache(),
-            fetchVapiPhonesCache(vapiPrivKey)
+            fetchVapiPhonesCache(vapiPrivKey),
+            fetchLlmEvaluationsCache()
         ]);
 
         const { searchParams } = new URL(req.url);
@@ -284,7 +307,8 @@ export async function GET(req: Request) {
                         phoneNumber: callee,
                         country: rateEntry?.Country || (phone.startsWith('+') ? "Other" : "Unknown"),
                         source: 'elevenlabs',
-                        status: (merged.status === 'success' || merged.status === 'done' || merged.status === 'completed' || merged.call_successful === 'success') ? 'answered' : (merged.status || 'answered')
+                        status: (merged.status === 'success' || merged.status === 'done' || merged.status === 'completed' || merged.call_successful === 'success') ? 'answered' : (merged.status || 'answered'),
+                        llmIntent: evalCache.get(merged.conversation_id) || null
                     };
                 }).filter(Boolean);
             }
@@ -423,6 +447,23 @@ export async function GET(req: Request) {
                         vapiName = "Guest";
                     }
 
+                    // --- Extract Vapi Structured Output (Call Summary) ---
+                    // Vapi stores structured outputs as an object keyed by UUID:
+                    // { "<uuid>": { name: "Call Summary", result: "..text.." } }
+                    let callSummary = "";
+                    const structuredData = vc.analysis?.structuredData || {};
+                    for (const key of Object.keys(structuredData)) {
+                        const entry = structuredData[key];
+                        if (entry && (entry.name === "Call Summary" || entry.name?.toLowerCase().includes("summary"))) {
+                            callSummary = entry.result || entry.value || "";
+                            break;
+                        }
+                    }
+                    // Also try top-level analysis.summary as fallback
+                    if (!callSummary) {
+                        callSummary = vc.analysis?.summary || "";
+                    }
+
                     return {
                         id: vc.id,
                         name: vapiName,
@@ -431,7 +472,6 @@ export async function GET(req: Request) {
                         cost: vapiTotalCost > 0 ? `$${vapiTotalCost.toFixed(3)}` : "$0.00",
                         costValue: vapiTotalCost,
                         breakdown: {
-                            // Agent cost is now exactly what Vapi reports (Platform fee)
                             agent: agentCost,
                             telephony: vapiTelephonyCost,
                             total: vapiTotalCost
@@ -444,6 +484,10 @@ export async function GET(req: Request) {
                         status: vc.status === 'completed' ? 'answered' : (vc.status || 'answered'),
                         phoneNumber: vapiAssistantNum,
                         customer_number: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
+                        // Funnel fields surfaced from Vapi analysis
+                        callSummary,
+                        successEvaluation: vc.analysis?.successEvaluation,
+                        llmIntent: evalCache.get(vc.id) || null,
                         raw: vc
                     };
                 }).filter(Boolean);
@@ -533,7 +577,8 @@ export async function GET(req: Request) {
                         phone: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
                         country: getRateInfo(phoneRaw)?.Country || "Unknown",
                         source: 'maqsam',
-                        status: (mc.state === 'completed' || mc.state === 'serviced' || mc.status === 'answered') ? 'answered' : (mc.state || mc.status || 'answered')
+                        status: (mc.state === 'completed' || mc.state === 'serviced' || mc.status === 'answered') ? 'answered' : (mc.state || mc.status || 'answered'),
+                        llmIntent: evalCache.get((mc.id || mc.uuid || "").toString()) || null
                     };
                 });
             }
