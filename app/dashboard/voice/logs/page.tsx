@@ -112,6 +112,7 @@ export default function VoiceLogsPage() {
     const [typeFilter, setTypeFilter] = useState("all");
     const [providerFilter, setProviderFilter] = useState("vapi");
     const [phoneFilter, setPhoneFilter] = useState("");
+    const [sortBy, setSortBy] = useState("newest");
     const [costModalOpen, setCostModalOpen] = useState(false);
 
     // Pagination
@@ -150,7 +151,7 @@ export default function VoiceLogsPage() {
     // Reset to page 1 ONLY when the user explicitly changes a filter — not when background data enrichment updates allCallsMapped.
     useEffect(() => {
         setCurrentPage(1);
-    }, [dateRange, statusFilter, typeFilter, providerFilter, phoneFilter]);
+    }, [dateRange, statusFilter, typeFilter, providerFilter, phoneFilter, sortBy]);
 
     // Re-apply filtering whenever data or filters change (no page reset here).
     useEffect(() => {
@@ -185,8 +186,23 @@ export default function VoiceLogsPage() {
             return true;
         });
 
-        setCalls(filteredCalls);
-    }, [allCallsMapped, dateRange, statusFilter, typeFilter, providerFilter, phoneFilter]);
+        // Apply Sorting
+        const sortedCalls = [...filteredCalls].sort((a, b) => {
+            if (sortBy === "longest") return (b.durationSeconds || 0) - (a.durationSeconds || 0);
+            if (sortBy === "shortest") return (a.durationSeconds || 0) - (b.durationSeconds || 0);
+            if (sortBy === "oldest") {
+                const dateA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+                const dateB = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+                return dateA - dateB;
+            }
+            // default: newest
+            const dateA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+            const dateB = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+            return dateB - dateA;
+        });
+
+        setCalls(sortedCalls);
+    }, [allCallsMapped, dateRange, statusFilter, typeFilter, providerFilter, phoneFilter, sortBy]);
 
     const handleRefresh = () => {
         refreshAll();
@@ -254,6 +270,16 @@ export default function VoiceLogsPage() {
                             <SelectItem value="all">All Status</SelectItem>
                             <SelectItem value="answered">Answered / Done</SelectItem>
                             <SelectItem value="failed">Failed / Error</SelectItem>
+                        </SelectContent>
+                    </Select>
+
+                    <Select value={sortBy} onValueChange={setSortBy}>
+                        <SelectTrigger className="w-[150px] h-9"><SelectValue placeholder="Sort By" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="newest">Newest First</SelectItem>
+                            <SelectItem value="oldest">Oldest First</SelectItem>
+                            <SelectItem value="longest">Longest Duration</SelectItem>
+                            <SelectItem value="shortest">Shortest Duration</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
