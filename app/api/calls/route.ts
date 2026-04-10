@@ -78,17 +78,29 @@ async function fetchLeadsCache() {
 
     const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
     const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
-    const leadsMap = new Map<string, string>();
+    const leadsMap = new Map<string, { name: string; status: any }>();
 
     try {
-        const tables = ["nr_wf", "followup", "nurture"];
-        const results = await Promise.all(tables.map(t => fetch(`${baseUrl}/${t}?select=name,phone`, { headers }).then(r => r.json())));
+        const tables = ["nr_wf", "followup", "nurture", "master_leads"];
+        const results = await Promise.all(tables.map(t => 
+            fetch(`${baseUrl}/${t}?select=name,phone,Phone,phoneNumber,phonenumber,customer_number,lead_status`, { headers })
+                .then(r => r.json())
+                .catch(() => [])
+        ));
 
         results.forEach(data => {
             if (Array.isArray(data)) {
                 data.forEach(l => {
-                    const clean = cleanPhoneNumber(l.phone);
-                    if (clean !== "Unknown" && l.name) leadsMap.set(clean, l.name);
+                    const phoneRaw = l.phone || l.phoneNumber || l.phonenumber || l.customer_number || "";
+                    const clean = cleanPhoneNumber(phoneRaw);
+                    if (clean !== "Unknown" && (l.name || l.lead_status)) {
+                        // Priority: merge if already exists, but master_leads info should take precedence if status exists
+                        const existing = leadsMap.get(clean);
+                        leadsMap.set(clean, { 
+                            name: l.name || existing?.name || "Guest", 
+                            status: l.lead_status || existing?.status || null 
+                        });
+                    }
                 });
             }
         });
@@ -282,7 +294,10 @@ export async function GET(req: Request) {
                     let name = fullName || meta.user_name || meta.name || dv.user_name || dv.name || "Guest";
 
                     const resolvedFromLead = leadsCache.get(phoneRaw);
-                    if (resolvedFromLead) name = resolvedFromLead;
+                    if (resolvedFromLead) {
+                        name = resolvedFromLead.name || name;
+                        (merged as any).leadStatus = resolvedFromLead.status;
+                    }
 
                     // Filter out phone numbers as names
                     if (name && /^\d+$/.test(name.replace(/\D/g, '')) && name.length > 5) {
@@ -308,7 +323,9 @@ export async function GET(req: Request) {
                         country: rateEntry?.Country || (phone.startsWith('+') ? "Other" : "Unknown"),
                         source: 'elevenlabs',
                         status: (merged.status === 'success' || merged.status === 'done' || merged.status === 'completed' || merged.call_successful === 'success') ? 'answered' : (merged.status || 'answered'),
-                        llmIntent: evalCache.get(merged.conversation_id) || null
+                        llmIntent: evalCache.get(merged.conversation_id) || null,
+                        leadStatus: (merged as any).leadStatus || null,
+                        endedReason: merged.termination_reason || null
                     };
                 }).filter(Boolean);
             }
@@ -441,7 +458,10 @@ export async function GET(req: Request) {
                     }
 
                     const resolvedFromLead = leadsCache.get(phoneRaw);
-                    if (resolvedFromLead) vapiName = resolvedFromLead;
+                    if (resolvedFromLead) {
+                        vapiName = resolvedFromLead.name || vapiName;
+                        (vc as any).leadStatus = resolvedFromLead.status;
+                    }
 
                     if (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5) {
                         vapiName = "Guest";
@@ -488,6 +508,8 @@ export async function GET(req: Request) {
                         callSummary,
                         successEvaluation: vc.analysis?.successEvaluation,
                         llmIntent: evalCache.get(vc.id) || null,
+                        leadStatus: (vc as any).leadStatus || null,
+                        endedReason: vc.endedReason || null,
                         raw: vc
                     };
                 }).filter(Boolean);
@@ -578,7 +600,8 @@ export async function GET(req: Request) {
                         country: getRateInfo(phoneRaw)?.Country || "Unknown",
                         source: 'maqsam',
                         status: (mc.state === 'completed' || mc.state === 'serviced' || mc.status === 'answered') ? 'answered' : (mc.state || mc.status || 'answered'),
-                        llmIntent: evalCache.get((mc.id || mc.uuid || "").toString()) || null
+                        llmIntent: evalCache.get((mc.id || mc.uuid || "").toString()) || null,
+                        leadStatus: leadsCache.get(phoneRaw)?.status || null
                     };
                 });
             }

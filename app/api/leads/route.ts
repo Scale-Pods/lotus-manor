@@ -28,7 +28,7 @@ export async function GET() {
 
         while (hasMore) {
             // Construct URL without potential double slashes, including pagination
-            const url = `${baseUrl}/${tableName}?select=*&offset=${offset}&limit=${limit}`;
+            const url = `${baseUrl}/${tableName}?select=*,Phone&offset=${offset}&limit=${limit}`;
 
             // Legacy AbortController for Node 22 compatibility
             const controller = new AbortController();
@@ -85,16 +85,18 @@ export async function GET() {
     };
 
     try {
-        const [nr_wf, followup, nurture] = await Promise.all([
+        const [nr_wf, followup, nurture, master_leads] = await Promise.all([
             fetchTable("nr_wf"),
             fetchTable("followup"),
-            fetchTable("nurture")
+            fetchTable("nurture"),
+            fetchTable("master_leads")
         ]);
 
         return NextResponse.json({
             nr_wf,
             followup,
-            nurture
+            nurture,
+            master_leads
         });
 
     } catch (error: any) {
@@ -103,6 +105,7 @@ export async function GET() {
             nr_wf: [],
             followup: [],
             nurture: [],
+            master_leads: [],
             error: error.message
         }, { status: 500 });
     }

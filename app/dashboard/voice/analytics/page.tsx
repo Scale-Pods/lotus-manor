@@ -25,7 +25,7 @@ import { format, parseISO, startOfDay, subDays } from "date-fns";
 import { useData } from "@/context/DataContext";
 
 export default function VoiceAnalyticsPage() {
-    const { calls: globalCalls, loadingCalls, voiceBalance } = useData();
+    const { calls: globalCalls, loadingCalls, voiceBalance, leads: globalLeads, loadingLeads } = useData();
     const [statusFilter, setStatusFilter] = useState("all");
     const [providerFilter, setProviderFilter] = useState("vapi");
     const [calls, setCalls] = useState<any[]>([]);
@@ -35,58 +35,9 @@ export default function VoiceAnalyticsPage() {
         from: subDays(new Date(), 7),
         to: new Date(),
     });
-    const [llmCache, setLlmCache] = useState<Record<string, string>>({});
 
-    useEffect(() => {
-        try {
-            const cached = localStorage.getItem("call_llm_intents");
-            if (cached) setLlmCache(JSON.parse(cached));
-        } catch (e) {}
-    }, []);
 
-    // LLM Evaluation Sync Effect
-    useEffect(() => {
-        if (!calls || calls.length === 0) return;
-        const summariesToEval = calls
-            .filter(c => (!c.llmIntent && !llmCache[c.id]) && ((c.callSummary && c.callSummary.trim().length > 2) || (c.source === 'vapi' && !c.callSummary)))
-            .map(c => ({ id: c.id, text: (c.callSummary || "").trim(), source: c.source }));
-            
-        if (summariesToEval.length > 0) {
-            const processSummaries = async () => {
-                try {
-                    // Lowered batch size to safely respect VAPI rate limits over concurrent loading
-                    const batch = summariesToEval.slice(0, 5);
-                    const res = await fetch("/api/llm-eval", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ summaries: batch })
-                    });
-                    if (res.ok) {
-                        const data = await res.json();
-                        
-                        // Patch missing Vapi summaries locally so they reflect in any UI table
-                        if (data.updatedSummaries && Object.keys(data.updatedSummaries).length > 0) {
-                            setCalls(prev => prev.map(c => {
-                                if (data.updatedSummaries[c.id]) {
-                                    return { ...c, callSummary: data.updatedSummaries[c.id] };
-                                }
-                                return c;
-                            }));
-                        }
-                        
-                        if (data.results && Object.keys(data.results).length > 0) {
-                            setLlmCache(prev => {
-                                const next = { ...prev, ...data.results };
-                                localStorage.setItem("call_llm_intents", JSON.stringify(next));
-                                return next;
-                            });
-                        }
-                    }
-                } catch (e) {}
-            };
-            processSummaries();
-        }
-    }, [calls, llmCache]);
+
 
     // Processed Data States
     const [volumeData, setVolumeData] = useState<any[]>([]);
@@ -106,6 +57,9 @@ export default function VoiceAnalyticsPage() {
         pickupRate: 0,
         completionRate: 0,
         positiveRate: 0,
+        positiveCount: 0,
+        qualifiedCount: 0,
+        connectedCount: 0,
     });
 
     useEffect(() => {
@@ -141,10 +95,10 @@ export default function VoiceAnalyticsPage() {
         });
 
         setCalls(filteredCalls);
-        processAnalytics(filteredCalls, llmCache);
-    }, [globalCalls, loadingCalls, dateRange, providerFilter, llmCache]);
+        processAnalytics(filteredCalls);
+    }, [globalCalls, loadingCalls, globalLeads, loadingLeads, dateRange, providerFilter]);
 
-    const processAnalytics = (data: any[], currentLlmCache = llmCache) => {
+    const processAnalytics = (data: any[]) => {
         const totalCalls = data.length;
         let totalDuration = 0;
         let totalCredits = 0;
@@ -234,57 +188,57 @@ export default function VoiceAnalyticsPage() {
             if (isConnected) connectedCount++;
 
             if (isConnected) {
-                // 2. COMPLETION RATE: it should analyze the summary and use LLM to define positive or negative or reaches a defined qualification stage
-                const summary: string = (call.callSummary || "").trim();
-                let intent = call.llmIntent || currentLlmCache[call.id] || "none";
+                // 2. COMPLETION RATE: count calls where Assistant or Customer ended the call
+                const reason = (call.endedReason || "").toLowerCase();
+                const status = (call.status || "").toLowerCase();
                 
-                // Source A: Vapi successEvaluation (explicit pass/fail from assistant config)
-                const evalResult = call.successEvaluation ?? (call.raw?.analysis?.successEvaluation);
-                const evalPassed = evalResult === true || String(evalResult).toLowerCase() === 'true' || evalResult === 1 || String(evalResult).toLowerCase() === 'success';
-
-                // Fallback to local heuristic if LLM hasn't responded yet or returned none
-                if (intent === "none") {
-                    const sl = summary.toLowerCase();
-                    const posKeywords = [
-                        'interested', 'positive', 'callback', 'schedule', 'book',
-                        'follow-up', 'send info', 'send details', 'wants to know more',
-                        'agreed', 'confirmed', 'happy to', 'good time', 'convenient',
-                        'yes', 'ok', 'sure', 'sounds good'
-                    ];
-                    const negKeywords = [
-                        'not interested', 'no thank', 'wrong number', "don't call",
-                        'do not call', 'stop calling', 'busy', 'refused', 'declined',
-                        'ended due to silence', 'silence before any', 'not a good time',
-                        'cannot talk', 'voicemail'
-                    ];
-                    
-                    const hasPositive = summary ? posKeywords.some(kw => sl.includes(kw)) : false;
-                    const hasNegative = summary ? negKeywords.some(kw => sl.includes(kw)) : false;
-
-                    if (hasPositive && !hasNegative) {
-                        intent = "positive";
-                    } else if (hasNegative) {
-                        intent = "negative";
-                    } else if (evalPassed || summary.length > 10) {
-                        intent = "qualified";
-                    }
-                }
-
-                // Convert into 1 and then this will be the count hence can get the completion rate
-                const isCompleted = intent === "positive" || intent === "negative" || intent === "qualified";
+                // Vapi Reasons vs ElevenLabs Reasons vs Status-based fallback
+                const isCompleted = 
+                    // Vapi
+                    reason.includes("assistant-ended-call") || reason.includes("customer-ended-call") || 
+                    reason.includes("assistant ended call") || reason.includes("customer ended call") ||
+                    // ElevenLabs
+                    reason.includes("end_of_conversation") || reason.includes("user_interrupted") ||
+                    // Fallback for ElevenLabs if reason is missing but status is clear
+                    (call.source === 'elevenlabs' && (status === 'done' || status === 'completed' || status === 'success'));
                 
                 if (isCompleted) {
-                    qualifiedCount++; // Completed calls where qualification was met
-                    intentDetectedCount++; // Track for positive response rate base
+                    qualifiedCount++; 
+                }
 
-                    // 3. POSITIVE RESPONSE RATE: only the count of Positive intents hence that counts
-                    if (intent === "positive") {
-                        positiveCount++;
-                    }
+                // 3. POSITIVE RESPONSE RATE: count based on specific positive lead statuses
+                // 3. POSITIVE RESPONSE RATE: count based on specific positive lead statuses
+                const leadStatus = (call.leadStatus || "").trim().toLowerCase();
+                const isPositive = leadStatus.includes("interest") || leadStatus.includes("postpone");
+                if (isPositive) {
+                    // This count is still kept for any per-call analytics if needed
                 }
             }
         }); // end data.forEach
 
+        // 3. GLOBAL POSITIVE RESPONSE RATE: Sum from ALL leads (Overall sum)
+        // User requested to remove date filtering for this metric
+        const leadsToCount = globalLeads;
+
+        const countPositives = (list: any[]) => {
+            let count = 0;
+            list.forEach(l => {
+                const status = (l.lead_status || l["Lead Status"] || "").trim();
+                
+                // Strictly ONLY these two exact strings (based on request)
+                const isMatch = status === "Expression Of Interest" || 
+                               status === "Callback- Plan Postponed";
+                
+                if (isMatch) {
+                    count++;
+                }
+            });
+            return count;
+        };
+
+        let globalPositiveCount = countPositives(leadsToCount);
+        console.log(`[Analytics] Total leads scanned: ${globalLeads.length}, Global Positive Sum: ${globalPositiveCount}`);
+        
         setStats(prev => ({
             ...prev,
             totalCalls,
@@ -297,8 +251,11 @@ export default function VoiceAnalyticsPage() {
             lifetimeVapiUsed: (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) ? voiceBalance.vapi.used : lifetimeVapiUsedSum,
             lifetimeELUsed: lifetimeELUsedSum,
             pickupRate: totalCalls > 0 ? (connectedCount / totalCalls) * 100 : 0,
-            completionRate: connectedCount > 0 ? (qualifiedCount / connectedCount) * 100 : 0,
-            positiveRate: intentDetectedCount > 0 ? (positiveCount / intentDetectedCount) * 100 : 0
+            completionRate: totalCalls > 0 ? (qualifiedCount / totalCalls) * 100 : 0,
+            positiveRate: totalCalls > 0 ? (globalPositiveCount / totalCalls) * 100 : 0,
+            positiveCount: globalPositiveCount,
+            qualifiedCount,
+            connectedCount
         }));
 
         const sortedDays = Array.from(dayMap.entries()).sort((a, b) => {
@@ -375,7 +332,7 @@ export default function VoiceAnalyticsPage() {
                     <StatCard 
                         title="Call Completion Rate" 
                         value={`${stats.completionRate.toFixed(1)}%`} 
-                        change="Qualified vs Connected" 
+                        change="Qualified vs Total" 
                         icon={<CheckCircle className="h-5 w-5" />} 
                         color="text-emerald-600" 
                         bg="bg-emerald-50" 
@@ -383,7 +340,7 @@ export default function VoiceAnalyticsPage() {
                     <StatCard 
                         title="Positive Response Rate" 
                         value={`${stats.positiveRate.toFixed(1)}%`} 
-                        change="Intent vs Not Interested" 
+                        change="Positive vs Total" 
                         icon={<CheckCircle className="h-5 w-5" />} 
                         color="text-orange-600" 
                         bg="bg-orange-50" 
