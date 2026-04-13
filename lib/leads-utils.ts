@@ -117,6 +117,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
                 "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
                 unsubscribed: getVal(l, ["Unsubscribed", "Unsubscribed text"]) || "No",
+                WP_Replied_track: getVal(l, ["WP_Replied_track"]) || null,
                 ...getWhatsAppHistory(l)
             });
         });
@@ -171,6 +172,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
                 "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
                 unsubscribed: getVal(l, ["Unsubscribed", "Unsubscribed text"]) || "No",
+                WP_Replied_track: getVal(l, ["WP_Replied_track"]) || null,
                 ...getWhatsAppHistory(l)
             });
         });
@@ -248,6 +250,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_1 TS": getVal(l, ["W.P_1 TS"]),
                 "W.P_2 TS": getVal(l, ["W.P_2 TS"]),
                 unsubscribed: getVal(l, ["Unsubscribed", "Unsubscribed text"]) || "No",
+                WP_Replied_track: getVal(l, ["WP_Replied_track"]) || null,
                 ...getWhatsAppHistory(l)
             });
         });

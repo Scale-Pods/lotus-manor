@@ -173,17 +173,11 @@ export default function WhatsappChatPage() {
             const matchesSearch = lead.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 lead.phone.includes(searchQuery);
 
+            const wtReplied = lead.WP_Replied_track;
             let hasReplied = false;
-            if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
-                hasReplied = true;
-            } else {
-                for (let i = 1; i <= 10; i++) {
-                    const r = lead[`W.P_Replied_${i}`];
-                    if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                        hasReplied = true;
-                        break;
-                    }
-                }
+            if (wtReplied) {
+                const s = String(wtReplied).trim().toLowerCase();
+                if (s === "yes" || s === "replied") hasReplied = true;
             }
 
             const matchesReplyStatus = activeFilters.replyStatus.length === 0 ||
@@ -246,18 +240,12 @@ export default function WhatsappChatPage() {
                 if (lead[`W.P_FollowUp_${i}`]) sentCount++;
             }
 
-            // Replied check
+            // Replied check — uses WT_Replied_track from nr_wf / followup / nurture
+            const wtR = lead.WP_Replied_track;
             let leadReplied = false;
-            if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
-                leadReplied = true;
-            } else {
-                for (let i = 1; i <= 10; i++) {
-                    const r = lead[`W.P_Replied_${i}`];
-                    if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                        leadReplied = true;
-                        break;
-                    }
-                }
+            if (wtR) {
+                const s = String(wtR).trim().toLowerCase();
+                if (s === "yes" || s === "replied") leadReplied = true;
             }
             if (leadReplied) repliedCount++;
         });
@@ -570,17 +558,12 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
     // Just show the last 2 to keep UI clean, in chronological order
     const displayStatuses = allStatuses.slice(-2);
 
+    // Status now reads from WP_Replied_track (sourced from nr_wf / followup / nurture based on loop)
+    const wtRepliedTrack = lead.WP_Replied_track;
     let hasReplied = false;
-    if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") {
-        hasReplied = true;
-    } else {
-        for (let i = 1; i <= 10; i++) {
-            const r = lead[`W.P_Replied_${i}`];
-            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                hasReplied = true;
-                break;
-            }
-        }
+    if (wtRepliedTrack) {
+        const s = String(wtRepliedTrack).trim().toLowerCase();
+        if (s === "yes" || s === "replied") hasReplied = true;
     }
 
     const formatTooltipDate = (date: Date | string) => {
