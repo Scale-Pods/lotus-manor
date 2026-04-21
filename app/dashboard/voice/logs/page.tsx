@@ -177,7 +177,19 @@ export default function VoiceLogsPage() {
             }
 
             if (statusFilter !== "all" && call.status !== statusFilter) return false;
-            if (typeFilter !== "all" && call.type?.toLowerCase() !== typeFilter.toLowerCase()) return false;
+            
+            if (typeFilter !== "all") {
+                const normalizedCallType = (call.type || (call.isInbound ? "Inbound" : "Outbound")).toLowerCase();
+                const isOwnerReachout = call.assistantId === '560ca61b-8cd3-4b5f-996b-2966abfa37fd';
+
+                if (typeFilter === "owner-reachout") {
+                    if (!isOwnerReachout) return false;
+                } else if (typeFilter === "normal") {
+                    if (isOwnerReachout) return false;
+                } else if (normalizedCallType !== typeFilter.toLowerCase()) {
+                    return false;
+                }
+            }
 
             if (phoneFilter) {
                 const searchStr = phoneFilter.toLowerCase().trim();
@@ -264,11 +276,13 @@ export default function VoiceLogsPage() {
                         </SelectContent>
                     </Select>
                     <Select value={typeFilter} onValueChange={setTypeFilter}>
-                        <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Type" /></SelectTrigger>
+                        <SelectTrigger className="w-[160px] h-9"><SelectValue placeholder="Call Type" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="Inbound">Inbound</SelectItem>
                             <SelectItem value="Outbound">Outbound</SelectItem>
+                            <SelectItem value="owner-reachout">Owner Reachout</SelectItem>
+                            <SelectItem value="normal">Normal Calls</SelectItem>
                         </SelectContent>
                     </Select>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
