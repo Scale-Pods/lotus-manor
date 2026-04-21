@@ -325,7 +325,8 @@ export async function GET(req: Request) {
                         status: (merged.status === 'success' || merged.status === 'done' || merged.status === 'completed' || merged.call_successful === 'success') ? 'answered' : (merged.status || 'answered'),
                         llmIntent: evalCache.get(merged.conversation_id) || null,
                         leadStatus: (merged as any).leadStatus || null,
-                        endedReason: merged.termination_reason || null
+                        endedReason: merged.termination_reason || null,
+                        assistantId: merged.agent_id || null
                     };
                 }).filter(Boolean);
             }
@@ -384,11 +385,18 @@ export async function GET(req: Request) {
                         vapiListUrl += `&createdAtLe=${lastCreatedAt}`;
                     }
 
-                    const vapiRes = await fetch(vapiListUrl, {
-                        headers: { 'Authorization': `Bearer ${vapiPrivKey}`, 'Content-Type': 'application/json' }
-                    });
+                    let vapiRes;
+                    try {
+                        vapiRes = await fetch(vapiListUrl, {
+                            headers: { 'Authorization': `Bearer ${vapiPrivKey}`, 'Content-Type': 'application/json' },
+                            signal: AbortSignal.timeout(20000) // 20s timeout
+                        });
+                    } catch (fetchErr) {
+                        console.error("[Vapi] Fetch timeout or socket error:", fetchErr);
+                        break; // Stop fetching more batches but keep what we have
+                    }
 
-                    if (!vapiRes.ok) break;
+                    if (!vapiRes || !vapiRes.ok) break;
                     const vapiListData = await vapiRes.json();
                     const list = Array.isArray(vapiListData) ? vapiListData : (vapiListData.data || []);
 
@@ -510,6 +518,7 @@ export async function GET(req: Request) {
                         llmIntent: evalCache.get(vc.id) || null,
                         leadStatus: (vc as any).leadStatus || null,
                         endedReason: vc.endedReason || null,
+                        assistantId: vc.assistantId || null,
                         raw: vc
                     };
                 }).filter(Boolean);

@@ -344,7 +344,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                         {/* Summary Section (Structured Data) */}
                         {(() => {
                             const analysis = displayCall.analysis || {};
-                            let summaryText = analysis.summary || displayCall.summary || displayCall.transcript_summary || "";
+                            let summaryText = displayCall.callSummary || analysis.summary || displayCall.summary || displayCall.transcript_summary || "";
 
                             // 1. Deep scan for "Call Summary" in structuredData or analysis objects
                             if (!summaryText && (analysis.structuredData || analysis.structured_data)) {
@@ -382,9 +382,47 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                                         </div>
                                         <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Call Summary</h3>
                                     </div>
-                                    <p className="text-[13px] leading-relaxed text-slate-700 font-medium whitespace-pre-wrap">
-                                        {summaryText}
-                                    </p>
+                                    <div className="space-y-3">
+                                        {typeof summaryText === 'string' && summaryText.split('\n').map((line, i) => {
+                                            const trimmed = line.trim();
+                                            if (!trimmed) return null;
+
+                                            // Detect bullet points (starting with * or -)
+                                            const isBullet = trimmed.startsWith('*') || trimmed.startsWith('-');
+                                            let content = isBullet ? trimmed.replace(/^[*-\s]+/, '').trim() : trimmed;
+
+                                            // Detect bold titles inside the line (e.g. **Title:** or Title: or Title**)
+                                            // Split by either a colon followed by content, or double asterisks followed by content
+                                            const boldMatch = content.match(/^(\*\*|)(.*?)(:|\*\*)+(.*)$/);
+
+                                            if (isBullet) {
+                                                return (
+                                                    <div key={i} className="flex gap-3">
+                                                        <div className="mt-1.5 h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />
+                                                        <div className="text-[13px] leading-relaxed text-slate-700 font-medium">
+                                                            {boldMatch ? (
+                                                                <>
+                                                                    <span className="font-bold text-slate-900 underline underline-offset-2 decoration-blue-100">{boldMatch[2]}:</span>
+                                                                    {boldMatch[4]}
+                                                                </>
+                                                            ) : content}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+
+                                            return (
+                                                <p key={i} className="text-[13px] leading-relaxed text-slate-700 font-medium">
+                                                    {boldMatch ? (
+                                                        <>
+                                                            <span className="font-bold text-slate-900 underline underline-offset-2 decoration-blue-100">{boldMatch[2]}:</span>
+                                                            {boldMatch[4]}
+                                                        </>
+                                                    ) : content}
+                                                </p>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             );
                         })()}

@@ -49,9 +49,16 @@ const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
                 {guestNum}
             </TableCell>
             <TableCell>
-                <Badge variant={isInboundState ? "default" : "secondary"} className={`text-[10px] ${isInboundState ? 'bg-blue-600 outline-none border-none' : ''}`}>
-                    {realType}
-                </Badge>
+                <div className="flex flex-col gap-1">
+                    <Badge variant={isInboundState ? "default" : "secondary"} className={`text-[10px] w-fit ${isInboundState ? 'bg-blue-600 outline-none border-none' : ''}`}>
+                        {realType}
+                    </Badge>
+                    {call.assistantId === '560ca61b-8cd3-4b5f-996b-2966abfa37fd' && (
+                        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 text-[8px] px-1.5 py-0 h-3.5 font-bold uppercase tracking-wider w-fit">
+                            Owner reachout
+                        </Badge>
+                    )}
+                </div>
             </TableCell>
             <TableCell className="text-slate-600 font-medium">{formatDuration(call.durationSeconds)}</TableCell>
             <TableCell className="text-slate-500 text-xs">{call.country || 'Unknown'}</TableCell>
