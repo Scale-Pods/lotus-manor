@@ -55,7 +55,7 @@ const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
                     </Badge>
                     {call.assistantId === '560ca61b-8cd3-4b5f-996b-2966abfa37fd' && (
                         <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 text-[8px] px-1.5 py-0 h-3.5 font-bold uppercase tracking-wider w-fit">
-                            Owner reachout
+                            secondary leads reachout
                         </Badge>
                     )}
                 </div>
@@ -180,12 +180,12 @@ export default function VoiceLogsPage() {
             
             if (typeFilter !== "all") {
                 const normalizedCallType = (call.type || (call.isInbound ? "Inbound" : "Outbound")).toLowerCase();
-                const isOwnerReachout = call.assistantId === '560ca61b-8cd3-4b5f-996b-2966abfa37fd';
+                const isSecondaryLeads = call.assistantId === '560ca61b-8cd3-4b5f-996b-2966abfa37fd';
 
-                if (typeFilter === "owner-reachout") {
-                    if (!isOwnerReachout) return false;
+                if (typeFilter === "secondary-leads") {
+                    if (!isSecondaryLeads) return false;
                 } else if (typeFilter === "normal") {
-                    if (isOwnerReachout) return false;
+                    if (isSecondaryLeads) return false;
                 } else if (normalizedCallType !== typeFilter.toLowerCase()) {
                     return false;
                 }
@@ -281,7 +281,7 @@ export default function VoiceLogsPage() {
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="Inbound">Inbound</SelectItem>
                             <SelectItem value="Outbound">Outbound</SelectItem>
-                            <SelectItem value="owner-reachout">Owner Reachout</SelectItem>
+                            <SelectItem value="secondary-leads">secondary leads reachout</SelectItem>
                             <SelectItem value="normal">Normal Calls</SelectItem>
                         </SelectContent>
                     </Select>
