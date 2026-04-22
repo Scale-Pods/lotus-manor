@@ -54,7 +54,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     const fetchCalls = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => {
         try {
-            const rawFrom = params?.from || subDays(new Date(), 7);
+            const rawFrom = params?.from || new Date("2016-01-01"); // Static date for "All Time" to help gatekeeper
             const rawTo = params?.to || new Date();
             const includeElevenLabs = params?.includeElevenLabs || false;
 
@@ -114,9 +114,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }, [fetchLeads, fetchCalls, fetchBalances]);
 
     useEffect(() => {
-        const defaultFrom = subDays(new Date(), 7);
-        const defaultTo = new Date();
-        refreshAll({ from: defaultFrom, to: defaultTo, includeElevenLabs: false });
+        // Master Dashboard strategy: Fetch everything on mount
+        refreshAll({ includeElevenLabs: false });
     }, []);
 
     return (

@@ -69,8 +69,13 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
 
     leads.forEach((lead: any, idx: number) => {
         // --- WhatsApp Logic ---
-        let wpReplyObj = { content: "", date: new Date(0) };
+        let wpReplyObj = { content: "Lead replied via WhatsApp", date: new Date(lead.updated_at || lead.created_at || 0) };
         let hasWP = false;
+
+        const wtR = String(lead.WP_Replied_track || "").toLowerCase();
+        if (wtR === "yes" || wtR === "replied") {
+            hasWP = true;
+        }
 
         const addWpReply = (raw: any) => {
             if (!raw || String(raw).toLowerCase() === "no" || String(raw).toLowerCase() === "none" || String(raw).trim() === "") return;
@@ -78,16 +83,14 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
             const parsed = parseMsg(raw);
             const msgDate = parsed.date || new Date(lead.updated_at || lead.created_at || 0);
             if (msgDate >= wpReplyObj.date) {
-                wpReplyObj = { content: parsed.content, date: msgDate };
+                wpReplyObj = { content: parsed.content || wpReplyObj.content, date: msgDate };
             }
         };
 
-        addWpReply(lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"]);
-        for (let i = 1; i <= 10; i++) {
-            addWpReply(lead[`W.P_Replied_${i}`]);
-        }
+        addWpReply(lead.whatsapp_replied);
+        for (let i = 1; i <= 10; i++) addWpReply(lead[`W.P_Replied_${i}`]);
 
-        if (hasWP && wpReplyObj.content) {
+        if (hasWP) {
             realData.push({
                 id: `${lead.id || `lead-${idx}`}-wp`,
                 contactName: lead.name || "Unknown",
@@ -96,29 +99,20 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
                 date: wpReplyObj.date.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }),
                 time: wpReplyObj.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: 'Replied',
-                preview: wpReplyObj.content.substring(0, 60) + (wpReplyObj.content.length > 60 ? "..." : ""),
+                preview: wpReplyObj.content.substring(0, 70) + (wpReplyObj.content.length > 70 ? "..." : ""),
                 link: `/dashboard/whatsapp/chat?chat=${lead.id}`,
                 sortDate: wpReplyObj.date
             });
         }
 
         // --- Email Logic ---
-        let emailReplyObj = { content: "", date: new Date(0) };
-        let hasEmail = false;
+        const hasEmail = lead.email_replied && !["no", "none", ""].includes(String(lead.email_replied).toLowerCase().trim());
 
-        const addEmailReply = (raw: any) => {
-            if (!raw || String(raw).toLowerCase() === "no" || String(raw).toLowerCase() === "none" || String(raw).trim() === "") return;
-            hasEmail = true;
-            const parsed = parseMsg(raw);
+        if (hasEmail) {
+            const parsed = parseMsg(lead.email_replied);
             const msgDate = parsed.date || new Date(lead.updated_at || lead.created_at || 0);
-            if (msgDate >= emailReplyObj.date) {
-                emailReplyObj = { content: parsed.content, date: msgDate };
-            }
-        };
+            const emailReplyObj = { content: parsed.content || "Lead replied via Email", date: msgDate };
 
-        addEmailReply(lead.email_replied || lead.stage_data?.["Email Replied"]);
-
-        if (hasEmail && emailReplyObj.content) {
             realData.push({
                 id: `${lead.id || `lead-${idx}`}-email`,
                 contactName: lead.name || "Unknown",
@@ -127,8 +121,8 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
                 date: emailReplyObj.date.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }),
                 time: emailReplyObj.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: 'Replied',
-                preview: emailReplyObj.content.substring(0, 60) + (emailReplyObj.content.length > 60 ? "..." : ""),
-                link: `/dashboard/email/sent`,
+                preview: emailReplyObj.content.substring(0, 70) + (emailReplyObj.content.length > 70 ? "..." : ""),
+                link: `/dashboard/email/received`,
                 sortDate: emailReplyObj.date
             });
         }
@@ -172,10 +166,8 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
                             <SelectItem value="all">All Modes</SelectItem>
                             <SelectItem value="email">Email</SelectItem>
                             <SelectItem value="whatsapp">WhatsApp</SelectItem>
-
                         </SelectContent>
                     </Select>
-                    <DateRangePicker onUpdate={(val) => console.log("Total Replies Date Filter:", val)} />
                 </div>
             </div>
 

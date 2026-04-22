@@ -20,6 +20,7 @@ import {
     RefreshCw
 } from "lucide-react";
 import React, { useState, useEffect, useMemo } from "react";
+import { subDays } from "date-fns";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -50,9 +51,9 @@ export default function WhatsappLeadsPage() {
     const leadsPerPage = 10;
 
     // Filter State
-    const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
-        from: undefined,
-        to: undefined
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date(),
     });
 
     const [activeFilters, setActiveFilters] = useState<{
@@ -65,9 +66,22 @@ export default function WhatsappLeadsPage() {
 
     useEffect(() => {
         if (!loadingLeads) {
-            // Filter: only show if last_contacted is NOT empty
-            const filtered = allLeads.filter(l => l.last_contacted && String(l.last_contacted).trim() !== "");
-            setLeads(filtered);
+            // Filter: only include leads that have actually been contacted via WhatsApp (matches other views)
+            const whatsappLeads = allLeads.filter(l => {
+                const lead = l as any;
+                if (lead.stages_passed.some((s: string) => s.toLowerCase().includes("whatsapp"))) return true;
+                if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") return true;
+                for (let i = 1; i <= 10; i++) {
+                    const r = lead[`W.P_Replied_${i}`];
+                    if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
+                    if (lead[`W.P_FollowUp_${i}`]) return true;
+                }
+                for (let i = 1; i <= 12; i++) {
+                    if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
+                }
+                return false;
+            });
+            setLeads(whatsappLeads);
         }
     }, [allLeads, loadingLeads]);
 
@@ -95,7 +109,13 @@ export default function WhatsappLeadsPage() {
             }
 
             // Reply status filter
-            const hasReplied = l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none";
+            const wtR = (l as any).WP_Replied_track;
+            let hasReplied = false;
+            if (wtR) {
+                const s = String(wtR).trim().toLowerCase();
+                if (s === "yes" || s === "replied") hasReplied = true;
+            }
+            
             if (activeFilters.replyStatus.length > 0) {
                 const matchesReply = (activeFilters.replyStatus.includes("Replied") && hasReplied) ||
                     (activeFilters.replyStatus.includes("Sent") && !hasReplied);
@@ -301,7 +321,7 @@ export default function WhatsappLeadsPage() {
                                                 </Badge>
                                             </td>
                                             <td className="px-4 py-4 text-center">
-                                                <StatusBadge status={lead.whatsapp_replied || "No"} />
+                                                <StatusBadge lead={lead} />
                                             </td>
                                             <td className="px-4 py-4 text-slate-500 text-xs">
                                                 {new Date(lead.last_contacted!).toLocaleString()}
@@ -396,10 +416,17 @@ export default function WhatsappLeadsPage() {
     );
 }
 
-function StatusBadge({ status }: { status: string }) {
-    const isNo = String(status).toLowerCase() === "no";
-    const classes = isNo ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-700";
-    const label = isNo ? "SENT" : "REPLIED";
+function StatusBadge({ lead: leadRaw }: { lead: any }) {
+    const lead = leadRaw as any;
+    const wtR = lead.WP_Replied_track;
+    let hasReplied = false;
+    if (wtR) {
+        const s = String(wtR).trim().toLowerCase();
+        if (s === "yes" || s === "replied") hasReplied = true;
+    }
+
+    const classes = !hasReplied ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-700";
+    const label = !hasReplied ? "SENT" : "REPLIED";
 
     return (
         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${classes}`}>

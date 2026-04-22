@@ -28,6 +28,7 @@ import {
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { subDays } from "date-fns";
 import { useData } from "@/context/DataContext";
 import {
     Sheet,
@@ -57,7 +58,10 @@ export default function WhatsappDashboardPage() {
     const [donutData, setDonutData] = useState<any[]>([]);
     const [trendData, setTrendData] = useState<any[]>([]);
     const loading = loadingLeads;
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date(),
+    });
 
     // --- Sorting & Activity Helpers ---
     const getMsgDate = (raw: any) => {
@@ -81,11 +85,12 @@ export default function WhatsappDashboardPage() {
             const tsRaw = lead[`W.P_${i} TS`];
             let d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
             if (!d && tsRaw && tsRaw.includes(' - ')) {
-                const datePart = tsRaw.split(' - ')[1].trim();
+                const parts = tsRaw.split(' - ');
+                const datePart = parts[parts.length - 1].trim();
                 const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
                 if (!isNaN(tsDate.getTime())) {
                     const rawLower = tsRaw.toLowerCase();
-                    if (rawLower.includes('read') || rawLower.includes('delivered')) {
+                    if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
                         tsDate.setHours(0, 0, 0, 0);
                     }
                     d = tsDate;
@@ -112,10 +117,20 @@ export default function WhatsappDashboardPage() {
 
             try {
                 // Filter: only include leads that have actually been contacted via WhatsApp (matches leads page)
+                // Filter: only include leads that have actually been contacted via WhatsApp (matches Chat view)
                 const whatsappContactedLeads = allLeads.filter(l => {
-                    const hasLegacy = l.last_contacted && String(l.last_contacted).trim() !== "";
-                    const hasExtended = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].some(i => l[`W.P_Replied_${i}`] || l[`W.P_FollowUp_${i}`]);
-                    return hasLegacy || hasExtended;
+                    const lead = l as any;
+                    if (lead.stages_passed.some((s: string) => s.toLowerCase().includes("whatsapp"))) return true;
+                    if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") return true;
+                    for (let i = 1; i <= 10; i++) {
+                        const r = lead[`W.P_Replied_${i}`];
+                        if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
+                        if (lead[`W.P_FollowUp_${i}`]) return true;
+                    }
+                    for (let i = 1; i <= 12; i++) {
+                        if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
+                    }
+                    return false;
                 });
 
                 setLeads(whatsappContactedLeads);
@@ -171,27 +186,19 @@ export default function WhatsappDashboardPage() {
                     // DRIPS
                     for (let i = 1; i <= 12; i++) {
                         if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) {
-                            let d = getDripDate(lead, i);
-                            if (!d && i === 1) d = new Date(lead.created_at);
-                            if (checkDate(d)) {
-                                leadSentCount++;
-                                hasWPInDate = true;
-                            }
-                        }
-                    }
-                    // FOLLOWUPS
-                    if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) {
-                        if (checkDate(getMsgDate(lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]))) {
                             leadSentCount++;
                             hasWPInDate = true;
                         }
                     }
+                    // FOLLOWUPS
+                    if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) {
+                        leadSentCount++;
+                        hasWPInDate = true;
+                    }
                     for (let i = 1; i <= 10; i++) {
                         if (lead[`W.P_FollowUp_${i}`]) {
-                            if (checkDate(getMsgDate(lead[`W.P_FollowUp_${i}`]))) {
-                                leadSentCount++;
-                                hasWPInDate = true;
-                            }
+                            leadSentCount++;
+                            hasWPInDate = true;
                         }
                     }
 
@@ -200,24 +207,14 @@ export default function WhatsappDashboardPage() {
                         finalStats.uniqueLeadsContacted++;
                     }
 
-                    // REPLIES
+                    // REPLIES - matches WP_Replied_track logic from Chat
+                    const wtR = lead.WP_Replied_track;
                     let isReplied = false;
-                    const initialReplyRaw = lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"];
-                    if (initialReplyRaw && String(initialReplyRaw).toLowerCase() !== "no" && String(initialReplyRaw).toLowerCase() !== "none") {
-                        if (checkDate(getMsgDate(initialReplyRaw) || new Date(lead.created_at))) isReplied = true;
+                    if (wtR) {
+                        const s = String(wtR).trim().toLowerCase();
+                        if (s === "yes" || s === "replied") isReplied = true;
                     }
-                    if (!isReplied) {
-                        for (let i = 1; i <= 10; i++) {
-                            const r = lead[`W.P_Replied_${i}`];
-                            if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") {
-                                if (checkDate(getMsgDate(r))) {
-                                    isReplied = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
+                    
                     if (isReplied) {
                         finalStats.totalReplies++;
                     } else if (hasWPInDate) {

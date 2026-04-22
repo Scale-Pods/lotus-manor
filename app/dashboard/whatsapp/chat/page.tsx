@@ -101,6 +101,10 @@ export default function WhatsappChatPage() {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date(),
+    });
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
 
@@ -129,11 +133,6 @@ export default function WhatsappChatPage() {
         replyStatus: [],
         loops: [],
         messageStatus: []
-    });
-
-    const [dateRange, setDateRange] = useState<any>({
-        from: subDays(new Date(), 30),
-        to: new Date(),
     });
 
     const [activeFilters, setActiveFilters] = useState<{

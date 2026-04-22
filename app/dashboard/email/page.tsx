@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { useRouter } from "next/navigation";
+import { format, subDays } from "date-fns";
 import { useData } from "@/context/DataContext";
 
 import { LMLoader } from "@/components/lm-loader";
@@ -18,7 +19,10 @@ export default function EmailDashboardPage() {
     const [dateSubtitle, setDateSubtitle] = useState("all time");
 
     const { leads: allLeads, loadingLeads } = useData();
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date(),
+    });
     const loading = loadingLeads;
     const [data, setData] = useState({
         totalEmails: 0,
@@ -43,75 +47,96 @@ export default function EmailDashboardPage() {
             if (loadingLeads) return;
 
             try {
-                // Apply Date Filtering if dateRange is set
-                const filteredLeads = allLeads.filter((lead: any) => {
-                    if (!dateRange?.from) return true;
-                    if (!lead.created_at) return false;
+                const fromD = dateRange?.from ? new Date(dateRange.from) : null;
+                const toD = dateRange?.to ? new Date(dateRange.to) : fromD;
+                if (fromD) fromD.setHours(0, 0, 0, 0);
+                if (toD) toD.setHours(23, 59, 59, 999);
 
-                    const leadDate = new Date(lead.created_at);
-                    const from = new Date(dateRange.from);
-                    from.setHours(0, 0, 0, 0);
-                    const to = dateRange.to ? new Date(dateRange.to) : from;
-                    to.setHours(23, 59, 59, 999);
-
-                    return leadDate >= from && leadDate <= to;
-                });
+                const checkEmailDate = (d: Date | null) => {
+                    if (!fromD || !toD) return true;
+                    if (!d) return false;
+                    return d >= fromD && d <= toD;
+                };
 
                 let totalEmails = 0;
                 let replyCount = 0;
                 let unsubscribedCount = 0;
-                let unsubsLeads: any[] = [];
 
                 const intro = [0, 0, 0];
                 const followUp = [0, 0, 0];
                 const nurture = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-                filteredLeads.forEach((lead: any) => {
+                allLeads.forEach((lead: any) => {
                     const stages = lead.stages_passed || [];
                     const loop = (lead.source_loop || "").toLowerCase();
 
+                    // --- REPLIES & UNSUBS (Lead-level stats) ---
+                    // Still generally useful to filter these by lead created date OR just showing all for simplicity
+                    // But for accuracy, let's keep them matched to the lead visibility.
+                    const leadCreated = new Date(lead.created_at);
+                    if (checkEmailDate(leadCreated)) {
+                        if (lead.email_replied && lead.email_replied !== "No" && String(lead.email_replied).trim() !== "") {
+                            replyCount++;
+                        }
+                        if (lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes")) {
+                            unsubscribedCount++;
+                        }
+                    }
+
+                    // --- EMAIL TRANSMISSIONS ---
                     stages.forEach((stage: string) => {
                         const s = stage.toLowerCase().trim();
-                        // Stages are now "email_1", "email_2" etc. (underscore = actual column names)
                         if (!s.startsWith("email_")) return;
 
-                        totalEmails++;
+                        const rawContent = lead.stage_data?.[stage];
+                        let emailDate: Date | null = null;
 
-                        if (loop === "intro") {
-                            if (s === "email_1") intro[0]++;
-                            else if (s === "email_2") intro[1]++;
-                            else if (s === "email_3") intro[2]++;
-                        } else if (loop.includes("follow")) {
-                            if (s === "email_1") followUp[0]++;
-                            else if (s === "email_2") followUp[1]++;
-                            else if (s === "email_3") followUp[2]++;
-                        } else if (loop.includes("nurture")) {
-                            if (s === "email_1") nurture[0]++;
-                            else if (s === "email_2") nurture[1]++;
-                            else if (s === "email_3") nurture[2]++;
-                            else if (s === "email_4") nurture[3]++;
-                            else if (s === "email_5") nurture[4]++;
-                            else if (s === "email_6") nurture[5]++;
-                            else if (s === "email_7") nurture[6]++;
-                            else if (s === "email_8") nurture[7]++;
-                            else if (s === "email_9") nurture[8]++;
+                        if (rawContent && typeof rawContent === "string") {
+                            const trimmed = rawContent.trim();
+                            const lines = trimmed.split("\n");
+                            const lastLine = lines[lines.length - 1].trim();
+                            const lastLineDate = new Date(lastLine);
+
+                            if (!isNaN(new Date(trimmed).getTime()) && trimmed.length < 50) {
+                                emailDate = new Date(trimmed);
+                            } else if (!isNaN(lastLineDate.getTime()) && lastLine.includes("-") && lastLine.includes(":")) {
+                                emailDate = lastLineDate;
+                            }
+                        }
+                        // Fallback to lead created at if no specific timestamp found
+                        if (!emailDate) emailDate = new Date(lead.created_at);
+
+                        if (checkEmailDate(emailDate)) {
+                            totalEmails++;
+
+                            if (loop === "intro") {
+                                if (s === "email_1") intro[0]++;
+                                else if (s === "email_2") intro[1]++;
+                                else if (s === "email_3") intro[2]++;
+                            } else if (loop.includes("follow")) {
+                                if (s === "email_1") followUp[0]++;
+                                else if (s === "email_2") followUp[1]++;
+                                else if (s === "email_3") followUp[2]++;
+                            } else if (loop.includes("nurture")) {
+                                if (s === "email_1") nurture[0]++;
+                                else if (s === "email_2") nurture[1]++;
+                                else if (s === "email_3") nurture[2]++;
+                                else if (s === "email_4") nurture[3]++;
+                                else if (s === "email_5") nurture[4]++;
+                                else if (s === "email_6") nurture[5]++;
+                                else if (s === "email_7") nurture[6]++;
+                                else if (s === "email_8") nurture[7]++;
+                                else if (s === "email_9") nurture[8]++;
+                            }
                         }
                     });
-
-                    if (lead.email_replied && lead.email_replied !== "No" && String(lead.email_replied).trim() !== "") {
-                        replyCount++;
-                    }
-
-                    if (lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes")) {
-                        unsubscribedCount++;
-                    }
                 });
 
 
                 setData({
                     totalEmails: totalEmails,
                     firstEmail: intro[0],
-                    responseRate: filteredLeads.length > 0 ? ((replyCount / filteredLeads.length) * 100).toFixed(1) + "%" : "0%",
+                    responseRate: allLeads.length > 0 ? ((replyCount / allLeads.length) * 100).toFixed(1) + "%" : "0%",
                     totalReplies: replyCount,
                     totalUnsubscribed: unsubscribedCount,
                     introCounts: intro,

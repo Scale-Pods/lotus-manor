@@ -400,7 +400,7 @@ function DashboardContent({
                     <header className="flex h-14 items-center gap-4 border-b border-zinc-200 bg-white px-6 lg:h-[60px]">
                         <div className="flex flex-1 items-center justify-between">
                             <h1 className="text-lg font-semibold text-slate-900">
-                                {pathname === "/dashboard" ? "Master Overview" : activeConfig.items.find((item: any) => item.href === pathname)?.title || activeConfig.label}
+                                {pathname === "/dashboard" ? "" : (activeConfig.items.find((item: any) => item.href === pathname)?.title || activeConfig.label)}
                             </h1>
 
                             {currentContext === "master" && (
