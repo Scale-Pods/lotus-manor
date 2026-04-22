@@ -231,31 +231,30 @@ export async function GET(req: Request) {
                     pagesFetched++;
                 }
 
-                // Enrichment: Fetch details for relevant conversations
-                // --- 1.2. ElevenLabs Enrichment ---
-                // Fetch detailed data for each conversation to get costs/duration
-                const enrichmentLimit = 800; // Increased to cover all of user's 643+ calls
+                // Enrichment: Fetch details for relevant conversations in small, fast batches
+                const enrichmentLimit = 40; // Reduced for performance
                 const enrichmentMap = new Map();
-
-                // Fetch details in batches to avoid overwhelming the API
                 const toEnrich = allConversations.slice(0, enrichmentLimit);
-                const details = await Promise.all(
-                    toEnrich.map(async (c: any) => {
-                        try {
-                            const dr = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${c.conversation_id}`, {
-                                headers: { 'xi-api-key': apiKey }
-                            });
-                            if (dr.ok) {
-                                return await dr.json();
-                            }
-                        } catch (e) { }
-                        return null;
-                    })
-                );
-
-                details.forEach(d => {
-                    if (d) enrichmentMap.set(d.conversation_id, d);
-                });
+                
+                const CHUNK_SIZE = 10;
+                for (let i = 0; i < toEnrich.length; i += CHUNK_SIZE) {
+                    const chunk = toEnrich.slice(i, i + CHUNK_SIZE);
+                    const results = await Promise.all(
+                        chunk.map(async (c: any) => {
+                            try {
+                                const dr = await fetch(`${ELEVENLABS_BASE_URL}/convai/conversations/${c.conversation_id}`, {
+                                    headers: { 'xi-api-key': apiKey },
+                                    signal: AbortSignal.timeout(4000)
+                                });
+                                if (dr.ok) return await dr.json();
+                            } catch (e) { }
+                            return null;
+                        })
+                    );
+                    results.forEach(d => {
+                        if (d) enrichmentMap.set(d.conversation_id, d);
+                    });
+                }
 
                 // Normalize ALL conversations, using enriched data where available
                 elNormalized = allConversations.map((c: any, idx: number) => {

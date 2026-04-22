@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
-import { subDays, startOfDay } from "date-fns";
+import { subDays, startOfDay, endOfDay } from "date-fns";
 
 interface DataContextType {
     leads: ConsolidatedLead[];
@@ -15,7 +15,7 @@ interface DataContextType {
     twilioBalance: any;
     error: string | null;
     refreshLeads: () => Promise<void>;
-    refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
+    refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; force?: boolean }) => Promise<void>;
     refreshBalances: () => Promise<void>;
     refreshAll: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
 }
@@ -52,21 +52,19 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
-    const fetchCalls = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => {
+    const fetchCalls = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; force?: boolean }) => {
         try {
             // Normalize defaults to Last 7 Days (Start of Day) to ensure stable query strings across components
-            // Using minute-level precision for 'now' allows the gatekeeper to reuse data during navigation
+            // Using full-day boundaries (12am - 12pm) ensures identical cache keys for the entire day.
             const now = new Date();
-            now.setSeconds(0, 0);
-            now.setMilliseconds(0);
-            
-            const rawFrom = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
-            const rawTo = params?.to || now;
+            const fromDate = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
+            const toDate = params?.to ? endOfDay(params.to) : endOfDay(now);
             const includeElevenLabs = params?.includeElevenLabs || false;
-
-            const fromDate = new Date(rawFrom);
-            const toDate = new Date(rawTo);
-            toDate.setHours(23, 59, 59, 999);
+            
+            if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+                console.error("Invalid dates passed to fetchCalls");
+                return;
+            }
 
             const query = new URLSearchParams({
                 from: fromDate.toISOString(),
@@ -77,8 +75,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const currentQuery = query.toString();
 
             // Skip if requested params are identical to the last SUCCESSFUL or ONGOING load
-            if (lastCallParams.current === currentQuery) {
-                // If it's still loading the same thing, just wait
+            // But ALLOW if forced refresh or if calls array is currently empty
+            if (!params?.force && lastCallParams.current === currentQuery && (calls.length > 0 || loadingCalls)) {
                 return;
             }
 

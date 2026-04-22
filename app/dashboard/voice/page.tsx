@@ -43,15 +43,28 @@ export default function VoiceDashboardPage() {
     const [loadingLocal, setLoadingLocal] = useState(false);
     const [dateRange, setDateRange] = useState<any>(undefined);
 
+    useEffect(() => {
+        setDateRange({
+            from: subDays(new Date(), 7),
+            to: new Date(),
+        });
+        setLoadingLocal(true);
+    }, []);
+
     const { calls: globalCalls, loadingCalls, voiceBalance, refreshCalls } = useData();
 
     // Dynamic Server-Side Refresh when filters change
     useEffect(() => {
-        refreshCalls({
-            from: dateRange?.from,
-            to: dateRange?.to,
-            includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all')
-        });
+        if (refreshCalls) {
+            // If dateRange is undefined (default), we don't pass the dates explicitly.
+            // This allows the DataContext to use its standardized, rounded defaults,
+            // which enables instant navigation from the Master Dashboard.
+            refreshCalls({
+                from: dateRange?.from,
+                to: dateRange?.to,
+                includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all')
+            });
+        }
     }, [dateRange, providerFilter, refreshCalls]);
 
     useEffect(() => {
@@ -200,7 +213,12 @@ export default function VoiceDashboardPage() {
                     <Button
                         variant="outline"
                         className="flex items-center gap-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors h-10"
-                        onClick={() => refreshCalls({ from: dateRange.from, to: dateRange.to, includeElevenLabs: providerFilter === 'all' || providerFilter === 'elevenlabs' })}
+                        onClick={() => refreshCalls({ 
+                            from: dateRange?.from, 
+                            to: dateRange?.to, 
+                            includeElevenLabs: providerFilter === 'all' || providerFilter === 'elevenlabs',
+                            force: true
+                        })}
                         disabled={loading}
                     >
                         <TrendingUp className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />

@@ -111,10 +111,7 @@ export default function VoiceLogsPage() {
     const loading = loadingCalls;
     const [selectedCall, setSelectedCall] = useState<any>(null);
     const [modalOpen, setModalOpen] = useState(false);
-    const [dateRange, setDateRange] = useState<any>({
-        from: subDays(new Date(), 7),
-        to: new Date(),
-    });
+    const [dateRange, setDateRange] = useState<any>(undefined);
     const [statusFilter, setStatusFilter] = useState("all");
     const [typeFilter, setTypeFilter] = useState("all");
     const [providerFilter, setProviderFilter] = useState("vapi");
@@ -122,14 +119,27 @@ export default function VoiceLogsPage() {
     const [sortBy, setSortBy] = useState("newest");
     const [costModalOpen, setCostModalOpen] = useState(false);
 
+    // Hydration safe initialization
+    useEffect(() => {
+        setDateRange({
+            from: subDays(new Date(), 7),
+            to: new Date(),
+        })
+    }, []);
+
     // Dynamic Server-Side Refresh when filters change
     useEffect(() => {
-        if (!dateRange?.from) return;
-        
+        // Only trigger if refreshCalls exists
+        if (!refreshCalls) return;
+
+        // If dateRange is at its custom-initialized default (subDays(now, 7)), 
+        // we want to use the implicit defaults in DataContext to hit the cache.
+        const isDefaultRange = !dateRange; 
+
         const includeElevenLabs = (providerFilter === 'elevenlabs' || providerFilter === 'all');
         refreshCalls({
-            from: dateRange.from,
-            to: dateRange.to || dateRange.from,
+            from: isDefaultRange ? undefined : dateRange?.from,
+            to: isDefaultRange ? undefined : (dateRange?.to || dateRange?.from),
             includeElevenLabs
         });
     }, [dateRange, providerFilter, refreshCalls]);
@@ -229,7 +239,8 @@ export default function VoiceLogsPage() {
         refreshCalls({
             from: dateRange.from,
             to: dateRange.to || dateRange.from,
-            includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all')
+            includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all'),
+            force: true
         });
     };
 
