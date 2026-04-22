@@ -46,7 +46,18 @@ export default function VoiceDashboardPage() {
         to: new Date(),
     });
 
-    const { calls: globalCalls, loadingCalls, voiceBalance, refreshAll } = useData();
+    const { calls: globalCalls, loadingCalls, voiceBalance, refreshCalls } = useData();
+
+    // Dynamic Server-Side Refresh when filters change
+    useEffect(() => {
+        if (!dateRange?.from) return;
+        
+        refreshCalls({
+            from: dateRange.from,
+            to: dateRange.to || dateRange.from,
+            includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all')
+        });
+    }, [dateRange, providerFilter, refreshCalls]);
 
     useEffect(() => {
         if (voiceBalance) {
@@ -73,22 +84,10 @@ export default function VoiceDashboardPage() {
         const dayMap = new Map();
         const hourMap = new Array(24).fill(0);
 
-        // Filter by date range and provider
+        // Filter by provider (Date filtering is already handled on the server)
         const filteredCalls = globalCalls.filter((call: any) => {
             if (providerFilter !== "all" && call.source !== providerFilter) return false;
-            if (!dateRange?.from) return true;
-
-            // Get date from Vapi or ElevenLabs
-            const dateStr = call.startedAt || (call.start_time_unix_secs ? new Date(call.start_time_unix_secs * 1000).toISOString() : null);
-            if (!dateStr) return false;
-
-            const callDate = new Date(dateStr);
-            const from = startOfDay(new Date(dateRange.from));
-            const to = new Date(dateRange.to || dateRange.from);
-            to.setHours(23, 59, 59, 999);
-
-            const isMatch = callDate >= from && callDate <= to;
-            return isMatch;
+            return true;
         });
 
         // Debug log to confirm counts
@@ -206,7 +205,7 @@ export default function VoiceDashboardPage() {
                     <Button
                         variant="outline"
                         className="flex items-center gap-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors h-10"
-                        onClick={refreshAll}
+                        onClick={() => refreshCalls({ from: dateRange.from, to: dateRange.to, includeElevenLabs: providerFilter === 'all' || providerFilter === 'elevenlabs' })}
                         disabled={loading}
                     >
                         <TrendingUp className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />

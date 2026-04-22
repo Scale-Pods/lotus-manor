@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 import crypto from 'crypto';
 import RATES_DATA from '../../../context/rates.json';
 
@@ -173,6 +175,7 @@ export async function GET(req: Request) {
         const { searchParams } = new URL(req.url);
         const fromParam = searchParams.get('from');
         const toParam = searchParams.get('to');
+        const includeElevenLabs = searchParams.get('includeElevenLabs') === 'true';
         const fromDate = fromParam ? new Date(fromParam) : null;
         const toDate = toParam ? new Date(toParam) : null;
 
@@ -182,7 +185,7 @@ export async function GET(req: Request) {
         // --- 1. ElevenLabs Aggregation ---
         let elNormalized: any[] = [];
         try {
-            if (apiKey) {
+            if (apiKey && includeElevenLabs) {
                 let allConversations: any[] = [];
                 let hasMore = true;
                 let lastId = null;
@@ -376,14 +379,24 @@ export async function GET(req: Request) {
                 let lastCreatedAt = null;
                 const batchSize = 1000;
 
-                // Fetch up to 5000 calls for lifetime view (adjust if needed)
+                // Fetch calls for specified window or fallback to 5000 max
                 let batchedFetched = 0;
-                while (hasMoreVapi && batchedFetched < 5) {
-                    let vapiListUrl = `https://api.vapi.ai/call?limit=${batchSize}`;
+                while (hasMoreVapi && batchedFetched < 10) {
+                    const params = new URLSearchParams({
+                        limit: String(batchSize)
+                    });
+
                     if (lastCreatedAt) {
-                        // Vapi uses createdAtLe for pagination moving backwards
-                        vapiListUrl += `&createdAtLe=${lastCreatedAt}`;
+                        params.set('createdAtLe', lastCreatedAt);
+                    } else if (toDate) {
+                        params.set('createdAtLe', toDate.toISOString());
                     }
+
+                    if (fromDate) {
+                        params.set('createdAtGe', fromDate.toISOString());
+                    }
+
+                    const vapiListUrl = `https://api.vapi.ai/call?${params.toString()}`;
 
                     let vapiRes;
                     try {
@@ -393,7 +406,7 @@ export async function GET(req: Request) {
                         });
                     } catch (fetchErr) {
                         console.error("[Vapi] Fetch timeout or socket error:", fetchErr);
-                        break; // Stop fetching more batches but keep what we have
+                        break; 
                     }
 
                     if (!vapiRes || !vapiRes.ok) break;
@@ -402,15 +415,17 @@ export async function GET(req: Request) {
 
                     if (list.length === 0) break;
 
-                    // Filter out duplicates if any
                     const newList = list.filter((c: any) => !allVapiCalls.find((existing: any) => existing.id === c.id));
                     if (newList.length === 0) break;
 
                     allVapiCalls = [...allVapiCalls, ...newList];
-
-                    // Update cursor: use the createdAt of the last item minus 1ms to get older items
                     const oldestCall = list[list.length - 1];
                     lastCreatedAt = oldestCall.createdAt;
+
+                    // Performance: Stop if we've reached beyond our fromDate
+                    if (fromDate && oldestCall.createdAt && new Date(oldestCall.createdAt) < fromDate) {
+                        hasMoreVapi = false;
+                    }
 
                     if (list.length < batchSize) hasMoreVapi = false;
                     batchedFetched++;
@@ -421,8 +436,11 @@ export async function GET(req: Request) {
                     const customer = vc.customer || {};
                     const phoneRaw = cleanPhoneNumber(customer.number);
                     const durationPref = vc.durationSeconds ?? vc.duration ?? 0;
-                    if (!vc.startedAt) return null;
-                    const startedAt = vc.startedAt;
+                    
+                    // Fallback: use createdAt if startedAt is missing (common for failed/canceled calls)
+                    const startedAt = vc.startedAt || vc.createdAt;
+                    if (!startedAt) return null;
+
                     const endedAt = vc.endedAt;
 
                     let safeDuration = durationPref;
@@ -440,7 +458,9 @@ export async function GET(req: Request) {
                         vapiAssistantNum = "Internal-Line";
                     }
 
-                    const vapiTimeKey = `${phoneRaw}_${vapiAssistantNum}_${new Date(startedAt).getTime().toString().substring(0, 7)}`;
+                    const startedAtDate = new Date(startedAt);
+                    const startedAtTime = isNaN(startedAtDate.getTime()) ? 0 : startedAtDate.getTime();
+                    const vapiTimeKey = `${phoneRaw}_${vapiAssistantNum}_${startedAtTime.toString().substring(0, 7)}`;
                     const twMatched = twilioLookup.get(vapiTimeKey);
 
                     let vapiTelephonyCost = 0;
@@ -548,13 +568,13 @@ export async function GET(req: Request) {
                         headers["X-TIMESTAMP"] = timestamp;
                         headers["X-SIGNATURE"] = crypto.createHmac("sha256", mSecret).update(payload).digest("base64");
                     }
-                    return fetch(mUrl, { method, headers });
+                    return fetch(mUrl, { method, headers, signal: AbortSignal.timeout(20000) });
                 };
 
                 let allMaqsamCalls: any[] = [];
                 let mPage = 1;
                 let hasMoreMaqsam = true;
-                const MAX_M_PAGES = 50; // Batch fetch up to 5000 calls to stay accurate across channels
+                const MAX_M_PAGES = 50; 
 
                 while (hasMoreMaqsam && mPage <= MAX_M_PAGES) {
                     let mRes = await fetchMaqsam(`/v2/calls?page=${mPage}&limit=100`, true);
@@ -569,6 +589,14 @@ export async function GET(req: Request) {
                         if (mcList.length === 0) break;
 
                         allMaqsamCalls = [...allMaqsamCalls, ...mcList];
+
+                        // Performance: If we have a fromDate, stop once we reach calls older than it
+                        const oldestMc = mcList[mcList.length - 1];
+                        const oldestTs = oldestMc.timestamp ? oldestMc.timestamp * 1000 : (oldestMc.start_time ? new Date(oldestMc.start_time).getTime() : null);
+                        if (fromDate && oldestTs && oldestTs < fromDate.getTime()) {
+                            hasMoreMaqsam = false;
+                        }
+
                         if (mcList.length < 100) hasMoreMaqsam = false;
                         mPage++;
                     } else break;
@@ -612,16 +640,20 @@ export async function GET(req: Request) {
                         llmIntent: evalCache.get((mc.id || mc.uuid || "").toString()) || null,
                         leadStatus: leadsCache.get(phoneRaw)?.status || null
                     };
-                });
+                }).filter(Boolean);
             }
         } catch (e) {
             console.error("Maqsam aggregation fail:", e);
         }
 
         // --- 3. Final Aggregation ---
-        const final = [...elNormalized, ...maqsamNormalized, ...vapiNormalized].sort((a, b) =>
-            new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-        );
+        const final = [...elNormalized, ...maqsamNormalized, ...vapiNormalized].sort((a, b) => {
+            const timeA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+            const timeB = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+            const validA = isNaN(timeA) ? 0 : timeA;
+            const validB = isNaN(timeB) ? 0 : timeB;
+            return validB - validA;
+        });
 
         return NextResponse.json(final);
 

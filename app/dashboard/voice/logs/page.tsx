@@ -105,7 +105,7 @@ const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
 
 
 export default function VoiceLogsPage() {
-    const { calls: globalCalls, loadingCalls, refreshAll, leads, loadingLeads } = useData();
+    const { calls: globalCalls, loadingCalls, refreshCalls, leads, loadingLeads } = useData();
     const [allCallsMapped, setAllCallsMapped] = useState<any[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
     const loading = loadingCalls;
@@ -122,12 +122,24 @@ export default function VoiceLogsPage() {
     const [sortBy, setSortBy] = useState("newest");
     const [costModalOpen, setCostModalOpen] = useState(false);
 
+    // Dynamic Server-Side Refresh when filters change
+    useEffect(() => {
+        if (!dateRange?.from) return;
+        
+        const includeElevenLabs = (providerFilter === 'elevenlabs' || providerFilter === 'all');
+        refreshCalls({
+            from: dateRange.from,
+            to: dateRange.to || dateRange.from,
+            includeElevenLabs
+        });
+    }, [dateRange, providerFilter, refreshCalls]);
+
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
 
     useEffect(() => {
-        if (loadingCalls || loadingLeads || !globalCalls) return;
+        if (loadingLeads || !globalCalls) return;
 
         const mappedCalls = globalCalls.map((c: any) => {
             const isInbound = c.isInbound === true;
@@ -153,7 +165,7 @@ export default function VoiceLogsPage() {
         });
 
         setAllCallsMapped(mappedCalls);
-    }, [globalCalls, loadingCalls, leads, loadingLeads]);
+    }, [globalCalls, leads, loadingLeads]);
 
     // Reset to page 1 ONLY when the user explicitly changes a filter — not when background data enrichment updates allCallsMapped.
     useEffect(() => {
@@ -165,16 +177,6 @@ export default function VoiceLogsPage() {
         const filteredCalls = allCallsMapped.filter((call: any) => {
             // Priority 1: Provider Filter
             if (providerFilter !== "all" && call.source !== providerFilter) return false;
-
-            if (dateRange?.from) {
-                if (!call.startedAt) return false;
-                const callDate = new Date(call.startedAt);
-                const from = new Date(dateRange.from);
-                from.setHours(0, 0, 0, 0);
-                const to = new Date(dateRange.to || dateRange.from);
-                to.setHours(23, 59, 59, 999);
-                if (callDate < from || callDate > to) return false;
-            }
 
             if (statusFilter !== "all" && call.status !== statusFilter) return false;
             
@@ -224,7 +226,11 @@ export default function VoiceLogsPage() {
     }, [allCallsMapped, dateRange, statusFilter, typeFilter, providerFilter, phoneFilter, sortBy]);
 
     const handleRefresh = () => {
-        refreshAll();
+        refreshCalls({
+            from: dateRange.from,
+            to: dateRange.to || dateRange.from,
+            includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all')
+        });
     };
 
     const handleRowClick = (call: any) => {

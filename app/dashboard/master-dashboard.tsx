@@ -40,6 +40,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { subDays } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
@@ -50,9 +51,12 @@ export default function MasterDashboard() {
     const [isRepliesModalOpen, setIsRepliesModalOpen] = useState(false);
     const [isRepliesExpanded, setIsRepliesExpanded] = useState(false);
     const [dateLabel, setDateLabel] = useState("Last 7 days");
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date()
+    });
 
-    const { leads: allLeads, calls: allCalls, loadingLeads, loadingCalls, refreshAll, maqsamBalance, loadingBalances } = useData();
+    const { leads: allLeads, calls: allCalls, loadingLeads, loadingCalls, refreshCalls, refreshAll, maqsamBalance, loadingBalances } = useData();
     const [leads, setLeads] = useState<any[]>([]);
     const [acquisitionChartData, setAcquisitionChartData] = useState<any[]>([]);
     const [stats, setStats] = useState({
@@ -65,6 +69,16 @@ export default function MasterDashboard() {
         totalVoiceCalls: 0
     });
     const loading = loadingLeads || loadingCalls;
+
+    // Trigger server-side refresh when date range changes
+    useEffect(() => {
+        if (!dateRange?.from) return;
+        refreshCalls({
+            from: dateRange.from,
+            to: dateRange.to || dateRange.from,
+            includeElevenLabs: false // Performance optimization for Master Dashboard
+        });
+    }, [dateRange, refreshCalls]);
 
     const handleDateUpdate = ({ range, label }: { range: any, label?: string }) => {
         if (label) {
@@ -183,18 +197,8 @@ export default function MasterDashboard() {
                 let totalVoiceCallsCount = 0;
 
                 if (!loadingCalls && Array.isArray(allCalls)) {
-                    const filteredCalls = allCalls.filter((call: any) => {
-                        if (!dateRange?.from) return true;
-                        if (!call.startedAt) return false;
-
-                        const callDate = new Date(call.startedAt);
-                        const from = new Date(dateRange.from);
-                        from.setHours(0, 0, 0, 0);
-                        const to = dateRange.to ? new Date(dateRange.to) : from;
-                        to.setHours(23, 59, 59, 999);
-
-                        return callDate >= from && callDate <= to;
-                    });
+                    // Server-side filtering already handles the date window
+                    const filteredCalls = allCalls;
                     totalVoiceSeconds = filteredCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
                     totalVoiceCallsCount = filteredCalls.length;
                 }

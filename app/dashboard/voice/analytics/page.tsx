@@ -25,7 +25,7 @@ import { format, parseISO, startOfDay, subDays } from "date-fns";
 import { useData } from "@/context/DataContext";
 
 export default function VoiceAnalyticsPage() {
-    const { calls: globalCalls, loadingCalls, voiceBalance, leads: globalLeads, loadingLeads } = useData();
+    const { calls: globalCalls, loadingCalls, voiceBalance, leads: globalLeads, loadingLeads, refreshCalls } = useData();
     const [statusFilter, setStatusFilter] = useState("all");
     const [providerFilter, setProviderFilter] = useState("vapi");
     const [calls, setCalls] = useState<any[]>([]);
@@ -73,30 +73,30 @@ export default function VoiceAnalyticsPage() {
         }
     }, [voiceBalance]);
 
+    // Trigger server-side refresh when date range changes
+    useEffect(() => {
+        if (!dateRange?.from) return;
+        
+        const includeElevenLabs = (providerFilter === 'elevenlabs' || providerFilter === 'all');
+        refreshCalls({
+            from: dateRange.from,
+            to: dateRange.to || dateRange.from,
+            includeElevenLabs
+        });
+    }, [dateRange, providerFilter, refreshCalls]);
+
     useEffect(() => {
         if (loadingCalls) return;
 
-        // Filter by date range if set
+        // Filter by provider (Date filtering is already handled on the server)
         const filteredCalls = globalCalls.filter((call: any) => {
             if (providerFilter !== "all" && call.source !== providerFilter) return false;
-
-            if (!dateRange?.from) return true;
-
-            // Normalize startedAt for filtering
-            const dateStr = call.startedAt || (call.start_time_unix_secs ? new Date(call.start_time_unix_secs * 1000).toISOString() : null);
-            if (!dateStr) return false;
-
-            const callDate = new Date(dateStr);
-            const from = startOfDay(new Date(dateRange.from));
-            const to = startOfDay(new Date(dateRange.to || dateRange.from));
-            to.setHours(23, 59, 59, 999);
-
-            return callDate >= from && callDate <= to;
+            return true;
         });
 
         setCalls(filteredCalls);
         processAnalytics(filteredCalls);
-    }, [globalCalls, loadingCalls, globalLeads, loadingLeads, dateRange, providerFilter]);
+    }, [globalCalls, loadingCalls, globalLeads, loadingLeads, providerFilter]);
 
     const processAnalytics = (data: any[]) => {
         const totalCalls = data.length;

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 
+export const runtime = 'edge';
+export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
     // Dynamically get Supabase config from env
     const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
     const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
@@ -92,11 +94,16 @@ export async function GET() {
             fetchTable("master_leads")
         ]);
 
-        return NextResponse.json({
+        return new NextResponse(JSON.stringify({
             nr_wf,
             followup,
             nurture,
             master_leads
+        }), {
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 's-maxage=300, stale-while-revalidate=60'
+            }
         });
 
     } catch (error: any) {

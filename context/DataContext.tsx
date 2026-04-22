@@ -1,8 +1,8 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
-import { supabase } from "@/lib/supabase";
+import { subDays } from "date-fns";
 
 interface DataContextType {
     leads: ConsolidatedLead[];
@@ -15,9 +15,9 @@ interface DataContextType {
     twilioBalance: any;
     error: string | null;
     refreshLeads: () => Promise<void>;
-    refreshCalls: () => Promise<void>;
+    refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
     refreshBalances: () => Promise<void>;
-    refreshAll: () => Promise<void>;
+    refreshAll: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -32,6 +32,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const [maqsamBalance, setMaqsamBalance] = useState<any>(null);
     const [twilioBalance, setTwilioBalance] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
+
+    // Gatekeeper to prevent redundant identical calls
+    const lastCallParams = useRef<string | null>(null);
 
     const fetchLeads = useCallback(async () => {
         setLoadingLeads(true);
@@ -49,16 +52,44 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
-    const fetchCalls = useCallback(async () => {
-        setLoadingCalls(prev => prev || true); // Only show loading if not already loading
+    const fetchCalls = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => {
         try {
-            const response = await fetch('/api/calls');
+            const rawFrom = params?.from || subDays(new Date(), 7);
+            const rawTo = params?.to || new Date();
+            const includeElevenLabs = params?.includeElevenLabs || false;
+
+            const fromDate = new Date(rawFrom);
+            const toDate = new Date(rawTo);
+            toDate.setHours(23, 59, 59, 999);
+
+            const query = new URLSearchParams({
+                from: fromDate.toISOString(),
+                to: toDate.toISOString(),
+                includeElevenLabs: String(includeElevenLabs)
+            });
+
+            const currentQuery = query.toString();
+
+            // Skip if requested params are identical to the last SUCCESSFUL or ONGOING load
+            if (lastCallParams.current === currentQuery) {
+                // If it's still loading the same thing, just wait
+                return;
+            }
+
+            setLoadingCalls(true);
+            lastCallParams.current = currentQuery;
+
+            const response = await fetch(`/api/calls?${currentQuery}`);
             if (response.ok) {
                 const data = await response.json();
                 if (Array.isArray(data)) setCalls(data);
+            } else {
+                // If failed, clear last params to allow retry
+                lastCallParams.current = null;
             }
         } catch (err: any) {
             console.error('DataProvider calls fetch error:', err);
+            lastCallParams.current = null;
         } finally {
             setLoadingCalls(false);
         }
@@ -78,12 +109,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         finally { setLoadingBalances(false); }
     }, []);
 
-    const refreshAll = useCallback(async () => {
-        await Promise.all([fetchLeads(), fetchCalls(), fetchBalances()]);
+    const refreshAll = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => {
+        await Promise.all([fetchLeads(), fetchCalls(params), fetchBalances()]);
     }, [fetchLeads, fetchCalls, fetchBalances]);
 
     useEffect(() => {
-        refreshAll();
+        const defaultFrom = subDays(new Date(), 7);
+        const defaultTo = new Date();
+        refreshAll({ from: defaultFrom, to: defaultTo, includeElevenLabs: false });
     }, []);
 
     return (
