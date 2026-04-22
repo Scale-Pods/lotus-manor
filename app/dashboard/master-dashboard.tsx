@@ -220,9 +220,8 @@ export default function MasterDashboard() {
                 if (!loadingCalls && Array.isArray(allCalls)) {
                     let filteredCalls = allCalls;
                     if (!dateRange?.from) {
-                        // User requested 14 days for Voice calls when in "All Time" mode
-                        const fourteenDaysAgo = subDays(new Date(), 14);
-                        filteredCalls = allCalls.filter(c => new Date(c.startedAt) >= fourteenDaysAgo);
+                        // Using the default 7-day data from context
+                        filteredCalls = allCalls;
                     }
                     totalVoiceSeconds = filteredCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
                     totalVoiceCallsCount = filteredCalls.length;
@@ -394,7 +393,7 @@ export default function MasterDashboard() {
                 <MetricCard
                     title="Total Voice Calls"
                     value={loading ? "..." : stats.totalVoiceCalls.toLocaleString()}
-                    change={!dateRange?.from ? "All time" : dateLabel}
+                    change={!dateRange?.from ? "All Calls" : dateLabel}
                     isUp={true}
                     icon={<Activity className="h-6 w-6" />}
                     color="text-orange-600"

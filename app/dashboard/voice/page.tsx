@@ -41,20 +41,15 @@ export default function VoiceDashboardPage() {
     const [dailyVolume, setDailyVolume] = useState<any[]>([]);
     const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
     const [loadingLocal, setLoadingLocal] = useState(false);
-    const [dateRange, setDateRange] = useState<any>({
-        from: subDays(new Date(), 7),
-        to: new Date(),
-    });
+    const [dateRange, setDateRange] = useState<any>(undefined);
 
     const { calls: globalCalls, loadingCalls, voiceBalance, refreshCalls } = useData();
 
     // Dynamic Server-Side Refresh when filters change
     useEffect(() => {
-        if (!dateRange?.from) return;
-        
         refreshCalls({
-            from: dateRange.from,
-            to: dateRange.to || dateRange.from,
+            from: dateRange?.from,
+            to: dateRange?.to,
             includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all')
         });
     }, [dateRange, providerFilter, refreshCalls]);

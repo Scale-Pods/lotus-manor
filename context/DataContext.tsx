@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
-import { subDays } from "date-fns";
+import { subDays, startOfDay } from "date-fns";
 
 interface DataContextType {
     leads: ConsolidatedLead[];
@@ -54,8 +54,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     const fetchCalls = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => {
         try {
-            const rawFrom = params?.from || new Date("2016-01-01"); // Static date for "All Time" to help gatekeeper
-            const rawTo = params?.to || new Date();
+            // Normalize defaults to Last 7 Days (Start of Day) to ensure stable query strings across components
+            // Using minute-level precision for 'now' allows the gatekeeper to reuse data during navigation
+            const now = new Date();
+            now.setSeconds(0, 0);
+            now.setMilliseconds(0);
+            
+            const rawFrom = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
+            const rawTo = params?.to || now;
             const includeElevenLabs = params?.includeElevenLabs || false;
 
             const fromDate = new Date(rawFrom);
