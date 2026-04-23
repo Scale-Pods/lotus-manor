@@ -44,10 +44,6 @@ export default function VoiceDashboardPage() {
     const [dateRange, setDateRange] = useState<any>(undefined);
 
     useEffect(() => {
-        setDateRange({
-            from: subDays(new Date(), 7),
-            to: new Date(),
-        });
         setLoadingLocal(true);
     }, []);
 

@@ -360,10 +360,10 @@ export default function MasterDashboard() {
                     totalEmails: emailCount,
                     totalWhatsApp: whatsappCount,
                     whatsappUniqueSent: whatsappUniqueSent,
-                    totalVoice: totalVoiceSent,
+                    totalVoice: totalVoiceCallsCount,
                     voiceMinutesString: formatDuration(totalVoiceSeconds),
                     totalVoiceSeconds: totalVoiceSeconds,
-                    totalVoiceCalls: totalVoiceSent,
+                    totalVoiceCalls: totalVoiceCallsCount,
                     totalReplies: replyCount
                 } as any);
 
