@@ -132,6 +132,94 @@ async function fetchLlmEvaluationsCache() {
     return evalMap;
 }
 
+/**
+ * Syncs the last 7 days of Vapi/ElevenLabs calls to Supabase in batches of 70.
+ * Triggered on every dashboard visit to ensure data persistence.
+ */
+async function syncRecentVapiCalls(calls: any[]) {
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+    const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    if (!supabaseUrl || !secretKey || !calls.length) return;
+
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const recentCalls = calls.filter(c => {
+        const time = new Date(c.startedAt).getTime();
+        return time > sevenDaysAgo && (c.source === 'vapi' || c.source === 'elevenlabs');
+    });
+
+    if (recentCalls.length === 0) return;
+
+    const headers = { 
+        "apikey": secretKey, 
+        "Authorization": `Bearer ${secretKey}`,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates" 
+    };
+
+    const CHUNK_SIZE = 70;
+    for (let i = 0; i < recentCalls.length; i += CHUNK_SIZE) {
+        const chunk = recentCalls.slice(i, i + CHUNK_SIZE).map(c => ({
+            id: c.id,
+            started_at: c.startedAt,
+            customer_phone: c.phone || c.customer_number || "Unknown",
+            customer_name: (c.name && c.name !== "Unknown") ? c.name : "Guest",
+            duration_seconds: c.durationSeconds,
+            status: c.status,
+            cost_usd: c.costValue,
+            transcript: c.raw?.transcript || c.raw?.messages || c.raw?.analysis?.transcript || [],
+            summary: c.callSummary || "",
+            recording_url: c.raw?.audio_url || c.raw?.recordingUrl || c.raw?.artifact?.recordingUrl || "",
+            raw_data: c.raw || {}
+        }));
+
+        try {
+            await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/vapi_call_logs`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify(chunk)
+            });
+        } catch (e) {
+            console.error(`[SupabaseSync] Batch of ${chunk.length} failed:`, e);
+        }
+    }
+}
+
+/**
+ * Fetches archived call logs from Supabase based on the date range.
+ */
+async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null) {
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+    const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    if (!supabaseUrl || !secretKey) return [];
+
+    const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
+    const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
+    
+    let url = `${baseUrl}/vapi_call_logs?select=*`;
+    if (fromDate) url += `&started_at=gte.${fromDate.toISOString()}`;
+    if (toDate) url += `&started_at=lte.${toDate.toISOString()}`;
+
+    try {
+        const res = await fetch(url, { headers });
+        if (res.ok) {
+            const data = await res.json();
+            return data.map((d: any) => ({
+                ...d,
+                startedAt: d.started_at,
+                durationSeconds: d.duration_seconds,
+                costValue: d.cost_usd,
+                cost: `$${(d.cost_usd || 0).toFixed(3)}`,
+                phone: d.customer_phone,
+                name: d.customer_name,
+                phoneNumber: d.customer_phone, // Fallback for some child components
+                callSummary: d.summary,
+                raw: d.raw_data
+            }));
+        }
+    } catch (e) { console.error("[SupabaseFetch] Error:", e); }
+    return [];
+}
+
 // --- 2. Vapi Phone Cache ---
 async function fetchVapiPhonesCache(vapiPrivKey: string) {
     const phoneMap = new Map<string, string>();
@@ -166,18 +254,19 @@ async function fetchVapiPhonesCache(vapiPrivKey: string) {
 export async function GET(req: Request) {
     try {
         const vapiPrivKey = process.env.VAPI_PRIVATE_KEY || "";
-        const [leadsCache, vapiPhoneCache, evalCache] = await Promise.all([
-            fetchLeadsCache(),
-            fetchVapiPhonesCache(vapiPrivKey),
-            fetchLlmEvaluationsCache()
-        ]);
-
         const { searchParams } = new URL(req.url);
         const fromParam = searchParams.get('from');
         const toParam = searchParams.get('to');
         const includeElevenLabs = searchParams.get('includeElevenLabs') === 'true';
         const fromDate = fromParam ? new Date(fromParam) : null;
         const toDate = toParam ? new Date(toParam) : null;
+
+        const [leadsCache, vapiPhoneCache, evalCache, archivedCalls] = await Promise.all([
+            fetchLeadsCache(),
+            fetchVapiPhonesCache(vapiPrivKey),
+            fetchLlmEvaluationsCache(),
+            fetchArchivedCallLogs(fromDate, toDate)
+        ]);
 
         const apiKey = process.env.ELEVENLABS_API_KEY;
         const agentId = process.env.ELEVENLABS_AGENT_ID;
@@ -328,7 +417,8 @@ export async function GET(req: Request) {
                         llmIntent: evalCache.get(merged.conversation_id) || null,
                         leadStatus: (merged as any).leadStatus || null,
                         endedReason: merged.termination_reason || null,
-                        assistantId: merged.agent_id || null
+                        assistantId: merged.agent_id || null,
+                        raw: merged
                     };
                 }).filter(Boolean);
             }
@@ -344,7 +434,6 @@ export async function GET(req: Request) {
 
         try {
             if (twilioSid && twilioToken) {
-                console.log(`[TwilioSync] Syncing billing for account: ${twilioSid}`);
                 const twRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Calls.json?PageSize=100`, {
                     headers: {
                         'Authorization': 'Basic ' + Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64'),
@@ -353,15 +442,12 @@ export async function GET(req: Request) {
                 if (twRes.ok) {
                     const twData = await twRes.json();
                     const callArray = twData.calls || [];
-                    console.log(`[TwilioSync] Successfully fetched ${callArray.length} billing records`);
                     callArray.forEach((c: any) => {
                         const to = cleanPhoneNumber(c.to);
                         const from = cleanPhoneNumber(c.from);
                         const key = `${to}_${from}_${new Date(c.start_time).getTime().toString().substring(0, 7)}`;
                         twilioLookup.set(key, c);
                     });
-                } else {
-                    console.error(`[TwilioSync] Failed: ${twRes.status} ${twRes.statusText}`);
                 }
             }
         } catch (e) {
@@ -378,7 +464,6 @@ export async function GET(req: Request) {
                 let lastCreatedAt = null;
                 const batchSize = 1000;
 
-                // Fetch calls for specified window or fallback to 5000 max
                 let batchedFetched = 0;
                 while (hasMoreVapi && batchedFetched < 10) {
                     const params = new URLSearchParams({
@@ -401,10 +486,9 @@ export async function GET(req: Request) {
                     try {
                         vapiRes = await fetch(vapiListUrl, {
                             headers: { 'Authorization': `Bearer ${vapiPrivKey}`, 'Content-Type': 'application/json' },
-                            signal: AbortSignal.timeout(20000) // 20s timeout
+                            signal: AbortSignal.timeout(20000)
                         });
                     } catch (fetchErr) {
-                        console.error("[Vapi] Fetch timeout or socket error:", fetchErr);
                         break; 
                     }
 
@@ -421,7 +505,6 @@ export async function GET(req: Request) {
                     const oldestCall = list[list.length - 1];
                     lastCreatedAt = oldestCall.createdAt;
 
-                    // Performance: Stop if we've reached beyond our fromDate
                     if (fromDate && oldestCall.createdAt && new Date(oldestCall.createdAt) < fromDate) {
                         hasMoreVapi = false;
                     }
@@ -436,7 +519,6 @@ export async function GET(req: Request) {
                     const phoneRaw = cleanPhoneNumber(customer.number);
                     const durationPref = vc.durationSeconds ?? vc.duration ?? 0;
                     
-                    // Fallback: use createdAt if startedAt is missing (common for failed/canceled calls)
                     const startedAt = vc.startedAt || vc.createdAt;
                     if (!startedAt) return null;
 
@@ -465,16 +547,12 @@ export async function GET(req: Request) {
                     let vapiTelephonyCost = 0;
                     if (twMatched) {
                         vapiTelephonyCost = Math.abs(parseFloat(twMatched.price || 0));
-                        if (isNaN(vapiTelephonyCost)) vapiTelephonyCost = 0;
                     }
 
-                    // Always calculate fallback if we don't have a Twilio match
                     if (vapiTelephonyCost === 0) {
                         vapiTelephonyCost = calculateTelephonyCost(safeDuration, phoneRaw, isInbound, vapiAssistantNum);
                     }
 
-                    // Sum both Vapi's reported cost and our calculated telephony cost
-                    // Vapi (Platform/AI) + Telephony (Carrier) = Total Unified Cost
                     const vapiTotalCost = agentCost + vapiTelephonyCost;
 
                     let vapiName = customer.name || "Guest";
@@ -490,13 +568,6 @@ export async function GET(req: Request) {
                         (vc as any).leadStatus = resolvedFromLead.status;
                     }
 
-                    if (vapiName && /^\d+$/.test(vapiName.replace(/\D/g, '')) && vapiName.length > 5) {
-                        vapiName = "Guest";
-                    }
-
-                    // --- Extract Vapi Structured Output (Call Summary) ---
-                    // Vapi stores structured outputs as an object keyed by UUID:
-                    // { "<uuid>": { name: "Call Summary", result: "..text.." } }
                     let callSummary = "";
                     const structuredData = vc.analysis?.structuredData || {};
                     for (const key of Object.keys(structuredData)) {
@@ -506,10 +577,7 @@ export async function GET(req: Request) {
                             break;
                         }
                     }
-                    // Also try top-level analysis.summary as fallback
-                    if (!callSummary) {
-                        callSummary = vc.analysis?.summary || "";
-                    }
+                    if (!callSummary) callSummary = vc.analysis?.summary || "";
 
                     return {
                         id: vc.id,
@@ -531,7 +599,6 @@ export async function GET(req: Request) {
                         status: vc.status === 'completed' ? 'answered' : (vc.status || 'answered'),
                         phoneNumber: vapiAssistantNum,
                         customer_number: phoneRaw !== "Unknown" ? `+${phoneRaw}` : "Unknown",
-                        // Funnel fields surfaced from Vapi analysis
                         callSummary,
                         successEvaluation: vc.analysis?.successEvaluation,
                         llmIntent: evalCache.get(vc.id) || null,
@@ -578,7 +645,7 @@ export async function GET(req: Request) {
                 while (hasMoreMaqsam && mPage <= MAX_M_PAGES) {
                     let mRes = await fetchMaqsam(`/v2/calls?page=${mPage}&limit=100`, true);
                     if (!mRes.ok) {
-                        mRes = await fetchMaqsam("/v1/account/calls", false); // Fallback to older API
+                        mRes = await fetchMaqsam("/v1/account/calls", false); 
                         hasMoreMaqsam = false;
                     }
 
@@ -589,7 +656,6 @@ export async function GET(req: Request) {
 
                         allMaqsamCalls = [...allMaqsamCalls, ...mcList];
 
-                        // Performance: If we have a fromDate, stop once we reach calls older than it
                         const oldestMc = mcList[mcList.length - 1];
                         const oldestTs = oldestMc.timestamp ? oldestMc.timestamp * 1000 : (oldestMc.start_time ? new Date(oldestMc.start_time).getTime() : null);
                         if (fromDate && oldestTs && oldestTs < fromDate.getTime()) {
@@ -612,7 +678,6 @@ export async function GET(req: Request) {
                     const isNotNumber = nameValue && !nameValue.match(/^\+?\d+$/);
 
                     const mcDuration = parseInt(mc.duration || 0);
-                    // Priority: Native cost from Maqsam > Internal Rate calculation
                     const nativePrice = parseFloat(mc.price || mc.cost || 0);
                     const internalRate = calculateTelephonyCost(mcDuration, phoneRaw, isInbound);
                     const mCostTelephony = nativePrice > 0 ? nativePrice : internalRate;
@@ -645,14 +710,24 @@ export async function GET(req: Request) {
             console.error("Maqsam aggregation fail:", e);
         }
 
-        // --- 3. Final Aggregation ---
-        const final = [...elNormalized, ...maqsamNormalized, ...vapiNormalized].sort((a, b) => {
+        // --- 3. Final Aggregation (Merge live with archived history) ---
+        const allLive = [...elNormalized, ...maqsamNormalized, ...vapiNormalized];
+        
+        // Use a Map to deduplicate by ID, prioritizing fresh live API data over historical archives
+        const mergedMap = new Map();
+        archivedCalls.forEach((h: any) => mergedMap.set(h.id, h));
+        allLive.forEach((l: any) => mergedMap.set(l.id, l));
+
+        const final = Array.from(mergedMap.values()).sort((a, b) => {
             const timeA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
             const timeB = b.startedAt ? new Date(b.startedAt).getTime() : 0;
-            const validA = isNaN(timeA) ? 0 : timeA;
-            const validB = isNaN(timeB) ? 0 : timeB;
-            return validB - validA;
+            return timeB - timeA;
         });
+
+        // Trigger automatic background sync for the fresh 7 days to keep the archive updated
+        if (allLive.length > 0) {
+            syncRecentVapiCalls(allLive).catch(err => console.error("[SyncTrigger] Error:", err));
+        }
 
         return NextResponse.json(final);
 
