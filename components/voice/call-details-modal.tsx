@@ -374,58 +374,58 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
 
                             if (!summaryText) return null;
 
-                            return (
-                                <div className="mb-8 p-6 bg-blue-50/40 border border-blue-100 rounded-xl shadow-sm">
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <div className="h-6 w-6 rounded-full bg-blue-600 flex items-center justify-center">
-                                            <FileText className="h-3.5 w-3.5 text-white" />
+                                return (
+                                    <div className="mb-8 p-6 bg-slate-50 border border-slate-200 rounded-2xl shadow-sm">
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <div className="h-7 w-7 rounded-lg bg-blue-600 flex items-center justify-center shadow-sm">
+                                                <FileText className="h-4 w-4 text-white" />
+                                            </div>
+                                            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Conversation Summary</h3>
                                         </div>
-                                        <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wide">Call Summary</h3>
-                                    </div>
-                                    <div className="space-y-3">
-                                        {typeof summaryText === 'string' && summaryText.split('\n').map((line, i) => {
-                                            const trimmed = line.trim();
-                                            if (!trimmed) return null;
+                                        <div className="space-y-4">
+                                            {typeof summaryText === 'string' && summaryText.split('\n').map((line, i) => {
+                                                const trimmed = line.trim();
+                                                if (!trimmed) return null;
 
-                                            // Detect bullet points (starting with * or -)
-                                            const isBullet = trimmed.startsWith('*') || trimmed.startsWith('-');
-                                            let content = isBullet ? trimmed.replace(/^[*-\s]+/, '').trim() : trimmed;
+                                                // Improved Detection: handle *, -, and • bullets
+                                                const isBullet = trimmed.startsWith('*') || trimmed.startsWith('-') || trimmed.startsWith('•');
+                                                let content = isBullet ? trimmed.replace(/^[*•-\s]+/, '').trim() : trimmed;
 
-                                            // Detect bold titles inside the line (e.g. **Title:** or Title: or Title**)
-                                            // Split by either a colon followed by content, or double asterisks followed by content
-                                            const boldMatch = content.match(/^(\*\*|)(.*?)(:|\*\*)+(.*)$/);
+                                                // Robust bold-title extraction (handles **Title:** or Title:)
+                                                // Improved regex to handle cases like ":Title**" or "**Title"
+                                                const boldMatch = content.match(/^(\*\*|:?)(.*?)(:|\*\*)+(.*)$/);
 
-                                            if (isBullet) {
-                                                return (
-                                                    <div key={i} className="flex gap-3">
-                                                        <div className="mt-1.5 h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />
-                                                        <div className="text-[13px] leading-relaxed text-slate-700 font-medium">
-                                                            {boldMatch ? (
-                                                                <>
-                                                                    <span className="font-bold text-slate-900 underline underline-offset-2 decoration-blue-100">{boldMatch[2]}:</span>
-                                                                    {boldMatch[4]}
-                                                                </>
-                                                            ) : content}
+                                                if (isBullet) {
+                                                    return (
+                                                        <div key={i} className="flex gap-4 group">
+                                                            <div className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-400 group-hover:bg-blue-600 transition-colors shrink-0" />
+                                                            <div className="text-[13px] leading-relaxed text-slate-600 font-medium">
+                                                                {boldMatch ? (
+                                                                    <>
+                                                                        <span className="font-bold text-slate-900 border-b-2 border-blue-100 mr-1">{boldMatch[2].replace(/:/g, '').trim()}</span>
+                                                                        {boldMatch[4].trim()}
+                                                                    </>
+                                                                ) : content}
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                );
-                                            }
+                                                    );
+                                                }
 
-                                            return (
-                                                <p key={i} className="text-[13px] leading-relaxed text-slate-700 font-medium">
-                                                    {boldMatch ? (
-                                                        <>
-                                                            <span className="font-bold text-slate-900 underline underline-offset-2 decoration-blue-100">{boldMatch[2]}:</span>
-                                                            {boldMatch[4]}
-                                                        </>
-                                                    ) : content}
-                                                </p>
-                                            );
-                                        })}
+                                                return (
+                                                    <p key={i} className="text-[13px] leading-relaxed text-slate-600 font-medium pl-0">
+                                                        {boldMatch ? (
+                                                            <>
+                                                                <span className="font-bold text-slate-900 border-b-2 border-blue-100 mr-1">{boldMatch[2].replace(/:/g, '').trim()}</span>
+                                                                {boldMatch[4].trim()}
+                                                            </>
+                                                        ) : content}
+                                                    </p>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        })()}
+                                );
+                            })() }
 
                         {/* Transcript */}
                         <div className="flex-1 min-h-[200px]">
