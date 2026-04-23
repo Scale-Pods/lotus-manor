@@ -28,7 +28,7 @@ import {
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { subDays } from "date-fns";
+import { subDays, startOfDay, endOfDay } from "date-fns";
 import { useData } from "@/context/DataContext";
 import {
     Sheet,
@@ -58,10 +58,30 @@ export default function WhatsappDashboardPage() {
     const [donutData, setDonutData] = useState<any[]>([]);
     const [trendData, setTrendData] = useState<any[]>([]);
     const loading = loadingLeads;
-    const [dateRange, setDateRange] = useState<any>({
-        from: subDays(new Date(), 7),
-        to: new Date(),
-    });
+    const [dateRange, setDateRange] = useState<any>(undefined);
+
+    const parseMsg = (raw: any): { date: Date | null, content: string } => {
+        if (!raw || !String(raw).trim()) return { date: null, content: "" };
+        const content = String(raw).trim();
+        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+        const isoMatch = content.match(isoRegex);
+        if (isoMatch) {
+            return {
+                date: new Date(isoMatch[1]),
+                content: content.replace(isoRegex, '').trim()
+            };
+        }
+        const lines = content.split('\n');
+        const lastLine = lines[lines.length - 1].trim();
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+            return {
+                date: lastLineDate,
+                content: lines.slice(0, -1).join('\n').trim()
+            };
+        }
+        return { date: null, content: content };
+    };
 
     // --- Sorting & Activity Helpers ---
     const getMsgDate = (raw: any) => {
@@ -133,39 +153,21 @@ export default function WhatsappDashboardPage() {
                     return false;
                 });
 
-                setLeads(whatsappContactedLeads);
-
                 // Apply Exact Date Filtering (Same as Chat view)
-                const fromD = dateRange?.from ? new Date(dateRange.from) : null;
-                const toD = dateRange?.to ? new Date(dateRange.to) : fromD;
+                const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+                const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
 
-                if (fromD) fromD.setHours(0, 0, 0, 0);
-                if (toD) toD.setHours(23, 59, 59, 999);
-
-                const checkDate = (d: Date | null) => {
-                    if (!fromD || !toD) return true;
+                const isWithinRange = (d: Date | null) => {
+                    if (!fromDate || !toDate) return true; // All time
                     if (!d) return false;
-                    return d >= fromD && d <= toD;
-                };
-
-                const getDripDate = (lead: any, i: number) => {
-                    const tsRaw = lead[`W.P_${i} TS`];
-                    let d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
-                    if (!d && tsRaw && tsRaw.includes(' - ')) {
-                        const datePart = tsRaw.split(' - ')[1].trim();
-                        const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
-                        if (!isNaN(tsDate.getTime())) {
-                            d = tsDate;
-                        }
-                    }
-                    return d;
+                    return d >= fromDate && d <= toDate;
                 };
 
                 // Filter down total leads using exact activity timestamp
                 const filteredLeads = whatsappContactedLeads.filter((lead: any) => {
                     if (!dateRange?.from) return true;
                     const latestActivity = getLeadLatestActivity(lead);
-                    return checkDate(latestActivity);
+                    return isWithinRange(latestActivity);
                 });
 
                 const dailyGroups: Record<string, { date: string, sent: number, replied: number }> = {};
@@ -180,23 +182,29 @@ export default function WhatsappDashboardPage() {
                 };
 
                 filteredLeads.forEach((lead: any) => {
+                    const stageData = lead.stage_data || {};
                     let leadSentCount = 0;
                     let hasWPInDate = false;
 
-                    // DRIPS
+                    // Message Sent Detection (Matching Master Dashboard Logic)
+                    // Check if lead was actually sent a message in this range
                     for (let i = 1; i <= 12; i++) {
-                        if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) {
+                        const d = parseMsg(lead[`W.P_${i}`] || stageData[`WhatsApp ${i}`]).date;
+                        if (d && isWithinRange(d)) {
                             leadSentCount++;
                             hasWPInDate = true;
                         }
                     }
-                    // FOLLOWUPS
-                    if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) {
-                        leadSentCount++;
-                        hasWPInDate = true;
+                    if (lead["W.P_FollowUp"] || stageData["WhatsApp FollowUp"]) {
+                        const d = parseMsg(lead["W.P_FollowUp"] || stageData["WhatsApp FollowUp"]).date;
+                        if (d && isWithinRange(d)) {
+                            leadSentCount++;
+                            hasWPInDate = true;
+                        }
                     }
                     for (let i = 1; i <= 10; i++) {
-                        if (lead[`W.P_FollowUp_${i}`]) {
+                        const d = parseMsg(lead[`W.P_FollowUp_${i}`]).date;
+                        if (d && isWithinRange(d)) {
                             leadSentCount++;
                             hasWPInDate = true;
                         }
@@ -207,15 +215,25 @@ export default function WhatsappDashboardPage() {
                         finalStats.uniqueLeadsContacted++;
                     }
 
-                    // REPLIES - matches WP_Replied_track logic from Chat
-                    const wtR = lead.WP_Replied_track;
-                    let isReplied = false;
-                    if (wtR) {
-                        const s = String(wtR).trim().toLowerCase();
-                        if (s === "yes" || s === "replied") isReplied = true;
+                    // Reply Detection (Matching Master Dashboard Logic)
+                    let isRepliedInRange = false;
+                    const checkWPDate = (raw: any) => {
+                        if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
+                        const parsed = parseMsg(raw);
+                        return parsed.date;
+                    };
+
+                    let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
+                    for (let i = 1; i <= 10; i++) {
+                        const d = checkWPDate(lead[`W.P_Replied_${i}`]);
+                        if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
                     }
                     
-                    if (isReplied) {
+                    if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
+                        isRepliedInRange = true;
+                    }
+                    
+                    if (isRepliedInRange) {
                         finalStats.totalReplies++;
                     } else if (hasWPInDate) {
                         finalStats.waiting++;
@@ -227,7 +245,7 @@ export default function WhatsappDashboardPage() {
                         const dStr = latestAct.toLocaleDateString([], { month: 'short', day: 'numeric' });
                         if (!dailyGroups[dStr]) dailyGroups[dStr] = { date: dStr, sent: 0, replied: 0 };
                         dailyGroups[dStr].sent += leadSentCount;
-                        if (isReplied) dailyGroups[dStr].replied += 1;
+                        if (isRepliedInRange) dailyGroups[dStr].replied += 1;
                     }
                 });
 
@@ -251,6 +269,9 @@ export default function WhatsappDashboardPage() {
                     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
                     .slice(-7));
 
+                // Sync the actual filtered leads to state for the modal/sheet 
+                setLeads(filteredLeads);
+
             } catch (e) {
                 console.error("Dashboard calculation error", e);
             }
@@ -260,15 +281,31 @@ export default function WhatsappDashboardPage() {
     }, [dateRange, allLeads, loadingLeads]);
 
     const repliedLeads = useMemo(() => {
-        return leads.filter(l => {
-            if (l.whatsapp_replied && l.whatsapp_replied !== "No" && l.whatsapp_replied !== "none") return true;
+        // Now accurately filters by the leads active in range that have a reply in range
+        return leads.filter(lead => {
+            const checkWPDate = (raw: any) => {
+                if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
+                const parsed = parseMsg(raw);
+                return parsed.date;
+            };
+
+            const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+            const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
+            const isWithinRange = (d: Date | null) => {
+                if (!fromDate || !toDate) return true;
+                if (!d) return false;
+                return d >= fromDate && d <= toDate;
+            };
+
+            let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
             for (let i = 1; i <= 10; i++) {
-                const r = l[`W.P_Replied_${i}`];
-                if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
+                const d = checkWPDate(lead[`W.P_Replied_${i}`]);
+                if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
             }
-            return false;
+            
+            return latestWPReplyDate && isWithinRange(latestWPReplyDate);
         });
-    }, [leads]);
+    }, [leads, dateRange]);
 
     return (
         <div className="space-y-8 pb-10 relative min-h-[500px]">

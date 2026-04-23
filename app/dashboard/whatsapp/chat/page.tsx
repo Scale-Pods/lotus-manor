@@ -52,6 +52,29 @@ const getMsgDate = (raw: any) => {
     return null;
 };
 
+const parseMsg = (raw: any): { date: Date | null, content: string } => {
+    if (!raw || !String(raw).trim()) return { date: null, content: "" };
+    const content = String(raw).trim();
+    const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+    const isoMatch = content.match(isoRegex);
+    if (isoMatch) {
+        return {
+            date: new Date(isoMatch[1]),
+            content: content.replace(isoRegex, '').trim()
+        };
+    }
+    const lines = content.split('\n');
+    const lastLine = lines[lines.length - 1].trim();
+    const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+    if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+        return {
+            date: lastLineDate,
+            content: lines.slice(0, -1).join('\n').trim()
+        };
+    }
+    return { date: null, content: content };
+};
+
 const getLeadLatestActivity = (lead: any) => {
     let latestDate = new Date(lead.created_at);
 
@@ -239,14 +262,30 @@ export default function WhatsappChatPage() {
                 if (lead[`W.P_FollowUp_${i}`]) sentCount++;
             }
 
-            // Replied check — uses WT_Replied_track from nr_wf / followup / nurture
-            const wtR = lead.WP_Replied_track;
-            let leadReplied = false;
-            if (wtR) {
-                const s = String(wtR).trim().toLowerCase();
-                if (s === "yes" || s === "replied") leadReplied = true;
+            // Replied check — uses exact date of latest reply for range accuracy
+            const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+            const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
+            const isWithinRange = (d: Date | null) => {
+                if (!fromDate || !toDate) return true;
+                if (!d) return false;
+                return d >= fromDate && d <= toDate;
+            };
+
+            const checkWPDate = (raw: any) => {
+                if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
+                const parsed = parseMsg(raw);
+                return parsed.date;
+            };
+
+            let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
+            for (let i = 1; i <= 10; i++) {
+                const d = checkWPDate(lead[`W.P_Replied_${i}`]);
+                if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
             }
-            if (leadReplied) repliedCount++;
+            
+            if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
+                repliedCount++;
+            }
         });
 
         const uniqueSentCount = filteredLeads.filter(l => {

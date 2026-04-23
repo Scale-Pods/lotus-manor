@@ -41,6 +41,28 @@ export default function EmailDashboardPage() {
     });
 
 
+    const parseMsg = (raw: any): { date: Date | null, content: string } => {
+        if (!raw || !String(raw).trim()) return { date: null, content: "" };
+        const content = String(raw).trim();
+        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+        const isoMatch = content.match(isoRegex);
+        if (isoMatch) {
+            return {
+                date: new Date(isoMatch[1]),
+                content: content.replace(isoRegex, '').trim()
+            };
+        }
+        const lines = content.split('\n');
+        const lastLine = lines[lines.length - 1].trim();
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+            return {
+                date: lastLineDate,
+                content: lines.slice(0, -1).join('\n').trim()
+            };
+        }
+        return { date: null, content: content };
+    };
 
     useEffect(() => {
         const calculateStats = async () => {
@@ -67,18 +89,23 @@ export default function EmailDashboardPage() {
                 const nurture = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
                 allLeads.forEach((lead: any) => {
+                    const stageData = lead.stage_data || {};
                     const stages = lead.stages_passed || [];
                     const loop = (lead.source_loop || "").toLowerCase();
 
-                    // --- REPLIES & UNSUBS (Lead-level stats) ---
-                    // Still generally useful to filter these by lead created date OR just showing all for simplicity
-                    // But for accuracy, let's keep them matched to the lead visibility.
-                    const leadCreated = new Date(lead.created_at);
-                    if (checkEmailDate(leadCreated)) {
-                        if (lead.email_replied && lead.email_replied !== "No" && String(lead.email_replied).trim() !== "") {
+                    // --- REPLIES ---
+                    const emailReply = lead.email_replied;
+                    if (emailReply && !["no", "none", ""].includes(String(emailReply).toLowerCase().trim())) {
+                        const parsed = parseMsg(emailReply);
+                        const rDate = parsed.date || new Date(lead.updated_at || lead.created_at);
+                        if (checkEmailDate(rDate)) {
                             replyCount++;
                         }
-                        if (lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes")) {
+                    }
+
+                    // --- UNSUBS ---
+                    if (lead.unsubscribed && String(lead.unsubscribed).toLowerCase().includes("yes")) {
+                        if (checkEmailDate(new Date(lead.updated_at || lead.created_at))) {
                             unsubscribedCount++;
                         }
                     }
@@ -88,23 +115,8 @@ export default function EmailDashboardPage() {
                         const s = stage.toLowerCase().trim();
                         if (!s.startsWith("email_")) return;
 
-                        const rawContent = lead.stage_data?.[stage];
-                        let emailDate: Date | null = null;
-
-                        if (rawContent && typeof rawContent === "string") {
-                            const trimmed = rawContent.trim();
-                            const lines = trimmed.split("\n");
-                            const lastLine = lines[lines.length - 1].trim();
-                            const lastLineDate = new Date(lastLine);
-
-                            if (!isNaN(new Date(trimmed).getTime()) && trimmed.length < 50) {
-                                emailDate = new Date(trimmed);
-                            } else if (!isNaN(lastLineDate.getTime()) && lastLine.includes("-") && lastLine.includes(":")) {
-                                emailDate = lastLineDate;
-                            }
-                        }
-                        // Fallback to lead created at if no specific timestamp found
-                        if (!emailDate) emailDate = new Date(lead.created_at);
+                        const rawContent = stageData[stage];
+                        let emailDate = parseMsg(rawContent).date || new Date(lead.created_at);
 
                         if (checkEmailDate(emailDate)) {
                             totalEmails++;
