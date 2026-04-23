@@ -40,7 +40,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { subDays } from "date-fns";
+import { subDays, startOfDay, endOfDay } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
@@ -87,7 +87,8 @@ export default function MasterDashboard() {
         totalVoice: 0,
         totalReplies: 0,
         voiceMinutes: 0,
-        totalVoiceCalls: 0
+        totalVoiceCalls: 0,
+        whatsappUniqueSent: 0
     });
     const loading = loadingLeads || loadingCalls;
 
@@ -237,9 +238,8 @@ export default function MasterDashboard() {
                 // 1. & 2. Outreach Metrics
                 // - Emails: Total Transmissions (Volume focus)
                 // - WhatsApp Chats: Unique Leads Active in range (Engagement focus, matches Chat Page)
-                const fromDate = dateRange?.from ? new Date(dateRange.from) : null;
-                const toDate = dateRange?.to ? new Date(dateRange.to) : fromDate;
-                if (toDate) toDate.setHours(23, 59, 59, 999);
+                const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+                const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
 
                 const isWithinRange = (d: Date | null) => {
                     if (!fromDate || !toDate) return true; // All time
@@ -250,24 +250,46 @@ export default function MasterDashboard() {
                 const getLeadLatestWPActivity = (lead: any) => {
                     let latest = new Date(lead.created_at);
                     const stageData = lead.stage_data || {};
-                    // Check all standard stages
+                    const getD = (raw: any) => parseMsg(raw).date;
+
+                    // Check all standard stages (outgoing bot messages)
                     for (let i = 1; i <= 12; i++) {
-                        const d = parseMsg(lead[`W.P_${i}`] || stageData[`WhatsApp ${i}`]).date;
+                        let d = getD(lead[`W.P_${i}`] || stageData[`WhatsApp ${i}`]);
+                        
+                        // Fallback to TS column (e.g. "Delivered - 2026-03-12 10:00:00")
+                        const tsRaw = lead[`W.P_${i} TS`];
+                        if (!d && tsRaw && tsRaw.includes(' - ')) {
+                            const parts = tsRaw.split(' - ');
+                            const datePart = parts[parts.length - 1].trim();
+                            // Handle DD/MM/YYYY or YYYY-MM-DD
+                            const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
+                            if (!isNaN(tsDate.getTime())) {
+                                const rawLower = tsRaw.toLowerCase();
+                                if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
+                                    tsDate.setHours(0, 0, 0, 0); 
+                                }
+                                d = tsDate;
+                            }
+                        }
                         if (d && d > latest) latest = d;
                     }
-                    // Check special columns
-                    const rd = parseMsg(lead.whatsapp_replied || stageData["WhatsApp Replied"]).date;
+                    
+                    // Check various reply/followup columns
+                    const rd = getD(lead.whatsapp_replied || stageData["WhatsApp Replied"]);
                     if (rd && rd > latest) latest = rd;
-                    const fd = parseMsg(lead["W.P_FollowUp"] || stageData["WhatsApp FollowUp"]).date;
+                    const fd = getD(lead["W.P_FollowUp"] || stageData["WhatsApp FollowUp"]);
                     if (fd && fd > latest) latest = fd;
+                    
                     for (let i = 1; i <= 10; i++) {
-                        const d1 = parseMsg(lead[`W.P_Replied_${i}`]).date;
+                        const d1 = getD(lead[`W.P_Replied_${i}`]);
                         if (d1 && d1 > latest) latest = d1;
-                        const d2 = parseMsg(lead[`W.P_FollowUp_${i}`]).date;
+                        const d2 = getD(lead[`W.P_FollowUp_${i}`]);
                         if (d2 && d2 > latest) latest = d2;
                     }
                     return latest;
                 };
+
+                let whatsappUniqueSent = 0;
 
                 allLeads.forEach((lead: any) => {
                     const stageData = lead.stage_data || {};
@@ -282,11 +304,30 @@ export default function MasterDashboard() {
                     });
 
                     // --- WHATSAPP (Unique Leads Active) ---
-                    const latestWP = getLeadLatestWPActivity(lead);
-                    if (isWithinRange(latestWP)) {
-                        // Ensure they actually have some WP activity recorded
-                        const hasWPActivity = stages.some((s: string) => s.toLowerCase().includes("whatsapp") || s.toLowerCase().includes("w.p"));
-                        if (hasWPActivity) whatsappCount++;
+                    // 1. Identify if it's a WhatsApp Lead (matching chat/page.tsx logic)
+                    const isWPLead = stages.some((s: string) => s.toLowerCase().includes("whatsapp") || s.toLowerCase().includes("w.p")) ||
+                        (lead.whatsapp_replied && !["no", "none", ""].includes(String(lead.whatsapp_replied).toLowerCase().trim())) ||
+                        [...Array(12)].some((_, i) => lead[`W.P_${i + 1}`] || stageData[`WhatsApp ${i + 1}`]) ||
+                        [...Array(10)].some((_, i) => lead[`W.P_Replied_${i + 1}`] || lead[`W.P_FollowUp_${i + 1}`]);
+
+                    if (isWPLead) {
+                        const latestWP = getLeadLatestWPActivity(lead);
+                        if (isWithinRange(latestWP)) {
+                            whatsappCount++;
+                            
+                            // Check if a message was actually sent (matching uniqueSentCount logic)
+                            let wasSent = false;
+                            for (let i = 1; i <= 12; i++) {
+                                if (lead[`W.P_${i}`] || stageData[`WhatsApp ${i}`]) { wasSent = true; break; }
+                            }
+                            if (!wasSent && (lead["W.P_FollowUp"] || stageData["WhatsApp FollowUp"])) wasSent = true;
+                            if (!wasSent) {
+                                for (let i = 1; i <= 10; i++) {
+                                    if (lead[`W.P_FollowUp_${i}`]) { wasSent = true; break; }
+                                }
+                            }
+                            if (wasSent) whatsappUniqueSent++;
+                        }
                     }
                 });
 
@@ -318,6 +359,7 @@ export default function MasterDashboard() {
                     totalLeads: filteredLeads.length,
                     totalEmails: emailCount,
                     totalWhatsApp: whatsappCount,
+                    whatsappUniqueSent: whatsappUniqueSent,
                     totalVoice: totalVoiceSent,
                     voiceMinutesString: formatDuration(totalVoiceSeconds),
                     totalVoiceSeconds: totalVoiceSeconds,
