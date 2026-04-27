@@ -7,6 +7,7 @@ import { subDays, startOfDay, endOfDay } from "date-fns";
 interface DataContextType {
     leads: ConsolidatedLead[];
     calls: any[];
+    allTimeVoiceCount: number;
     loadingLeads: boolean;
     loadingCalls: boolean;
     loadingBalances: boolean;
@@ -14,7 +15,7 @@ interface DataContextType {
     maqsamBalance: any;
     twilioBalance: any;
     error: string | null;
-    refreshLeads: () => Promise<void>;
+    refreshLeads: (params?: { from?: Date; to?: Date; force?: boolean }) => Promise<void>;
     refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; force?: boolean }) => Promise<void>;
     refreshBalances: () => Promise<void>;
     refreshAll: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
@@ -25,6 +26,7 @@ const DataContext = createContext<DataContextType | undefined>(undefined);
 export function DataProvider({ children }: { children: React.ReactNode }) {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
+    const [allTimeVoiceCount, setAllTimeVoiceCount] = useState(0);
     const [loadingLeads, setLoadingLeads] = useState(true);
     const [loadingCalls, setLoadingCalls] = useState(true);
     const [loadingBalances, setLoadingBalances] = useState(true);
@@ -36,14 +38,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // Gatekeeper to prevent redundant identical calls
     const lastCallParams = useRef<string | null>(null);
 
-    const fetchLeads = useCallback(async () => {
+    const fetchLeads = useCallback(async (params?: { from?: Date; to?: Date; force?: boolean }) => {
         setLoadingLeads(true);
         try {
-            const response = await fetch('/api/leads');
+            const now = new Date();
+            const fromDate = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
+            const toDate = params?.to ? endOfDay(params.to) : endOfDay(now);
+
+            const query = new URLSearchParams({
+                from: fromDate.toISOString(),
+                to: toDate.toISOString()
+            });
+
+            const response = await fetch(`/api/leads?${query.toString()}`);
             if (!response.ok) throw new Error('Failed to fetch leads');
             const data = await response.json();
             const consolidated = consolidateLeads(data);
             setLeads(consolidated);
+            if (data.allTimeVoiceLeads) {
+                setAllTimeVoiceCount(data.allTimeVoiceLeads.filter((l: any) => l["Voice 1"] && String(l["Voice 1"]).trim()).length);
+            }
         } catch (err: any) {
             console.error('DataProvider leads fetch error:', err);
             setError(err.message);
@@ -60,7 +74,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const fromDate = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
             const toDate = params?.to ? endOfDay(params.to) : endOfDay(now);
             const includeElevenLabs = params?.includeElevenLabs || false;
-            
+
             if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
                 console.error("Invalid dates passed to fetchCalls");
                 return;
@@ -114,7 +128,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const refreshAll = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => {
-        await Promise.all([fetchLeads(), fetchCalls(params), fetchBalances()]);
+        await Promise.all([fetchLeads(params), fetchCalls(params), fetchBalances()]);
     }, [fetchLeads, fetchCalls, fetchBalances]);
 
     useEffect(() => {
@@ -126,6 +140,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         <DataContext.Provider value={{
             leads,
             calls,
+            allTimeVoiceCount,
             loadingLeads,
             loadingCalls,
             loadingBalances,

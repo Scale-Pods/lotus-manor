@@ -139,6 +139,15 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 }
             }
 
+            const others = ["Voice 1", "Voice 2", "FollowUp 48 Hr"];
+            others.forEach(key => {
+                const val = getVal(l, [key]);
+                if (val) {
+                    stages.push(key);
+                    stage_data[key] = val;
+                }
+            });
+
             const wpVal = getVal(l, ["W.P_FollowUp"]);
             if (wpVal) {
                 stages.push("WhatsApp FollowUp");
@@ -202,6 +211,15 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                     stage_data[stageName] = val;
                 }
             }
+
+            const others = ["Voice 1", "Voice 2", "FollowUp 48 Hr"];
+            others.forEach(key => {
+                const val = getVal(l, [key]);
+                if (val) {
+                    stages.push(key);
+                    stage_data[key] = val;
+                }
+            });
 
             const wpFollowVal = getVal(l, ["W.P_FollowUp"]);
             if (wpFollowVal) {

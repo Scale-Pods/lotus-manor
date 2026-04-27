@@ -74,10 +74,13 @@ const parseMsg = (raw: any): { date: Date | null, content: string } => {
 export default function MasterDashboard() {
     const [isRepliesModalOpen, setIsRepliesModalOpen] = useState(false);
     const [isRepliesExpanded, setIsRepliesExpanded] = useState(false);
-    const [dateLabel, setDateLabel] = useState("All time");
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateLabel, setDateLabel] = useState("Last 7 Days");
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date()
+    });
 
-    const { leads: allLeads, calls: allCalls, loadingLeads, loadingCalls, refreshCalls, refreshAll, maqsamBalance, loadingBalances } = useData();
+    const { leads: allLeads, calls: allCalls, allTimeVoiceCount, loadingLeads, loadingCalls, refreshLeads, refreshCalls, refreshAll, maqsamBalance, loadingBalances } = useData();
     const [leads, setLeads] = useState<any[]>([]);
     const [acquisitionChartData, setAcquisitionChartData] = useState<any[]>([]);
     const [stats, setStats] = useState({
@@ -96,13 +99,14 @@ export default function MasterDashboard() {
 
     // Trigger server-side refresh when date range changes
     useEffect(() => {
-        // If dateRange is undefined, refreshCalls will use the "All Time" default in DataContext
-        refreshCalls({
+        const params = {
             from: dateRange?.from,
             to: dateRange?.to,
             includeElevenLabs: false
-        });
-    }, [dateRange, refreshCalls]);
+        };
+        refreshCalls(params);
+        refreshLeads(params);
+    }, [dateRange, refreshCalls, refreshLeads]);
 
     const handleDateUpdate = ({ range, label }: { range: any, label?: string }) => {
         if (label) {
@@ -196,99 +200,78 @@ export default function MasterDashboard() {
 
                 setAcquisitionChartData(Object.entries(acquisitionMap).map(([name, leads]) => ({ name, leads })));
 
-                // Call Data
+                // 1. Total Leads (specifically from master_leads table)
+                const masterLeads = allLeads.filter((l: any) => 
+                    (l.source_loop === "Master Leads" || l.source_loop === "Master") && 
+                    isWithinRange(new Date(l.created_at))
+                );
+
+                // 2. Total WhatsApp Chats (W.P_1 from loops)
+                let whatsappChatsCount = 0;
+                allLeads.forEach((lead: any) => {
+                    // Only from Intro, Followup, Nurture loops
+                    if (lead.source_loop === "Master Leads" || lead.source_loop === "Master") return;
+                    
+                    const wp1Val = lead["W.P_1"] || lead.stage_data?.["WhatsApp 1"];
+                    if (wp1Val && String(wp1Val).trim()) {
+                        const parsed = parseMsg(wp1Val);
+                        const d = parsed.date || new Date(lead.updated_at || lead.created_at);
+                        if (isWithinRange(d)) whatsappChatsCount++;
+                    }
+                });
+
+                // 3. Total Replies (WP_Replied_track from loops)
+                let totalRepliesCount = 0;
+                const leadsWhoRepliedInRange: any[] = [];
+                allLeads.forEach((lead: any) => {
+                    // Only from Intro, Followup, Nurture loops
+                    if (lead.source_loop === "Master Leads" || lead.source_loop === "Master") return;
+
+                    const replyVal = lead["WP_Replied_track"];
+                    if (replyVal && String(replyVal).trim()) {
+                        const parsed = parseMsg(replyVal);
+                        const d = parsed.date || new Date(lead.updated_at || lead.created_at);
+                        if (isWithinRange(d)) {
+                            totalRepliesCount++;
+                            leadsWhoRepliedInRange.push(lead);
+                        }
+                    }
+                });
+
+                // Call Data (Using All-Time count from DataContext)
                 let totalVoiceSeconds = 0;
-                let totalVoiceCallsCount = 0;
+                let totalVoiceCallsCount = allTimeVoiceCount;
+
                 if (!loadingCalls && Array.isArray(allCalls)) {
                     totalVoiceSeconds = allCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
-                    totalVoiceCallsCount = allCalls.length;
                 }
 
-                // Outreach & Replies
+                // Outreach (Emails - keeping existing logic but simplified)
                 let emailCount = 0;
-                let whatsappCount = 0;
-                let whatsappUniqueSent = 0;
-                let totalEmailsRepliedInRange = 0;
-                let totalWhatsAppRepliedInRange = 0;
-                const leadsWhoRepliedInRange: any[] = [];
-
                 allLeads.forEach((lead: any) => {
-                    const stageData = lead.stage_data || {};
                     const stages = lead.stages_passed || [];
-
-                    // Emails
+                    const stageData = lead.stage_data || {};
                     stages.forEach((stage: string) => {
                         if (stage.toLowerCase().trim().startsWith("email_")) {
                             const d = parseMsg(stageData[stage]).date || new Date(lead.updated_at || lead.created_at);
                             if (isWithinRange(d)) emailCount++;
                         }
                     });
-
-                    // WhatsApp
-                    const isWPLead = stages.some((s: string) => s.toLowerCase().includes("whatsapp") || s.toLowerCase().includes("w.p")) ||
-                        (lead.whatsapp_replied && !["no", "none", ""].includes(String(lead.whatsapp_replied).toLowerCase().trim())) ||
-                        [...Array(12)].some((_, i) => lead[`W.P_${i + 1}`] || stageData[`WhatsApp ${i + 1}`]) ||
-                        [...Array(10)].some((_, i) => lead[`W.P_Replied_${i + 1}`] || lead[`W.P_FollowUp_${i + 1}`]);
-
-                    if (isWPLead) {
-                        const latestWP = getLeadLatestWPActivity(lead);
-                        if (isWithinRange(latestWP)) {
-                            whatsappCount++;
-                            let wasSent = false;
-                            for (let i = 1; i <= 12; i++) {
-                                if (lead[`W.P_${i}`] || stageData[`WhatsApp ${i}`]) { wasSent = true; break; }
-                            }
-                            if (!wasSent && (lead["W.P_FollowUp"] || stageData["WhatsApp FollowUp"])) wasSent = true;
-                            if (!wasSent) {
-                                for (let i = 1; i <= 10; i++) if (lead[`W.P_FollowUp_${i}`]) { wasSent = true; break; }
-                            }
-                            if (wasSent) whatsappUniqueSent++;
-                        }
-                    }
-
-                    // Replies
-                    let hasEmailReplyInR = false;
-                    const emailReply = lead.email_replied;
-                    if (emailReply && !["no", "none", ""].includes(String(emailReply).toLowerCase().trim())) {
-                        const parsed = parseMsg(emailReply);
-                        if (isWithinRange(parsed.date || new Date(lead.updated_at || lead.created_at))) {
-                            hasEmailReplyInR = true;
-                            totalEmailsRepliedInRange++;
-                        }
-                    }
-
-                    let hasWPReplyInR = false;
-                    const checkWPDate = (raw: any) => {
-                        if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
-                        return parseMsg(raw).date;
-                    };
-                    let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
-                    for (let i = 1; i <= 10; i++) {
-                        const d = checkWPDate(lead[`W.P_Replied_${i}`]);
-                        if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
-                    }
-                    if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
-                        hasWPReplyInR = true;
-                        totalWhatsAppRepliedInRange++;
-                    }
-
-                    if (hasEmailReplyInR || hasWPReplyInR) {
-                        leadsWhoRepliedInRange.push(lead);
-                    }
                 });
 
+                setLeads(masterLeads);
                 setReplyLeads(leadsWhoRepliedInRange);
 
                 setStats({
-                    totalLeads: filteredLeads.length,
+                    totalLeads: masterLeads.length,
                     totalEmails: emailCount,
-                    totalWhatsApp: whatsappCount,
-                    whatsappUniqueSent: whatsappUniqueSent,
+                    totalWhatsApp: whatsappChatsCount,
+                    whatsappUniqueSent: whatsappChatsCount,
                     totalVoice: totalVoiceCallsCount,
                     voiceMinutesString: formatDuration(totalVoiceSeconds),
                     totalVoiceSeconds: totalVoiceSeconds,
                     totalVoiceCalls: totalVoiceCallsCount,
-                    totalReplies: totalEmailsRepliedInRange + totalWhatsAppRepliedInRange
+                    totalReplies: totalRepliesCount
                 });
 
             } catch (e) {
@@ -359,7 +342,7 @@ export default function MasterDashboard() {
                 <MetricCard
                     title="Total Voice Calls"
                     value={loading ? "..." : stats.totalVoiceCalls.toLocaleString()}
-                    change={!dateRange?.from ? "All Calls" : dateLabel}
+                    change="All Time"
                     isUp={true}
                     icon={<Activity className="h-6 w-6" />}
                     color="text-orange-600"
