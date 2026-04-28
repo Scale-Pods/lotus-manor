@@ -92,7 +92,10 @@ export default function MasterDashboard() {
         voiceMinutesString: "0m",
         totalVoiceSeconds: 0,
         totalVoiceCalls: 0,
-        whatsappUniqueSent: 0
+        whatsappUniqueSent: 0,
+        oldestLeadDate: "",
+        oldestEmailDate: "",
+        oldestWPDate: ""
     });
     const [replyLeads, setReplyLeads] = useState<any[]>([]);
     const loading = loadingLeads || loadingCalls;
@@ -217,8 +220,19 @@ export default function MasterDashboard() {
                     isWithinRange(new Date(l.created_at))
                 );
 
+                // Find oldest lead date for the label
+                let oldestLeadStr = "Real-time";
+                if (masterLeads.length > 0) {
+                    const oldest = masterLeads.reduce((min, lead) => {
+                        const d = new Date(lead.created_at);
+                        return d < min ? d : min;
+                    }, new Date(masterLeads[0].created_at));
+                    oldestLeadStr = `Since ${oldest.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                }
+
                 // 2. Total Whatsapp Reachouts (W.P_1 from loops) - STRICT
                 let whatsappChatsCount = 0;
+                let minWPDate: Date | null = null;
                 allLeads.forEach((lead: any) => {
                     const wp1Val = lead["W.P_1"];
                     if (wp1Val && wp1Val !== "" && wp1Val !== "No") {
@@ -227,9 +241,15 @@ export default function MasterDashboard() {
                         
                         if (reachoutDate && isWithinRange(reachoutDate)) {
                             whatsappChatsCount++;
+                            if (!minWPDate || reachoutDate < minWPDate) minWPDate = reachoutDate;
                         }
                     }
                 });
+
+                const _minWPDate = minWPDate as Date | null;
+                const oldestWPStr = _minWPDate
+                    ? `Since ${_minWPDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                    : "Real-time";
 
                 // 3. Total Replies (WP_Replied_track from loops)
                 let totalRepliesCount = 0;
@@ -259,16 +279,25 @@ export default function MasterDashboard() {
 
                 // Outreach (Emails - keeping existing logic but simplified)
                 let emailCount = 0;
+                let minEmailDate: Date | null = null;
                 allLeads.forEach((lead: any) => {
                     const stages = lead.stages_passed || [];
                     const stageData = lead.stage_data || {};
                     stages.forEach((stage: string) => {
                         if (stage.toLowerCase().trim().startsWith("email_")) {
                             const d = parseMsg(stageData[stage]).date || new Date(lead.updated_at || lead.created_at);
-                            if (isWithinRange(d)) emailCount++;
+                            if (isWithinRange(d)) {
+                                emailCount++;
+                                if (!minEmailDate || d < minEmailDate) minEmailDate = d;
+                            }
                         }
                     });
                 });
+
+                const _minEmailDate = minEmailDate as Date | null;
+                const oldestEmailStr = _minEmailDate
+                    ? `Since ${_minEmailDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                    : "Real-time";
 
                 setLeads(masterLeads);
                 setReplyLeads(leadsWhoRepliedInRange);
@@ -282,7 +311,10 @@ export default function MasterDashboard() {
                     voiceMinutesString: formatDuration(totalVoiceSeconds),
                     totalVoiceSeconds: totalVoiceSeconds,
                     totalVoiceCalls: totalVoiceCallsCount,
-                    totalReplies: totalRepliesCount
+                    totalReplies: totalRepliesCount,
+                    oldestLeadDate: oldestLeadStr,
+                    oldestEmailDate: oldestEmailStr,
+                    oldestWPDate: oldestWPStr
                 });
 
             } catch (e) {
@@ -320,7 +352,7 @@ export default function MasterDashboard() {
                 <MetricCard
                     title="Total Leads"
                     value={loading ? "..." : stats.totalLeads.toLocaleString()}
-                    change="Real-time"
+                    change={stats.oldestLeadDate}
                     isUp={true}
                     icon={<Users className="h-6 w-6" />}
                     color="text-blue-600"
@@ -331,7 +363,7 @@ export default function MasterDashboard() {
                 <MetricCard
                     title="Total Emails Sent"
                     value={loading ? "..." : stats.totalEmails.toLocaleString()}
-                    change="Real-time"
+                    change={stats.oldestEmailDate}
                     isUp={true}
                     icon={<Mail className="h-6 w-6" />}
                     color="text-emerald-600"
@@ -342,7 +374,7 @@ export default function MasterDashboard() {
                 <MetricCard
                     title="Total Whatsapp Reachouts"
                     value={loading ? "..." : stats.totalWhatsApp.toLocaleString()}
-                    change="Real-time"
+                    change={stats.oldestWPDate}
                     isUp={true}
                     icon={<MessageCircle className="h-6 w-6" />}
                     color="text-purple-600"
