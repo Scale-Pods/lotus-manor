@@ -99,11 +99,15 @@ export default function MasterDashboard() {
 
     // Trigger server-side refresh when date range changes
     useEffect(() => {
+        if (!refreshCalls || !refreshLeads) return;
+        
         const params = {
             from: dateRange?.from,
             to: dateRange?.to,
-            includeElevenLabs: false
+            includeElevenLabs: false, // Default dashboard doesn't need EL
+            provider: 'vapi' // Matches Voice Dashboard default
         };
+        
         refreshCalls(params);
         refreshLeads(params);
     }, [dateRange, refreshCalls, refreshLeads]);

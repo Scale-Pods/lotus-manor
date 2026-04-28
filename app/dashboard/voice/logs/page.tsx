@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { RefreshCw, Play, ChevronLeft, ChevronRight, User, Loader2, Download, ExternalLink, Search, Info, Activity } from "lucide-react";
+import { RefreshCw, ChevronLeft, ChevronRight, User, Download, Search, Info, Activity, Crown, Phone } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LMLoader } from "@/components/lm-loader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,27 +13,21 @@ import React, { useState, useEffect } from "react";
 import { CallDetailsModal } from "@/components/voice/call-details-modal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { format, parseISO, subDays } from "date-fns";
-import { calculateDuration, formatDuration } from "@/lib/utils";
+import { format, subDays } from "date-fns";
+import { formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
-// Progressive fetch for missing metadata (phone numbers/direction)
-// Static cells that rely on pre-fetched and normalized data from the API
 const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
-    // RESOLVE: Prioritize backend names, then Leads database, then Vapi/Maqsam metadata
     let guestName = call.name || "Guest";
     const guestNum = call.phone || "Unknown";
     const realType = call.type || (call.isInbound ? "Inbound" : "Outbound");
     const isInboundState = call.isInbound;
 
-    // Eagerly resolve name from our Leads database based on phone if Guest
     if ((!guestName || guestName === "Guest" || guestName === "Unknown") && call.phone && leads) {
         const targetPhone = call.phone.replace(/\D/g, '');
         if (targetPhone && targetPhone.length > 5) {
             const foundLead = leads.find((l: any) => l.phone && l.phone.replace(/\D/g, '') === targetPhone);
-            if (foundLead && foundLead.name) {
-                guestName = foundLead.name;
-            }
+            if (foundLead && foundLead.name) guestName = foundLead.name;
         }
     }
 
@@ -45,16 +39,19 @@ const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
                     {guestName}
                 </div>
             </TableCell>
-            <TableCell className="font-medium text-slate-800">
-                {guestNum}
-            </TableCell>
+            <TableCell className="font-medium text-slate-800">{guestNum}</TableCell>
             <TableCell>
                 <div className="flex flex-col gap-1">
                     <Badge variant={isInboundState ? "default" : "secondary"} className={`text-[10px] w-fit ${isInboundState ? 'bg-blue-600 outline-none border-none' : ''}`}>
                         {realType}
                     </Badge>
+                    {call.vapiAccount === 'owners' && (
+                        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 text-[8px] px-1.5 py-0 h-3.5 font-bold uppercase tracking-wider w-fit flex items-center gap-1">
+                            <Crown className="h-2 w-2" /> owner leads
+                        </Badge>
+                    )}
                     {call.assistantId === '560ca61b-8cd3-4b5f-996b-2966abfa37fd' && (
-                        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 text-[8px] px-1.5 py-0 h-3.5 font-bold uppercase tracking-wider w-fit">
+                        <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100 border-purple-200 text-[8px] px-1.5 py-0 h-3.5 font-bold uppercase tracking-wider w-fit">
                             secondary leads reachout
                         </Badge>
                     )}
@@ -65,12 +62,7 @@ const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
             <TableCell className="font-bold text-emerald-600">
                 <Popover>
                     <PopoverTrigger asChild>
-                        <button
-                            className="hover:underline flex items-center gap-1 cursor-help"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                            }}
-                        >
+                        <button className="hover:underline flex items-center gap-1 cursor-help" onClick={(e) => e.stopPropagation()}>
                             {call.cost}
                             <Info className="h-3 w-3 text-slate-300" />
                         </button>
@@ -103,7 +95,6 @@ const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
     );
 };
 
-
 export default function VoiceLogsPage() {
     const { calls: globalCalls, loadingCalls, refreshCalls, leads, loadingLeads } = useData();
     const [allCallsMapped, setAllCallsMapped] = useState<any[]>([]);
@@ -114,37 +105,33 @@ export default function VoiceLogsPage() {
     const [dateRange, setDateRange] = useState<any>(undefined);
     const [statusFilter, setStatusFilter] = useState("all");
     const [typeFilter, setTypeFilter] = useState("all");
-    const [providerFilter, setProviderFilter] = useState("vapi");
+    // accountFilter: 'vapi' | 'vapi-owners' | 'vapi-normal' | 'elevenlabs'
+    const [accountFilter, setAccountFilter] = useState("vapi");
     const [phoneFilter, setPhoneFilter] = useState("");
     const [sortBy, setSortBy] = useState("newest");
     const [costModalOpen, setCostModalOpen] = useState(false);
 
-    // Hydration safe initialization
     useEffect(() => {
         setDateRange({
             from: subDays(new Date(), 7),
             to: new Date(),
-        })
+        });
     }, []);
 
-    // Dynamic Server-Side Refresh when filters change
+    // Server-side refresh when filters change
     useEffect(() => {
-        // Only trigger if refreshCalls exists
         if (!refreshCalls) return;
-
-        // If dateRange is at its custom-initialized default (subDays(now, 7)), 
-        // we want to use the implicit defaults in DataContext to hit the cache.
-        const isDefaultRange = !dateRange; 
-
-        const includeElevenLabs = (providerFilter === 'elevenlabs' || providerFilter === 'all');
+        const isDefaultRange = !dateRange;
+        const includeElevenLabs = accountFilter === 'elevenlabs';
+        const provider = accountFilter === 'elevenlabs' ? 'elevenlabs' : 'vapi';
         refreshCalls({
             from: isDefaultRange ? undefined : dateRange?.from,
             to: isDefaultRange ? undefined : (dateRange?.to || dateRange?.from),
-            includeElevenLabs
+            includeElevenLabs,
+            provider
         });
-    }, [dateRange, providerFilter, refreshCalls]);
+    }, [dateRange, accountFilter, refreshCalls]);
 
-    // Pagination
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
 
@@ -152,20 +139,14 @@ export default function VoiceLogsPage() {
         if (loadingLeads || !globalCalls) return;
 
         const mappedCalls = globalCalls.map((c: any) => {
-            const isInbound = c.isInbound === true;
-
-            // Eagerly resolve name from our Leads database based on phone
             let resolvedName = c.name;
             if ((!resolvedName || resolvedName === "Guest" || resolvedName === "Unknown") && c.phone && leads) {
                 const targetPhone = c.phone.replace(/\D/g, '');
                 if (targetPhone && targetPhone.length > 5) {
                     const foundLead = leads.find((l: any) => l.phone && l.phone.replace(/\D/g, '') === targetPhone);
-                    if (foundLead && foundLead.name) {
-                        resolvedName = foundLead.name;
-                    }
+                    if (foundLead && foundLead.name) resolvedName = foundLead.name;
                 }
             }
-
             return {
                 ...c,
                 name: resolvedName,
@@ -177,19 +158,22 @@ export default function VoiceLogsPage() {
         setAllCallsMapped(mappedCalls);
     }, [globalCalls, leads, loadingLeads]);
 
-    // Reset to page 1 ONLY when the user explicitly changes a filter — not when background data enrichment updates allCallsMapped.
     useEffect(() => {
         setCurrentPage(1);
-    }, [dateRange, statusFilter, typeFilter, providerFilter, phoneFilter, sortBy]);
+    }, [dateRange, statusFilter, typeFilter, accountFilter, phoneFilter, sortBy]);
 
-    // Re-apply filtering whenever data or filters change (no page reset here).
     useEffect(() => {
         const filteredCalls = allCallsMapped.filter((call: any) => {
-            // Priority 1: Provider Filter
-            if (providerFilter !== "all" && call.source !== providerFilter) return false;
+            // 1. Account / provider filter (must pass first)
+            if (accountFilter === 'vapi' && call.source !== 'vapi') return false;
+            if (accountFilter === 'vapi-normal' && (call.source !== 'vapi' || call.vapiAccount !== 'normal')) return false;
+            if (accountFilter === 'vapi-owners' && (call.source !== 'vapi' || call.vapiAccount !== 'owners')) return false;
+            if (accountFilter === 'elevenlabs' && call.source !== 'elevenlabs') return false;
 
+            // 2. Status filter
             if (statusFilter !== "all" && call.status !== statusFilter) return false;
-            
+
+            // 3. Type filter
             if (typeFilter !== "all") {
                 const normalizedCallType = (call.type || (call.isInbound ? "Inbound" : "Outbound")).toLowerCase();
                 const isSecondaryLeads = call.assistantId === '560ca61b-8cd3-4b5f-996b-2966abfa37fd';
@@ -203,50 +187,41 @@ export default function VoiceLogsPage() {
                 }
             }
 
+            // 4. Phone / name search
             if (phoneFilter) {
                 const searchStr = phoneFilter.toLowerCase().trim();
                 const phoneSearch = searchStr.replace(/\D/g, '');
                 const phoneTarget = (call.phone || "").replace(/\D/g, '');
-
                 const matchesPhone = phoneSearch && phoneTarget.includes(phoneSearch);
                 const matchesName = (call.name || "Guest").toLowerCase().includes(searchStr);
-
                 if (!matchesPhone && !matchesName) return false;
             }
 
             return true;
         });
 
-        // Apply Sorting
         const sortedCalls = [...filteredCalls].sort((a, b) => {
             if (sortBy === "longest") return (b.durationSeconds || 0) - (a.durationSeconds || 0);
             if (sortBy === "shortest") return (a.durationSeconds || 0) - (b.durationSeconds || 0);
             if (sortBy === "oldest") {
-                const dateA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
-                const dateB = b.startedAt ? new Date(b.startedAt).getTime() : 0;
-                return dateA - dateB;
+                return (a.startedAt ? new Date(a.startedAt).getTime() : 0) - (b.startedAt ? new Date(b.startedAt).getTime() : 0);
             }
-            // default: newest
-            const dateA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
-            const dateB = b.startedAt ? new Date(b.startedAt).getTime() : 0;
-            return dateB - dateA;
+            return (b.startedAt ? new Date(b.startedAt).getTime() : 0) - (a.startedAt ? new Date(a.startedAt).getTime() : 0);
         });
 
         setCalls(sortedCalls);
-    }, [allCallsMapped, dateRange, statusFilter, typeFilter, providerFilter, phoneFilter, sortBy]);
+    }, [allCallsMapped, dateRange, statusFilter, typeFilter, accountFilter, phoneFilter, sortBy]);
 
     const handleRefresh = () => {
+        const includeElevenLabs = accountFilter === 'elevenlabs';
+        const provider = accountFilter === 'elevenlabs' ? 'elevenlabs' : 'vapi';
         refreshCalls({
-            from: dateRange.from,
-            to: dateRange.to || dateRange.from,
-            includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all'),
+            from: dateRange?.from,
+            to: dateRange?.to || dateRange?.from,
+            includeElevenLabs,
+            provider,
             force: true
         });
-    };
-
-    const handleRowClick = (call: any) => {
-        setSelectedCall(call);
-        setModalOpen(true);
     };
 
     const paginatedCalls = calls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -254,11 +229,12 @@ export default function VoiceLogsPage() {
     return (
         <div className="space-y-6 pb-10 relative min-h-[500px]">
             {loading && allCallsMapped.length === 0 && <LMLoader />}
+
             <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900">Call Logs</h1>
-                        <p className="text-slate-500">Comprehensive history including Vapi & ElevenLabs calls.</p>
+                        <p className="text-slate-500">Comprehensive history across all accounts and providers.</p>
                     </div>
                     <div className="flex items-center gap-3">
                         <Button variant="outline" className="text-slate-600 border-slate-200" onClick={() => setCostModalOpen(true)}>
@@ -273,6 +249,7 @@ export default function VoiceLogsPage() {
                     </div>
                 </div>
 
+                {/* Filters Bar */}
                 <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                     <div className="relative w-[220px]">
                         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
@@ -284,24 +261,29 @@ export default function VoiceLogsPage() {
                         />
                     </div>
 
-                    <Select value={providerFilter} onValueChange={setProviderFilter}>
-                        <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Provider" /></SelectTrigger>
+                    <Select value={accountFilter} onValueChange={setAccountFilter}>
+                        <SelectTrigger className="w-[190px] h-9">
+                            <SelectValue placeholder="Account / Provider" />
+                        </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Providers</SelectItem>
-                            <SelectItem value="vapi">Vapi</SelectItem>
+                            <SelectItem value="vapi">All Vapi Calls</SelectItem>
+                            <SelectItem value="vapi-owners">Owner Leads</SelectItem>
+                            <SelectItem value="vapi-normal">Normal Calls</SelectItem>
                             <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
                         </SelectContent>
                     </Select>
+
                     <Select value={typeFilter} onValueChange={setTypeFilter}>
                         <SelectTrigger className="w-[160px] h-9"><SelectValue placeholder="Call Type" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="Inbound">Inbound</SelectItem>
                             <SelectItem value="Outbound">Outbound</SelectItem>
-                            <SelectItem value="secondary-leads">secondary leads reachout</SelectItem>
+                            <SelectItem value="secondary-leads">Secondary Leads Reachout</SelectItem>
                             <SelectItem value="normal">Normal Calls</SelectItem>
                         </SelectContent>
                     </Select>
+
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
                         <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Status" /></SelectTrigger>
                         <SelectContent>
@@ -335,7 +317,7 @@ export default function VoiceLogsPage() {
                                 <TableHead>Country</TableHead>
                                 <TableHead>Cost</TableHead>
                                 <TableHead>Status</TableHead>
-                                <TableHead className="w-[200px]">Date & Time</TableHead>
+                                <TableHead className="w-[200px]">Date &amp; Time</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -348,7 +330,7 @@ export default function VoiceLogsPage() {
                                     <TableRow
                                         key={call.id}
                                         className="cursor-pointer hover:bg-slate-50/50 transition-colors"
-                                        onClick={() => handleRowClick(call)}
+                                        onClick={() => { setSelectedCall(call); setModalOpen(true); }}
                                     >
                                         <DynamicRowCells call={call} leads={leads} />
                                         <TableCell>
@@ -382,6 +364,7 @@ export default function VoiceLogsPage() {
 
             <CallDetailsModal open={modalOpen} onOpenChange={setModalOpen} call={selectedCall} />
 
+            {/* Cost Info Modal */}
             <Dialog open={costModalOpen} onOpenChange={setCostModalOpen}>
                 <DialogContent className="sm:max-w-[500px] bg-white border-slate-200 shadow-xl overflow-hidden p-0">
                     <DialogHeader className="p-6 bg-slate-50 border-b border-slate-100">
@@ -395,43 +378,23 @@ export default function VoiceLogsPage() {
                             Understanding our automated billing and rate matching logic.
                         </DialogDescription>
                     </DialogHeader>
-
                     <div className="p-6 space-y-6">
                         <div className="space-y-4">
-                            <div className="flex gap-4">
-                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">1</div>
-                                <div>
-                                    <h4 className="font-bold text-slate-800 text-sm mb-1">Normalization</h4>
-                                    <p className="text-xs text-slate-500 leading-relaxed">System cleans phone numbers by removing all symbols and spaces, ensuring consistent lookup against our global rate database.</p>
+                            {[
+                                { n: 1, title: "Normalization", desc: "System cleans phone numbers by removing all symbols and spaces, ensuring consistent lookup against our global rate database." },
+                                { n: 2, title: "Longest-Prefix Matching", desc: "We use high-precision matching. If a number matches multiple regions (e.g. UAE General vs Dubai Fixed), we prioritize the most specific prefix for maximum accuracy." },
+                                { n: 3, title: "Per-Minute Computation", desc: "Duration is tracked in seconds and converted to minutes. For outbound calls, the matched rate is applied. Inbound calls are always computed at $0.02." },
+                            ].map(({ n, title, desc }) => (
+                                <div key={n} className="flex gap-4">
+                                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">{n}</div>
+                                    <div>
+                                        <h4 className="font-bold text-slate-800 text-sm mb-1">{title}</h4>
+                                        <p className="text-xs text-slate-500 leading-relaxed">{desc}</p>
+                                    </div>
                                 </div>
-                            </div>
-
-                            <div className="flex gap-4">
-                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">2</div>
-                                <div>
-                                    <h4 className="font-bold text-slate-800 text-sm mb-1">Longest-Prefix Matching</h4>
-                                    <p className="text-xs text-slate-500 leading-relaxed">We use high-precision matching. If a number matches multiple regions (e.g. UAE General vs Dubai Fixed), we prioritize the most specific prefix for maximum accuracy.</p>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-4">
-                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">3</div>
-                                <div>
-                                    <h4 className="font-bold text-slate-800 text-sm mb-1">Per-Minute Computation</h4>
-                                    <p className="text-xs text-slate-500 leading-relaxed">Duration is tracked in seconds and converted to minutes. For outbound calls, the matched rate is applied. Inbound calls are always computed at $0.02.</p>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-4">
-                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-600 text-sm">✓</div>
-                                <div>
-                                    <h4 className="font-bold text-emerald-800 text-sm mb-1">Billing Confirmation</h4>
-                                    <p className="text-xs text-emerald-600/80 leading-relaxed italic">All rates are pulled directly from your official billing schedule (found in the PDF below).</p>
-                                </div>
-                            </div>
+                            ))}
                         </div>
                     </div>
-
                     <DialogFooter className="p-6 bg-slate-50 border-t border-slate-100">
                         <a href="/billing-plan.pdf" download className="w-full">
                             <Button className="w-full bg-slate-900 hover:bg-slate-800 text-white shadow-lg shadow-slate-200">

@@ -66,14 +66,10 @@ function WalletModal({ isOpen, onClose, type, details, calls }: { isOpen: boolea
     })();
 
     const vapiAgentUsed = useMemo(() => {
-        // Prioritize Vapi API's native 'used' value if available
-        if (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) {
-            return voiceBalance.vapi.used;
-        }
         if (!calls || !Array.isArray(calls)) return 0;
-        // Fallback to summing 'agent' costs from logs specifically
+        // Strictly sum 'agent' costs from the logs displayed in the current range
         return calls.filter((c: any) => c.source === 'vapi').reduce((acc: number, call: any) => acc + (call.breakdown?.agent || 0), 0);
-    }, [calls, voiceBalance]);
+    }, [calls]);
 
     const maqsamUsedCost = useMemo(() => {
         if (!calls || !Array.isArray(calls)) return 0;

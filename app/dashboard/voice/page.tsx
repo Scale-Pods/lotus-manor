@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { Phone, Clock, DollarSign, TrendingUp, Calendar as CalendarIcon, Timer, Loader2 } from "lucide-react";
+import { Phone, Clock, DollarSign, TrendingUp, Timer, Users, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LMLoader } from "@/components/lm-loader";
 import React, { useEffect, useState } from "react";
@@ -18,11 +18,13 @@ import {
     Area
 } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { format, parseISO, startOfDay, getHours, subDays } from "date-fns";
+import { Badge } from "@/components/ui/badge";
+import { format, getHours, subDays } from "date-fns";
 import { calculateDuration, formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
 export default function VoiceDashboardPage() {
+    // providerFilter: 'vapi' | 'elevenlabs'
     const [providerFilter, setProviderFilter] = useState("vapi");
     const [stats, setStats] = useState({
         totalCalls: 0,
@@ -36,31 +38,27 @@ export default function VoiceDashboardPage() {
         characterLimit: 0,
         vapiBalance: 0,
         lifetimeCostVapi: 0,
-        lifetimeCostEL: 0
+        lifetimeCostEL: 0,
+        normalCalls: 0,
+        ownersCalls: 0,
     });
     const [dailyVolume, setDailyVolume] = useState<any[]>([]);
     const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
     const [loadingLocal, setLoadingLocal] = useState(false);
     const [dateRange, setDateRange] = useState<any>(undefined);
 
-    useEffect(() => {
-        setLoadingLocal(true);
-    }, []);
 
     const { calls: globalCalls, loadingCalls, voiceBalance, refreshCalls } = useData();
 
-    // Dynamic Server-Side Refresh when filters change
+    // Refresh on filter/date change
     useEffect(() => {
-        if (refreshCalls) {
-            // If dateRange is undefined (default), we don't pass the dates explicitly.
-            // This allows the DataContext to use its standardized, rounded defaults,
-            // which enables instant navigation from the Master Dashboard.
-            refreshCalls({
-                from: dateRange?.from,
-                to: dateRange?.to,
-                includeElevenLabs: (providerFilter === 'elevenlabs' || providerFilter === 'all')
-            });
-        }
+        if (!refreshCalls) return;
+        refreshCalls({
+            from: dateRange?.from,
+            to: dateRange?.to,
+            provider: providerFilter,
+            includeElevenLabs: providerFilter === 'elevenlabs'
+        });
     }, [dateRange, providerFilter, refreshCalls]);
 
     useEffect(() => {
@@ -71,14 +69,15 @@ export default function VoiceDashboardPage() {
                 characterLimit: voiceBalance.elevenlabs?.character_limit || voiceBalance.character_limit || 0,
                 vapiBalance: voiceBalance.vapi?.balance || 0
             }));
-            setLoadingLocal(false);
         }
     }, [voiceBalance]);
 
-    const loading = loadingLocal || loadingCalls;
+    const loading = loadingCalls;
 
     useEffect(() => {
-        if (loading) return;
+        // Calculate stats whenever globalCalls changes, even if still technically "loading"
+        // so that pre-fetched data from Master Dashboard shows up instantly.
+        if (globalCalls.length === 0 && loading) return;
 
         let totalDuration = 0;
         let totalCost = 0;
@@ -88,31 +87,27 @@ export default function VoiceDashboardPage() {
         const dayMap = new Map();
         const hourMap = new Array(24).fill(0);
 
-        // Filter by provider (Date filtering is already handled on the server)
+        // Apply provider filter
         const filteredCalls = globalCalls.filter((call: any) => {
-            if (providerFilter !== "all" && call.source !== providerFilter) return false;
+            if (providerFilter === 'vapi') return call.source === 'vapi';
+            if (providerFilter === 'elevenlabs') return call.source === 'elevenlabs';
             return true;
         });
 
-        // Debug log to confirm counts
-        // console.log(`Global Calls: ${globalCalls.length}, Filtered: ${filteredCalls.length} (Range: ${dateRange.from.toLocaleDateString()} - ${dateRange.to?.toLocaleDateString()})`);
-
-
         let lifetimeCostVapiSum = 0;
         let lifetimeCostELSum = 0;
+        let normalCallsCount = 0;
+        let ownersCallsCount = 0;
 
-        // Separate calculation for lifetime totals (ignoring date filter)
         globalCalls.forEach((call: any) => {
             let cost = 0;
-            if (typeof call.cost === 'string') {
-                cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
-            } else if (typeof call.cost === 'number') {
-                cost = call.cost;
-            }
+            if (typeof call.cost === 'string') cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
+            else if (typeof call.cost === 'number') cost = call.cost;
 
             if (call.source === 'vapi') {
-                // Sum the specific agent part for credits
                 lifetimeCostVapiSum += (call.breakdown?.agent !== undefined) ? call.breakdown.agent : cost;
+                if (call.vapiAccount === 'normal') normalCallsCount++;
+                if (call.vapiAccount === 'owners') ownersCallsCount++;
             }
             if (call.source === 'elevenlabs') lifetimeCostELSum += cost;
         });
@@ -123,12 +118,8 @@ export default function VoiceDashboardPage() {
             const duration = call.durationSeconds || 0;
 
             let cost = 0;
-            if (typeof call.cost === 'string') {
-                const numericStr = call.cost.replace(/[^\d.]/g, '');
-                cost = parseFloat(numericStr) || 0;
-            } else if (typeof call.cost === 'number') {
-                cost = call.cost;
-            }
+            if (typeof call.cost === 'string') cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
+            else if (typeof call.cost === 'number') cost = call.cost;
 
             if (status === 'done' || status === 'ended' || status === 'completed' || status === 'success' || status === 'answered') {
                 completed++;
@@ -141,10 +132,7 @@ export default function VoiceDashboardPage() {
             if (startedAtDate) {
                 const dayKey = format(startedAtDate, 'yyyy-MM-dd');
                 const displayKey = format(startedAtDate, 'MMM dd');
-
-                if (!dayMap.has(dayKey)) {
-                    dayMap.set(dayKey, { count: 0, display: displayKey });
-                }
+                if (!dayMap.has(dayKey)) dayMap.set(dayKey, { count: 0, display: displayKey });
                 dayMap.get(dayKey).count++;
 
                 const hour = getHours(startedAtDate);
@@ -167,7 +155,9 @@ export default function VoiceDashboardPage() {
             successRate,
             completedCalls: completed,
             lifetimeCostVapi: (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) ? voiceBalance.vapi.used : lifetimeCostVapiSum,
-            lifetimeCostEL: lifetimeCostELSum
+            lifetimeCostEL: lifetimeCostELSum,
+            normalCalls: normalCallsCount,
+            ownersCalls: ownersCallsCount,
         }));
 
         const dailyData = Array.from(dayMap.entries())
@@ -183,51 +173,74 @@ export default function VoiceDashboardPage() {
 
         setHourlyDistribution(hourlyData);
     }, [globalCalls, dateRange, providerFilter, loading]);
-    // Added providerFilter here
 
     return (
-        <div className="space-y-8 pb-10 relative min-h-[500px]">
+        <div className="space-y-4 pb-4 relative min-h-[500px]">
             {loading && <LMLoader />}
-            {/* Header Section */}
+
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">Voice Agent Dashboard</h1>
-                    <div className="flex items-center gap-2 text-slate-500">
-                        <p>Monitor your AI voice agent performance.</p>
-
-                    </div>
+                    <p className="text-slate-500">Monitor your AI voice agent performance across all accounts.</p>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                     <Select value={providerFilter} onValueChange={setProviderFilter}>
-                        <SelectTrigger className="w-[140px] h-10 border-slate-200"><SelectValue placeholder="Provider" /></SelectTrigger>
+                        <SelectTrigger className="w-[160px] h-10 border-slate-200">
+                            <SelectValue placeholder="Provider" />
+                        </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">All Providers</SelectItem>
                             <SelectItem value="vapi">Vapi</SelectItem>
                             <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
                         </SelectContent>
                     </Select>
                     <Button
                         variant="outline"
-                        className="flex items-center gap-2 border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors h-10"
-                        onClick={() => refreshCalls({ 
-                            from: dateRange?.from, 
-                            to: dateRange?.to, 
-                            includeElevenLabs: providerFilter === 'all' || providerFilter === 'elevenlabs',
+                        className="flex items-center gap-2 border-slate-200 text-slate-600 hover:bg-slate-50 h-10"
+                        onClick={() => refreshCalls({
+                            from: dateRange?.from,
+                            to: dateRange?.to,
+                            provider: providerFilter,
+                            includeElevenLabs: providerFilter === 'elevenlabs',
                             force: true
                         })}
                         disabled={loading}
                     >
                         <TrendingUp className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                        Refresh Data
+                        Refresh
                     </Button>
                     <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
                 </div>
             </div>
 
+            {/* Vapi Account Split Banner */}
+            {providerFilter === 'vapi' && !loading && (
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2">
+                        <div className="p-1.5 bg-blue-100 rounded-lg">
+                            <Phone className="h-4 w-4 text-blue-600" />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider">Normal Calls</p>
+                            <p className="text-xl font-bold text-blue-700">{stats.normalCalls.toLocaleString()}</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2">
+                        <div className="p-1.5 bg-amber-100 rounded-lg">
+                            <Crown className="h-4 w-4 text-amber-600" />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Owner Leads</p>
+                            <p className="text-xl font-bold text-amber-700">{stats.ownersCalls.toLocaleString()}</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Metrics Overview */}
-            <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 ${providerFilter === 'all' ? 'xl:grid-cols-5' : 'xl:grid-cols-4'} gap-6`}>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <MetricCard
-                    title="Total Executions"
+                    title="Total Calls"
                     value={`${stats.totalCalls} calls`}
                     icon={<Phone className="h-5 w-5 text-slate-600" />}
                 />
@@ -241,30 +254,15 @@ export default function VoiceDashboardPage() {
                     value={`${Math.round(stats.avgDuration)}s`}
                     icon={<Timer className="h-5 w-5 text-slate-600" />}
                 />
-                {(providerFilter === 'all' || providerFilter === 'vapi') && (
-                    <MetricCard
-                        title="Vapi Credits Used"
-                        value={`$${(stats as any).lifetimeCostVapi.toFixed(2)}`}
-                        badge="Total Used"
-                        icon={<DollarSign className="h-5 w-5 text-blue-600" />}
-                    />
-                )}
-                {(providerFilter === 'all' || providerFilter === 'elevenlabs') && (
-                    <MetricCard
-                        title="ElevenLabs Remaining"
-                        value={`${(stats.characterLimit - stats.characterCount).toLocaleString()}`}
-                        badge={`of ${stats.characterLimit.toLocaleString()}`}
-                        icon={<DollarSign className="h-5 w-5 text-emerald-600" />}
-                    />
-                )}
+                
             </div>
 
-            {/* Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-                    <CardContent className="p-6">
-                        <h3 className="text-lg font-semibold text-slate-900 mb-6">Daily Call Volume</h3>
-                        <div className="w-full" style={{ height: 300, minHeight: 300 }}>
+                    <CardContent className="p-4">
+                        <h3 className="text-sm font-semibold text-slate-900 mb-4">Daily Call Volume</h3>
+                        <div className="w-full" style={{ height: 250, minHeight: 250 }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={dailyVolume.length > 0 ? dailyVolume : [{ name: 'No Data', calls: 0 }]}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -279,9 +277,9 @@ export default function VoiceDashboardPage() {
                 </Card>
 
                 <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-                    <CardContent className="p-6">
-                        <h3 className="text-lg font-semibold text-slate-900 mb-6">Hourly Call Distribution</h3>
-                        <div className="w-full" style={{ height: 300, minHeight: 300 }}>
+                    <CardContent className="p-4">
+                        <h3 className="text-sm font-semibold text-slate-900 mb-4">Hourly Call Distribution</h3>
+                        <div className="w-full" style={{ height: 250, minHeight: 250 }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={hourlyDistribution.length > 0 ? hourlyDistribution : [{ name: '00:00', calls: 0 }]}>
                                     <defs>
@@ -308,18 +306,18 @@ export default function VoiceDashboardPage() {
 function MetricCard({ title, value, badge, icon }: any) {
     return (
         <Card className="bg-white border-slate-200 text-slate-900 shadow-sm relative group hover:shadow-md transition-all duration-300">
-            <CardContent className="p-6">
+            <CardContent className="p-4">
                 <div className="flex items-start justify-between">
                     <div>
-                        <p className="text-sm font-medium text-slate-500 mb-1">{title}</p>
-                        <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
+                        <p className="text-[10px] font-medium text-slate-500 mb-0.5">{title}</p>
+                        <h3 className="text-xl font-bold text-slate-900">{value}</h3>
                         {badge && (
-                            <div className="mt-2 inline-flex items-center px-2 py-0.5 rounded textxs font-medium bg-emerald-50 text-emerald-600 border border-emerald-100">
+                            <div className="mt-1 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-600 border border-emerald-100">
                                 {badge}
                             </div>
                         )}
                     </div>
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 group-hover:bg-slate-100 transition-colors">
+                    <div className="p-2 bg-slate-50 rounded-lg border border-slate-100 group-hover:bg-slate-100 transition-colors">
                         {icon}
                     </div>
                 </div>

@@ -81,7 +81,7 @@ export async function GET(req: Request) {
 
     try {
         // Parallel execution
-        const [nr_wf, followup, nurture, master_leads, v1Count, v2Count, v3Count] = await Promise.all([
+        const [nr_wf, followup, nurture, master_leads, v1_nw, v2_nw, v1_fu, v2_fu] = await Promise.all([
             // Workflows: No date limit, all columns, ensures WhatsApp works
             fetchTableData("nr_wf", false),
             fetchTableData("followup", false),
@@ -91,9 +91,10 @@ export async function GET(req: Request) {
             fetchTableData("master_leads", true, '"Lead ID",Name,Phone,Email,"Created At"'),
             
             // Background counts for All-Time Voice metric
-            getTableCount("nr_wf", '"Voice 1"=not.is.null'),
-            getTableCount("followup", '"Voice 1"=not.is.null'),
-            getTableCount("nurture", '"Voice 1"=not.is.null')
+            getTableCount("nr_wf", '"Voice 1"=not.is.null&"Voice 1"=not.eq.'),
+            getTableCount("nr_wf", '"Voice 2"=not.is.null&"Voice 2"=not.eq.'),
+            getTableCount("followup", '"Voice 1"=not.is.null&"Voice 1"=not.eq.'),
+            getTableCount("followup", '"Voice 2"=not.is.null&"Voice 2"=not.eq.')
         ]);
 
         return NextResponse.json({
@@ -101,7 +102,7 @@ export async function GET(req: Request) {
             followup,
             nurture,
             master_leads,
-            allTimeVoiceCount: (v1Count || 0) + (v2Count || 0) + (v3Count || 0)
+            allTimeVoiceCount: (v1_nw || 0) + (v2_nw || 0) + (v1_fu || 0) + (v2_fu || 0)
         });
 
     } catch (error: any) {

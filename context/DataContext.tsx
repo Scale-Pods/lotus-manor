@@ -16,7 +16,7 @@ interface DataContextType {
     twilioBalance: any;
     error: string | null;
     refreshLeads: (params?: { from?: Date; to?: Date; force?: boolean }) => Promise<void>;
-    refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; force?: boolean }) => Promise<void>;
+    refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; provider?: string; force?: boolean }) => Promise<void>;
     refreshBalances: () => Promise<void>;
     refreshAll: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
 }
@@ -55,8 +55,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const data = await response.json();
             const consolidated = consolidateLeads(data);
             setLeads(consolidated);
-            if (data.allTimeVoiceLeads) {
-                setAllTimeVoiceCount(data.allTimeVoiceLeads.filter((l: any) => l["Voice 1"] && String(l["Voice 1"]).trim()).length);
+            if (typeof data.allTimeVoiceCount === 'number') {
+                setAllTimeVoiceCount(data.allTimeVoiceCount);
             }
         } catch (err: any) {
             console.error('DataProvider leads fetch error:', err);
@@ -66,7 +66,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
-    const fetchCalls = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; force?: boolean }) => {
+    const fetchCalls = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; provider?: string; force?: boolean }) => {
         try {
             // Normalize defaults to Last 7 Days (Start of Day) to ensure stable query strings across components
             // Using full-day boundaries (12am - 12pm) ensures identical cache keys for the entire day.
@@ -74,6 +74,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const fromDate = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
             const toDate = params?.to ? endOfDay(params.to) : endOfDay(now);
             const includeElevenLabs = params?.includeElevenLabs || false;
+            const provider = params?.provider || 'vapi';
 
             if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
                 console.error("Invalid dates passed to fetchCalls");
@@ -83,7 +84,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const query = new URLSearchParams({
                 from: fromDate.toISOString(),
                 to: toDate.toISOString(),
-                includeElevenLabs: String(includeElevenLabs)
+                includeElevenLabs: String(includeElevenLabs),
+                provider
             });
 
             const currentQuery = query.toString();
