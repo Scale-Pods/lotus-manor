@@ -294,8 +294,6 @@ export default function VoiceLogsPage() {
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="Inbound">Inbound</SelectItem>
                             <SelectItem value="Outbound">Outbound</SelectItem>
-                            <SelectItem value="secondary-leads">Secondary Leads Reachout</SelectItem>
-                            <SelectItem value="normal">Normal Calls</SelectItem>
                         </SelectContent>
                     </Select>
 
