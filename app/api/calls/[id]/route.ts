@@ -70,7 +70,7 @@ export async function GET(
                 if (vapiRes.ok) {
                     const data = await vapiRes.json();
                     const customer = data.customer || {};
-                    const isInbound = data.type === 'inbound';
+                    const isInbound = data.type?.toLowerCase().includes('inbound');
 
                     // GUEST NUMBER ALWAYS COMES FROM CUSTOMER (STRICT)
                     let customerPhone = String(customer.number || "Unknown").replace(/\D/g, '');
@@ -91,7 +91,7 @@ export async function GET(
                         phoneNumber: assistantPhone, // Bot
                         customer_number: customerPhone, // Guest
                         phone: customerPhone !== "Unknown" ? `+${customerPhone}` : "Unknown", // Add 'phone' for modal compatibility
-                        type: data.type || "Unknown",
+                        type: isInbound ? "Inbound" : "Outbound",
                         isInbound,
                         source: 'vapi',
                         audio_url: data.recordingUrl

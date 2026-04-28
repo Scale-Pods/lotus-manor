@@ -203,7 +203,7 @@ async function syncRecentVapiCalls(calls: any[]) {
 
                 return {
                     id: c.id,
-                    started_at: c.startedAt,
+                    started_at: c.startedAt || new Date().toISOString(),
                     customer_phone: c.phone || c.customer_number || "Unknown",
                     customer_name: (c.name && c.name !== "Unknown") ? c.name : "Guest",
                     duration_seconds: c.durationSeconds,
@@ -216,9 +216,10 @@ async function syncRecentVapiCalls(calls: any[]) {
                         ...c.raw,
                         vapiAccount: categoricalAccount,
                         isInbound: c.isInbound,
-                        type: c.type || (c.isInbound ? 'inbound' : 'outbound')
+                        type: c.isInbound ? "Inbound" : "Outbound"
                     },
-                    vapi_account: categoricalAccount
+                    vapi_account: categoricalAccount,
+                    source: c.source || (categoricalAccount === 'elevenlabs' ? 'elevenlabs' : 'vapi')
                 };
             });
 
@@ -245,11 +246,22 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
     const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
     const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
 
-    // SELECT only metadata columns. EXCLUDE 'transcript' and 'raw_data' to prevent statement timeouts.
-    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,summary,vapi_account,recording_url';
+    // SELECT metadata and raw_data for filtering/display. 
+    // We include raw_data to get assistantId, isInbound, etc.
+    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,summary,vapi_account,recording_url,raw_data';
     let url = `${baseUrl}/vapi_call_logs?select=${columns}&order=started_at.desc&limit=2000`;
-    if (fromDate) url += `&started_at=gte.${fromDate.toISOString()}`;
-    if (toDate) url += `&started_at=lte.${toDate.toISOString()}`;
+    
+    if (fromDate) {
+        url += `&started_at=gte.${fromDate.toISOString()}`;
+    }
+    if (toDate) {
+        // Ensure toDate includes the full day if it's just a date (00:00:00)
+        const endOfRange = new Date(toDate);
+        if (endOfRange.getUTCHours() === 0 && endOfRange.getUTCMinutes() === 0 && endOfRange.getUTCSeconds() === 0) {
+            endOfRange.setUTCHours(23, 59, 59, 999);
+        }
+        url += `&started_at=lte.${endOfRange.toISOString()}`;
+    }
 
     try {
         const res = await fetch(url, { headers });
@@ -277,7 +289,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
                 phoneNumber: ph,
                 callSummary: d.summary || '',
                 status: d.status || 'answered',
-                type: raw.type || (d.vapi_account === 'elevenlabs' ? 'Outbound' : 'Voice'),
+                type: (raw.isInbound ?? false) ? "Inbound" : "Outbound",
                 isInbound: raw.isInbound ?? false,
                 country: 'Unknown',
                 source: d.vapi_account === 'elevenlabs' ? 'elevenlabs' : 'vapi',
@@ -289,7 +301,9 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
                     ...raw,
                     id: d.id, 
                     startedAt: d.started_at, 
-                    recordingUrl: d.recording_url 
+                    recordingUrl: d.recording_url,
+                    assistantId: raw.assistantId || null,
+                    isInbound: raw.isInbound ?? false
                 }
             };
         });
@@ -351,7 +365,7 @@ function normalizeVapiCall(
     evalCache: Map<string, string>,
     twilioLookup: Map<string, any>
 ) {
-    const isInbound = vc.type === 'inbound';
+    const isInbound = vc.type?.toLowerCase().includes('inbound');
     const customer = vc.customer || {};
     const phoneRaw = cleanPhoneNumber(customer.number);
     const durationPref = vc.durationSeconds ?? vc.duration ?? 0;
