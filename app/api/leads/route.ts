@@ -97,12 +97,20 @@ export async function GET(req: Request) {
             getTableCount("followup", '"Voice 2"=not.is.null&"Voice 2"=not.eq.')
         ]);
 
-        return NextResponse.json({
+        return new NextResponse(JSON.stringify({
             nr_wf,
             followup,
             nurture,
             master_leads,
             allTimeVoiceCount: (v1_nw || 0) + (v2_nw || 0) + (v1_fu || 0) + (v2_fu || 0)
+        }), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+            }
         });
 
     } catch (error: any) {

@@ -228,7 +228,22 @@ export default function VoiceLogsPage() {
 
     return (
         <div className="space-y-6 pb-10 relative min-h-[500px]">
-            {loading && allCallsMapped.length === 0 && <LMLoader />}
+            {/* Absolute Full-Screen Loader for Initial Load */}
+            {loading && allCallsMapped.length === 0 && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm">
+                    <LMLoader />
+                </div>
+            )}
+            
+            {/* Subtle Overlay Loader for Background Refreshes (Filtering) */}
+            {loading && allCallsMapped.length > 0 && (
+                <div className="absolute inset-0 z-40 flex items-center justify-center bg-white/20 backdrop-blur-[1px] pointer-events-none">
+                    <div className="bg-white/80 p-6 rounded-2xl shadow-xl border border-slate-100 flex flex-col items-center gap-3">
+                        <LMLoader />
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Updating Logs...</span>
+                    </div>
+                </div>
+            )}
 
             <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">

@@ -81,7 +81,7 @@ function getMaqsamSignature(method: string, endpoint: string, timestamp: string,
 // --- Global In-Memory Cache (Expires every 5 minutes) ---
 let globalLeadsCache: { data: Map<string, { name: string; status: any }>, timestamp: number } | null = null;
 let globalEvalCache: { data: Map<string, string>, timestamp: number } | null = null;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 30 * 1000; // 30 seconds (Live leads parity)
 
 // --- Leads Cache (Supabase) ---
 async function fetchLeadsCache() {
@@ -183,22 +183,44 @@ async function syncRecentVapiCalls(calls: any[]) {
         "Prefer": "resolution=merge-duplicates"
     };
 
-    const CHUNK_SIZE = 70;
-    for (let i = 0; i < recentCalls.length; i += CHUNK_SIZE) {
-        const chunk = recentCalls.slice(i, i + CHUNK_SIZE).map(c => ({
-            id: c.id,
-            started_at: c.startedAt,
-            customer_phone: c.phone || c.customer_number || "Unknown",
-            customer_name: (c.name && c.name !== "Unknown") ? c.name : "Guest",
-            duration_seconds: c.durationSeconds,
-            status: c.status,
-            cost_usd: c.costValue,
-            transcript: c.raw?.transcript || c.raw?.messages || c.raw?.analysis?.transcript || [],
-            summary: c.callSummary || "",
-            recording_url: c.raw?.audio_url || c.raw?.recordingUrl || c.raw?.artifact?.recordingUrl || "",
-            raw_data: c.raw || {},
-            vapi_account: c.vapiAccount || (c.source === 'elevenlabs' ? 'elevenlabs' : 'normal')
-        }));
+        const CHUNK_SIZE = 70;
+        for (let i = 0; i < recentCalls.length; i += CHUNK_SIZE) {
+            const chunk = recentCalls.slice(i, i + CHUNK_SIZE).map(c => {
+                const aid = c.assistantId || c.raw?.assistantId || null;
+                
+                // Specific requested categorization
+                let categoricalAccount = c.vapiAccount || 'normal';
+                const ownerBotId = "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd";
+                const normalBotIds = [
+                    "b35e3032-7865-4913-ba22-a913b5d4117b", // US
+                    "918c25eb-9882-452e-86df-b4851d464852", // UK
+                    "70f05e16-18f3-4f6e-964a-f47b299c6c1d"  // UAE
+                ];
+
+                if (aid === ownerBotId) categoricalAccount = 'owners';
+                else if (normalBotIds.includes(aid)) categoricalAccount = 'normal';
+                else if (c.source === 'elevenlabs') categoricalAccount = 'elevenlabs';
+
+                return {
+                    id: c.id,
+                    started_at: c.startedAt,
+                    customer_phone: c.phone || c.customer_number || "Unknown",
+                    customer_name: (c.name && c.name !== "Unknown") ? c.name : "Guest",
+                    duration_seconds: c.durationSeconds,
+                    status: c.status,
+                    cost_usd: c.costValue,
+                    transcript: c.raw?.transcript || c.raw?.messages || c.raw?.analysis?.transcript || [],
+                    summary: c.callSummary || "",
+                    recording_url: c.raw?.audio_url || c.raw?.recordingUrl || c.raw?.artifact?.recordingUrl || "",
+                    raw_data: {
+                        ...c.raw,
+                        vapiAccount: categoricalAccount,
+                        isInbound: c.isInbound,
+                        type: c.type || (c.isInbound ? 'inbound' : 'outbound')
+                    },
+                    vapi_account: categoricalAccount
+                };
+            });
 
         try {
             await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/vapi_call_logs`, {
@@ -223,8 +245,9 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
     const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
     const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
 
-    // Simple range filter only — provider filtering done in JS to avoid PostgREST syntax issues
-    let url = `${baseUrl}/vapi_call_logs?select=*&order=started_at.desc`;
+    // SELECT only metadata columns. EXCLUDE 'transcript' and 'raw_data' to prevent statement timeouts.
+    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,summary,vapi_account,recording_url';
+    let url = `${baseUrl}/vapi_call_logs?select=${columns}&order=started_at.desc&limit=2000`;
     if (fromDate) url += `&started_at=gte.${fromDate.toISOString()}`;
     if (toDate) url += `&started_at=lte.${toDate.toISOString()}`;
 
@@ -238,11 +261,10 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
         if (!Array.isArray(data)) return [];
 
         return data.map((d: any) => {
-            const rawData = d.raw_data || {};
-            const vapiAcc = d.vapi_account || rawData.vapiAccount || null;
-            const aId = rawData.assistantId || d.assistant_id || null;
-            const dur = d.duration_seconds || rawData.durationSeconds || 0;
-            const costVal = d.cost_usd ?? rawData.costValue ?? 0;
+            const dur = d.duration_seconds || 0;
+            const costVal = d.cost_usd ?? 0;
+            const ph = d.customer_phone || 'Unknown';
+            const raw = d.raw_data || {};
 
             return {
                 id: d.id,
@@ -250,20 +272,25 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
                 durationSeconds: dur,
                 costValue: costVal,
                 cost: `$${Number(costVal).toFixed(3)}`,
-                phone: d.customer_phone || rawData.phone || 'Unknown',
-                name: d.customer_name || rawData.name || 'Guest',
-                phoneNumber: d.customer_phone || rawData.phoneNumber || 'Unknown',
-                callSummary: d.summary || rawData.callSummary || '',
-                status: d.status || rawData.status || 'answered',
-                type: rawData.type || (rawData.isInbound ? 'Inbound' : 'Outbound'),
-                isInbound: rawData.isInbound || false,
-                country: rawData.country || 'Unknown',
-                source: rawData.source || 'vapi',
-                vapiAccount: vapiAcc,
-                assistantId: aId,
-                endedReason: rawData.endedReason || null,
-                breakdown: rawData.breakdown || { agent: 0, telephony: 0, total: costVal },
-                raw: rawData
+                phone: ph,
+                name: d.customer_name || 'Guest',
+                phoneNumber: ph,
+                callSummary: d.summary || '',
+                status: d.status || 'answered',
+                type: raw.type || (d.vapi_account === 'elevenlabs' ? 'Outbound' : 'Voice'),
+                isInbound: raw.isInbound ?? false,
+                country: 'Unknown',
+                source: d.vapi_account === 'elevenlabs' ? 'elevenlabs' : 'vapi',
+                vapiAccount: d.vapi_account,
+                assistantId: raw.assistantId || null,
+                endedReason: raw.endedReason || null,
+                breakdown: { agent: costVal, telephony: 0, total: costVal },
+                raw: { 
+                    ...raw,
+                    id: d.id, 
+                    startedAt: d.started_at, 
+                    recordingUrl: d.recording_url 
+                }
             };
         });
     } catch (e) {
@@ -833,6 +860,11 @@ export async function GET(req: Request) {
                 ).filter(Boolean) as any[];
 
                 vapiNormalized = [...normalNormalized, ...ownersNormalized];
+
+                // BACKGROUND SYNC: Ensure the archive is kept up to date for future custom-range queries
+                if (vapiNormalized.length > 0) {
+                    syncRecentVapiCalls(vapiNormalized).catch(e => console.error("Archive Sync Error:", e));
+                }
             } catch (e) {
                 console.error("Dual Vapi aggregation fail:", e);
             }
@@ -874,7 +906,15 @@ export async function GET(req: Request) {
             syncRecentVapiCalls(vapiNormalized).catch(err => console.error("[SyncTrigger] Error:", err));
         }
 
-        return NextResponse.json(final);
+        return new NextResponse(JSON.stringify(final), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+            }
+        });
 
     } catch (globalErr) {
         console.error("Global calls API error:", globalErr);

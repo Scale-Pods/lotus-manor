@@ -127,6 +127,33 @@ export async function GET(
             } catch (err) { }
         }
 
+        // LAST RESORT: Check Supabase Archived Logs
+        if (supabaseUrl && secretKey) {
+            try {
+                const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
+                const res = await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/vapi_call_logs?id=eq.${id}&select=*`, { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data[0]) {
+                        const call = data[0];
+                        const raw = call.raw_data || {};
+                        return NextResponse.json({
+                            ...raw, // Spreads real Vapi fields back out
+                            id: call.id,
+                            transcript: call.transcript || raw.transcript || [],
+                            analysis: { ...raw.analysis, summary: call.summary },
+                            callSummary: call.summary,
+                            startedAt: call.started_at,
+                            recordingUrl: call.recording_url,
+                            source: call.vapi_account === 'elevenlabs' ? 'elevenlabs' : 'vapi',
+                            customer_number: call.customer_phone,
+                            phone: call.customer_phone
+                        });
+                    }
+                }
+            } catch (e) { }
+        }
+
         return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
     } catch (error) {
         return NextResponse.json({ error: "Failed to fetch conversation details" }, { status: 500 });

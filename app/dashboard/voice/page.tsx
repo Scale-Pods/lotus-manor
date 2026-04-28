@@ -175,8 +175,16 @@ export default function VoiceDashboardPage() {
     }, [globalCalls, dateRange, providerFilter, loading]);
 
     return (
-        <div className="space-y-4 pb-4 relative min-h-[500px]">
-            {loading && <LMLoader />}
+        <div className="flex flex-col gap-4 p-6 bg-slate-50/30 min-h-screen relative">
+            {/* Background refresh loader for consistency */}
+            {loading && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/20 backdrop-blur-[1px] pointer-events-none">
+                    <div className="bg-white/80 p-6 rounded-2xl shadow-xl border border-slate-100 flex flex-col items-center gap-3">
+                        <LMLoader />
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Updating Analytics...</span>
+                    </div>
+                </div>
+            )}
 
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
