@@ -26,7 +26,10 @@ export default function WhatsappAnalyticsPage() {
     const { leads: allLeads, loadingLeads } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const loading = loadingLeads;
-    const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>(undefined as any);
+    const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
+        from: subDays(new Date(), 7),
+        to: new Date()
+    });
 
     const parseMsg = (raw: any): { date: Date | null, content: string } => {
         if (!raw || !String(raw).trim()) return { date: null, content: "" };
@@ -52,7 +55,19 @@ export default function WhatsappAnalyticsPage() {
     };
 
     const getLeadLatestActivity = (lead: any) => {
-        let latest = new Date(lead.created_at);
+        // PRIORITY: Use the specific reachout timestamp for Analytics
+        const wp1Ts = lead["W.P_1 TS"];
+        if (wp1Ts && wp1Ts.includes(' - ')) {
+            const parts = wp1Ts.split(' - ');
+            const datePart = parts[parts.length - 1].trim();
+            const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+            if (match) {
+                const d = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                if (!isNaN(d.getTime())) return d;
+            }
+        }
+
+        let latest = new Date(lead.updated_at || lead.created_at);
         const stageData = lead.stage_data || {};
         const getD = (raw: any) => parseMsg(raw).date;
         for (let i = 1; i <= 12; i++) {
@@ -61,13 +76,16 @@ export default function WhatsappAnalyticsPage() {
             if (!d && tsRaw && tsRaw.includes(' - ')) {
                 const parts = tsRaw.split(' - ');
                 const datePart = parts[parts.length - 1].trim();
-                const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
-                if (!isNaN(tsDate.getTime())) {
-                    const rawLower = tsRaw.toLowerCase();
-                    if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
-                        tsDate.setHours(0, 0, 0, 0); 
+                const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                if (match) {
+                    const tsDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                    if (!isNaN(tsDate.getTime())) {
+                        const rawLower = tsRaw.toLowerCase();
+                        if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
+                            tsDate.setHours(0, 0, 0, 0); 
+                        }
+                        d = tsDate;
                     }
-                    d = tsDate;
                 }
             }
             if (d && d > latest) latest = d;
@@ -102,16 +120,10 @@ export default function WhatsappAnalyticsPage() {
 
         return leads.filter(l => {
             const lead = l as any;
-            const stageData = lead.stage_data || {};
-            const stages = lead.stages_passed || [];
-
-            // Identify WhatsApp Lead
-            const isWP = stages.some((s: string) => s.toLowerCase().includes("whatsapp") || s.toLowerCase().includes("w.p")) ||
-                (lead.whatsapp_replied && !["no", "none", ""].includes(String(lead.whatsapp_replied).toLowerCase().trim())) ||
-                [...Array(12)].some((_, i) => lead[`W.P_${i + 1}`] || stageData[`WhatsApp ${i + 1}`]) ||
-                [...Array(10)].some((_, i) => lead[`W.P_Replied_${i + 1}`] || lead[`W.P_FollowUp_${i + 1}`]);
-
-            if (!isWP) return false;
+            
+            // Identify WhatsApp Reachout (W.P_1 not null/No)
+            const wp1 = lead["W.P_1"];
+            if (!wp1 || wp1 === "" || wp1 === "No") return false;
 
             if (dateRange?.from) {
                 const latest = getLeadLatestActivity(lead);
@@ -287,7 +299,7 @@ export default function WhatsappAnalyticsPage() {
                     bg="bg-purple-50"
                 />
                 <StatCard
-                    title="Unique Contacted Leads"
+                    title="Unique Whatsapp Reachouts"
                     value={stats.totalLeads.toLocaleString()}
                     icon={Users}
                     color="text-slate-600"

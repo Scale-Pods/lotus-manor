@@ -69,17 +69,9 @@ export default function WhatsappLeadsPage() {
             // Filter: only include leads that have actually been contacted via WhatsApp (matches other views)
             const whatsappLeads = allLeads.filter(l => {
                 const lead = l as any;
-                if (lead.stages_passed.some((s: string) => s.toLowerCase().includes("whatsapp"))) return true;
-                if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") return true;
-                for (let i = 1; i <= 10; i++) {
-                    const r = lead[`W.P_Replied_${i}`];
-                    if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
-                    if (lead[`W.P_FollowUp_${i}`]) return true;
-                }
-                for (let i = 1; i <= 12; i++) {
-                    if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
-                }
-                return false;
+                // Only include leads where W.P_1 is not empty/No
+                const wp1 = lead["W.P_1"];
+                return (wp1 && wp1 !== "" && wp1 !== "No");
             });
             setLeads(whatsappLeads);
         }
@@ -95,17 +87,30 @@ export default function WhatsappLeadsPage() {
 
             if (!matchesSearch) return false;
 
-            // Date range filter
-            if (dateRange.from && l.last_contacted) {
-                const contactDate = new Date(l.last_contacted);
-                if (contactDate < dateRange.from) return false;
-            }
-            if (dateRange.to && l.last_contacted) {
-                const contactDate = new Date(l.last_contacted);
-                // End of day for "to" date
-                const toDate = new Date(dateRange.to);
+            // Date range filter using W.P_1 TS specifically
+            const parseWPStamp = (tsRaw: any): Date | null => {
+                if (!tsRaw || !tsRaw.includes(' - ')) return null;
+                const parts = tsRaw.split(' - ');
+                const datePart = parts[parts.length - 1].trim(); 
+                const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                if (!match) return null;
+                // DD/MM/YYYY
+                const d = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                return isNaN(d.getTime()) ? null : d;
+            };
+
+            if (dateRange.from) {
+                const wp1Ts = (l as any)["W.P_1 TS"];
+                let reachoutDate = parseWPStamp(wp1Ts);
+                
+                if (!reachoutDate) return false; // Strict: No TS = Hide
+
+                const fromDate = new Date(dateRange.from);
+                fromDate.setHours(0, 0, 0, 0);
+                const toDate = dateRange.to ? new Date(dateRange.to) : new Date(fromDate);
                 toDate.setHours(23, 59, 59, 999);
-                if (contactDate > toDate) return false;
+
+                if (reachoutDate < fromDate || reachoutDate > toDate) return false;
             }
 
             // Reply status filter

@@ -58,7 +58,10 @@ export default function WhatsappDashboardPage() {
     const [donutData, setDonutData] = useState<any[]>([]);
     const [trendData, setTrendData] = useState<any[]>([]);
     const loading = loadingLeads;
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({
+        from: subDays(new Date(), 7),
+        to: new Date()
+    });
 
     const parseMsg = (raw: any): { date: Date | null, content: string } => {
         if (!raw || !String(raw).trim()) return { date: null, content: "" };
@@ -107,13 +110,16 @@ export default function WhatsappDashboardPage() {
             if (!d && tsRaw && tsRaw.includes(' - ')) {
                 const parts = tsRaw.split(' - ');
                 const datePart = parts[parts.length - 1].trim();
-                const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
-                if (!isNaN(tsDate.getTime())) {
-                    const rawLower = tsRaw.toLowerCase();
-                    if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
-                        tsDate.setHours(0, 0, 0, 0);
+                const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                if (match) {
+                    const tsDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                    if (!isNaN(tsDate.getTime())) {
+                        const rawLower = tsRaw.toLowerCase();
+                        if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
+                            tsDate.setHours(0, 0, 0, 0);
+                        }
+                        d = tsDate;
                     }
-                    d = tsDate;
                 }
             }
             if (d && d > latestDate) latestDate = d;
@@ -136,38 +142,33 @@ export default function WhatsappDashboardPage() {
             if (loadingLeads) return;
 
             try {
-                // Filter: only include leads that have actually been contacted via WhatsApp (matches leads page)
-                // Filter: only include leads that have actually been contacted via WhatsApp (matches Chat view)
-                const whatsappContactedLeads = allLeads.filter(l => {
-                    const lead = l as any;
-                    if (lead.stages_passed.some((s: string) => s.toLowerCase().includes("whatsapp"))) return true;
-                    if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") return true;
-                    for (let i = 1; i <= 10; i++) {
-                        const r = lead[`W.P_Replied_${i}`];
-                        if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
-                        if (lead[`W.P_FollowUp_${i}`]) return true;
-                    }
-                    for (let i = 1; i <= 12; i++) {
-                        if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
-                    }
-                    return false;
-                });
-
-                // Apply Exact Date Filtering (Same as Chat view)
                 const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
                 const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
 
                 const isWithinRange = (d: Date | null) => {
-                    if (!fromDate || !toDate) return true; // All time
+                    if (!fromDate || !toDate) return true;
                     if (!d) return false;
                     return d >= fromDate && d <= toDate;
                 };
 
-                // Filter down total leads using exact activity timestamp
-                const filteredLeads = whatsappContactedLeads.filter((lead: any) => {
-                    if (!dateRange?.from) return true;
-                    const latestActivity = getLeadLatestActivity(lead);
-                    return isWithinRange(latestActivity);
+                // Strict Reachout Filter: W.P_1 must exist AND its TS must be in range
+                const filteredLeads = allLeads.filter((lead: any) => {
+                    const wp1 = lead["W.P_1"];
+                    if (!wp1 || wp1 === "" || wp1 === "No") return false;
+
+                    const wp1Ts = lead["W.P_1 TS"];
+                    let reachoutDate: Date | null = null;
+                    if (wp1Ts && wp1Ts.includes(' - ')) {
+                        const parts = wp1Ts.split(' - ');
+                        const datePart = parts[parts.length - 1].trim();
+                        const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                        if (match) {
+                            reachoutDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                        }
+                    }
+
+                    if (!reachoutDate) return false; // Strict: No TS = Hide from dashboard
+                    return isWithinRange(reachoutDate);
                 });
 
                 const dailyGroups: Record<string, { date: string, sent: number, replied: number }> = {};
@@ -322,7 +323,7 @@ export default function WhatsappDashboardPage() {
             {/* Overview Metric Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <MetricCard
-                    title="Total Leads"
+                    title="Total Whatsapp Reachouts"
                     value={loading ? "..." : stats.totalLeads.toLocaleString()}
                     icon={Users}
                     theme="purple"

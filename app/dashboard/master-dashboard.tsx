@@ -133,7 +133,22 @@ export default function MasterDashboard() {
                     return d >= fromDate && d <= toDate;
                 };
 
+                const parseWPStamp = (tsRaw: any): Date | null => {
+                    if (!tsRaw || !tsRaw.includes(' - ')) return null;
+                    const parts = tsRaw.split(' - ');
+                    const datePart = parts[parts.length - 1].trim(); 
+                    const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                    if (!match) return null;
+                    // Format is DD/MM/YYYY (match[1]=D, match[2]=M, match[3]=Y)
+                    const d = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                    return isNaN(d.getTime()) ? null : d;
+                };
+
                 const getLeadLatestWPActivity = (lead: any) => {
+                    const wp1Ts = lead["W.P_1 TS"];
+                    const wp1Parsed = parseWPStamp(wp1Ts);
+                    if (wp1Parsed) return wp1Parsed;
+
                     let latest = new Date(lead.created_at);
                     const stageData = lead.stage_data || {};
                     const getD = (raw: any) => parseMsg(raw).date;
@@ -142,16 +157,8 @@ export default function MasterDashboard() {
                         let d = getD(lead[`W.P_${i}`] || stageData[`WhatsApp ${i}`]);
                         const tsRaw = lead[`W.P_${i} TS`];
                         if (!d && tsRaw && tsRaw.includes(' - ')) {
-                            const parts = tsRaw.split(' - ');
-                            const datePart = parts[parts.length - 1].trim();
-                            const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
-                            if (!isNaN(tsDate.getTime())) {
-                                const rawLower = tsRaw.toLowerCase();
-                                if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
-                                    tsDate.setHours(0, 0, 0, 0); 
-                                }
-                                d = tsDate;
-                            }
+                            const tsDate = parseWPStamp(tsRaw);
+                            if (tsDate) d = tsDate;
                         }
                         if (d && d > latest) latest = d;
                     }
@@ -210,17 +217,17 @@ export default function MasterDashboard() {
                     isWithinRange(new Date(l.created_at))
                 );
 
-                // 2. Total WhatsApp Chats (W.P_1 from loops)
+                // 2. Total Whatsapp Reachouts (W.P_1 from loops) - STRICT
                 let whatsappChatsCount = 0;
                 allLeads.forEach((lead: any) => {
-                    // Only from Intro, Followup, Nurture loops
-                    if (lead.source_loop === "Master Leads" || lead.source_loop === "Master") return;
-                    
-                    const wp1Val = lead["W.P_1"] || lead.stage_data?.["WhatsApp 1"];
-                    if (wp1Val && String(wp1Val).trim()) {
-                        const parsed = parseMsg(wp1Val);
-                        const d = parsed.date || new Date(lead.updated_at || lead.created_at);
-                        if (isWithinRange(d)) whatsappChatsCount++;
+                    const wp1Val = lead["W.P_1"];
+                    if (wp1Val && wp1Val !== "" && wp1Val !== "No") {
+                        const wp1Ts = lead["W.P_1 TS"];
+                        const reachoutDate = parseWPStamp(wp1Ts);
+                        
+                        if (reachoutDate && isWithinRange(reachoutDate)) {
+                            whatsappChatsCount++;
+                        }
                     }
                 });
 
@@ -333,7 +340,7 @@ export default function MasterDashboard() {
                     onClick={() => router.push('/dashboard/email/sent')}
                 />
                 <MetricCard
-                    title="Total WhatsApp Chats"
+                    title="Total Whatsapp Reachouts"
                     value={loading ? "..." : stats.totalWhatsApp.toLocaleString()}
                     change="Real-time"
                     isUp={true}
