@@ -42,7 +42,14 @@ const DynamicRowCells = ({ call, leads, telephonyCost }: { call: any, leads: any
             <TableCell className="font-medium text-slate-800">{guestNum}</TableCell>
             <TableCell>
                 <div className="flex flex-col gap-1">
-                    <Badge variant={isInboundState ? "default" : "secondary"} className={`text-[10px] w-fit ${isInboundState ? 'bg-blue-600 outline-none border-none' : ''}`}>
+                    <Badge 
+                        variant="outline" 
+                        className={`text-[10px] uppercase font-bold tracking-wider w-fit px-2 py-0.5 ${
+                            isInboundState 
+                                ? 'bg-blue-50 text-blue-600 border-slate-200' 
+                                : 'bg-blue-50 text-blue-700 border-blue-100'
+                        }`}
+                    >
                         {realType}
                     </Badge>
                     {call.vapiAccount === 'owners' && (
@@ -158,9 +165,24 @@ export default function VoiceLogsPage() {
                     if (foundLead && foundLead.name) resolvedName = foundLead.name;
                 }
             }
+            const UAE_BOT_ID = '70f05e16-18f3-4f6e-964a-f47b299c6c1d';
+            const UAE_BUSINESS_NUMBER = '+97148714150';
+            let resolvedType = c.type || (c.isInbound ? "Inbound" : "Outbound");
+            
+            // If the call is from the UAE bot or the UAE business number to a customer, it's Outbound.
+            if (resolvedType === "Inbound") {
+                const isFromUAEBot = c.assistantId === UAE_BOT_ID;
+                const isFromUAENumber = c.fromNumber === UAE_BUSINESS_NUMBER || c.phoneNumber === UAE_BUSINESS_NUMBER;
+                
+                if ((isFromUAEBot || isFromUAENumber) && c.phone) {
+                    resolvedType = "Outbound";
+                }
+            }
+
             return {
                 ...c,
                 name: resolvedName,
+                type: resolvedType,
                 displayDate: c.startedAt ? format(new Date(c.startedAt), 'PPp') : 'N/A',
                 displayDuration: formatDuration(c.durationSeconds || 0),
             };
