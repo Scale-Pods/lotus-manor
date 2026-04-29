@@ -17,7 +17,7 @@ import { format, subDays } from "date-fns";
 import { formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
-const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
+const DynamicRowCells = ({ call, leads, telephonyCost }: { call: any, leads: any[], telephonyCost?: number }) => {
     let guestName = call.name || "Guest";
     const guestNum = call.phone || "Unknown";
     const realType = call.type || (call.isInbound ? "Inbound" : "Outbound");
@@ -63,7 +63,9 @@ const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
                 <Popover>
                     <PopoverTrigger asChild>
                         <button className="hover:underline flex items-center gap-1 cursor-help" onClick={(e) => e.stopPropagation()}>
-                            {call.cost}
+                            {telephonyCost !== undefined && telephonyCost !== -1 
+                                ? `$${((call.breakdown?.agent || 0) + telephonyCost).toFixed(3)}` 
+                                : call.cost}
                             <Info className="h-3 w-3 text-slate-300" />
                         </button>
                     </PopoverTrigger>
@@ -80,12 +82,20 @@ const DynamicRowCells = ({ call, leads }: { call: any, leads: any[] }) => {
                                 </div>
                                 <div className="flex justify-between text-[11px] text-slate-500">
                                     <span>Telephony (Provider):</span>
-                                    <span className="font-mono text-slate-700">${(call.breakdown?.telephony || 0).toFixed(3)}</span>
+                                    {telephonyCost === -1 ? (
+                                        <span className="font-mono text-slate-400 italic">loading...</span>
+                                    ) : (
+                                        <span className="font-mono text-slate-700">${(telephonyCost !== undefined ? telephonyCost : (call.breakdown?.telephony || 0)).toFixed(3)}</span>
+                                    )}
                                 </div>
                             </div>
                             <div className="border-t pt-2 mt-2 flex justify-between text-xs font-bold text-slate-900">
                                 <span>Total Estimated:</span>
-                                <span className="text-emerald-600">{call.cost}</span>
+                                <span className="text-emerald-600">
+                                    {telephonyCost !== undefined && telephonyCost !== -1 
+                                        ? `$${((call.breakdown?.agent || 0) + telephonyCost).toFixed(3)}` 
+                                        : call.cost}
+                                </span>
                             </div>
                         </div>
                     </PopoverContent>
@@ -110,6 +120,7 @@ export default function VoiceLogsPage() {
     const [phoneFilter, setPhoneFilter] = useState("");
     const [sortBy, setSortBy] = useState("newest");
     const [costModalOpen, setCostModalOpen] = useState(false);
+    const [telephonyCosts, setTelephonyCosts] = useState<Record<string, number>>({});
 
     useEffect(() => {
         setDateRange({
@@ -225,6 +236,41 @@ export default function VoiceLogsPage() {
     };
 
     const paginatedCalls = calls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+    useEffect(() => {
+        if (!paginatedCalls || paginatedCalls.length === 0) return;
+
+        const callsToFetch = paginatedCalls.filter(c => telephonyCosts[c.id] === undefined && c.source !== 'elevenlabs');
+        if (callsToFetch.length === 0) return;
+
+        setTelephonyCosts(prev => {
+            const fetching = { ...prev };
+            callsToFetch.forEach(c => fetching[c.id] = -1);
+            return fetching;
+        });
+
+        fetch('/api/calls/telephony-cost', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                calls: callsToFetch.map(c => ({
+                    id: c.id,
+                    phoneNumber: c.phoneNumber,
+                    phone: c.phone,
+                    durationSeconds: c.durationSeconds,
+                    isInbound: c.isInbound,
+                    startedAt: c.startedAt
+                }))
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data && data.costs) {
+                setTelephonyCosts(prev => ({ ...prev, ...data.costs }));
+            }
+        })
+        .catch(err => console.error("Error fetching telephony costs", err));
+    }, [paginatedCalls]);
 
     return (
         <div className="space-y-6 pb-10 relative min-h-[500px]">
@@ -345,7 +391,7 @@ export default function VoiceLogsPage() {
                                         className="cursor-pointer hover:bg-slate-50/50 transition-colors"
                                         onClick={() => { setSelectedCall(call); setModalOpen(true); }}
                                     >
-                                        <DynamicRowCells call={call} leads={leads} />
+                                        <DynamicRowCells call={call} leads={leads} telephonyCost={telephonyCosts[call.id]} />
                                         <TableCell>
                                             <Badge variant="outline" className={`text-[10px] uppercase border-${call.status === 'answered' ? 'emerald' : 'slate'}-200 text-${call.status === 'answered' ? 'emerald' : 'slate'}-600`}>
                                                 {call.status}
