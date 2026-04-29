@@ -19,6 +19,7 @@ interface DataContextType {
     refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; provider?: string; force?: boolean }) => Promise<void>;
     refreshBalances: () => Promise<void>;
     refreshAll: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
+    computeWPReplies: (dateRange?: { from?: Date; to?: Date } | null) => number;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -138,6 +139,64 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         refreshAll({ includeElevenLabs: false });
     }, []);
 
+    const computeWPReplies = useCallback((dateRange?: { from?: Date; to?: Date } | null): number => {
+        if (!leads) return 0;
+        const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+        const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
+
+        const toYYYYMMDD = (d: Date) => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        };
+
+        const isWithinRange = (d: Date | null) => {
+            if (!fromDate || !toDate) return true;
+            if (!d) return false;
+            if (d >= fromDate && d <= toDate) return true;
+            const dStr = toYYYYMMDD(d);
+            return dStr >= toYYYYMMDD(fromDate) && dStr <= toYYYYMMDD(toDate);
+        };
+
+        const seen = new Set<string>();
+        let count = 0;
+
+        leads.forEach((lead: any) => {
+            // Deduplicate
+            const uid = lead["Lead ID"] || lead.id || lead.phone;
+            if (!uid || seen.has(uid)) return;
+            seen.add(uid);
+
+            const track = lead["WP_Replied_track"];
+            if (!track || String(track).trim() === "" || String(track).trim().toLowerCase() === "no") return;
+
+            const content = String(track).trim();
+            let replyDate: Date | null = null;
+
+            // ISO regex extraction
+            const isoMatch = content.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^ \n]*)/);
+            if (isoMatch) {
+                const d = new Date(isoMatch[1]);
+                if (!isNaN(d.getTime())) replyDate = d;
+            }
+
+            // Fallback: try direct parse
+            if (!replyDate) {
+                const d = new Date(content);
+                if (!isNaN(d.getTime()) && (content.includes('T') || (content.includes('-') && content.includes(':')))) {
+                    replyDate = d;
+                }
+            }
+
+            if (replyDate && isWithinRange(replyDate)) {
+                count++;
+            }
+        });
+
+        return count;
+    }, [leads]);
+
     return (
         <DataContext.Provider value={{
             leads,
@@ -153,7 +212,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             refreshLeads: fetchLeads,
             refreshCalls: fetchCalls,
             refreshBalances: fetchBalances,
-            refreshAll
+            refreshAll,
+            computeWPReplies
         }}>
             {children}
         </DataContext.Provider>

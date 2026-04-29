@@ -69,7 +69,7 @@ const parseMsg = (raw: any): { date: Date | null, content: string } => {
 };
 
 export default function WhatsappAnalyticsPage() {
-    const { leads: allLeads, loadingLeads } = useData();
+    const { leads: allLeads, loadingLeads, computeWPReplies } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const loading = loadingLeads;
     const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
@@ -214,28 +214,20 @@ export default function WhatsappAnalyticsPage() {
 
     const stats = useMemo(() => {
         let totalSent = 0;
-        let repliedCount = 0;
-        const loops: Record<string, { value: number }> = {
-            "Intro": { value: 0 },
-            "Follow Up": { value: 0 },
-            "Nurture": { value: 0 }
-        };
 
         const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
         const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
         const isWithinRange = (d: Date | null) => {
             if (!fromDate || !toDate) return true;
             if (!d) return false;
-            return d >= fromDate && d <= toDate;
+            if (d >= fromDate && d <= toDate) return true;
+            const toYYYYMMDD = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+            return toYYYYMMDD(d) >= toYYYYMMDD(fromDate) && toYYYYMMDD(d) <= toYYYYMMDD(toDate);
         };
 
         filteredLeads.forEach(l => {
             const lead = l as any;
             const stageData = lead.stage_data || {};
-            const loopName = lead.source_loop?.toLowerCase().includes("follow up") ? "Follow Up" :
-                lead.source_loop?.toLowerCase().includes("nurture") ? "Nurture" : "Intro";
-
-            // Count Sent
             for (let i = 1; i <= 12; i++) {
                 const d = parseMsg(lead[`W.P_${i}`] || stageData[`WhatsApp ${i}`]).date;
                 if (d && isWithinRange(d)) totalSent++;
@@ -246,38 +238,20 @@ export default function WhatsappAnalyticsPage() {
                 const ds = parseMsg(lead[`W.P_FollowUp_${i}`]).date;
                 if (ds && isWithinRange(ds)) totalSent++;
             }
-
-            // Improved Reply Detection using WP_Replied_track
-            const replyVal = lead["WP_Replied_track"];
-            let isRepliedInRange = false;
-            
-            if (replyVal && replyVal !== "" && String(replyVal).toLowerCase() !== "no") {
-                const parsed = parseMsg(replyVal);
-                // If it has a timestamp, use it for the date filter
-                if (parsed.date) {
-                    if (isWithinRange(parsed.date)) isRepliedInRange = true;
-                } else if (String(replyVal).toLowerCase() === "yes" || String(replyVal).toLowerCase() === "replied") {
-                    // Legacy "yes" - connect to lead creation date
-                    if (isWithinRange(new Date(lead.created_at))) isRepliedInRange = true;
-                }
-            }
-
-            if (isRepliedInRange) {
-                repliedCount++;
-                if (loops[loopName]) loops[loopName].value++;
-            }
         });
 
-        const replyRate = filteredLeads.length > 0 ? (repliedCount / filteredLeads.length) * 100 : 0;
+        // Total Replies: single source of truth from context (same logic as master dashboard)
+        const sharedRepliedCount = computeWPReplies(dateRange);
+        const replyRate = filteredLeads.length > 0 ? (sharedRepliedCount / filteredLeads.length * 100).toFixed(1) + "%" : "0%";
 
         return {
             totalSent,
-            repliedCount,
+            repliedCount: sharedRepliedCount,
             totalLeads: filteredLeads.length,
-            replyRate: replyRate.toFixed(1) + "%",
-            loopData: Object.entries(loops).map(([name, data]) => ({ name, value: data.value }))
+            replyRate,
+            loopData: []
         };
-    }, [filteredLeads, dateRange]);
+    }, [filteredLeads, dateRange, computeWPReplies]);
 
     const trendData = useMemo(() => {
         const groups: Record<string, { date: string, sent: number, replied: number }> = {};
@@ -504,3 +478,5 @@ function StatCard({ title, value, icon: Icon, color, bg, info }: any) {
         </Card>
     );
 }
+
+

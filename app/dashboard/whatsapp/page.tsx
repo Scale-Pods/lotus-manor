@@ -136,7 +136,7 @@ const getMsgDateWithFallback = (lead: any, msgKey: string, tsKey?: string) => {
 
 export default function WhatsappDashboardPage() {
     const router = useRouter();
-    const { leads: allLeads, loadingLeads } = useData();
+    const { leads: allLeads, loadingLeads, computeWPReplies } = useData();
     const [leads, setLeads] = useState<any[]>([]);
     const [isRepliesOpen, setIsRepliesOpen] = useState(false);
     const [stats, setStats] = useState({
@@ -365,11 +365,13 @@ export default function WhatsappDashboardPage() {
                     }
                 });
 
+                const wpReplies = computeWPReplies(dateRange);
+
                 setStats({
                     totalLeads: finalStats.totalLeads,
                     contactedLeads: finalStats.messagesSent,
-                    totalReplies: finalStats.totalReplies,
-                    replied: finalStats.totalReplies,
+                    totalReplies: wpReplies,
+                    replied: wpReplies,
                     waiting: finalStats.waiting,
                     nurture: 0,
                     unresponsive: finalStats.totalLeads - finalStats.uniqueLeadsContacted
@@ -378,7 +380,7 @@ export default function WhatsappDashboardPage() {
                 setDonutData([
                     { name: 'Total Leads', value: finalStats.totalLeads, color: '#8b5cf6' },
                     { name: 'Messages Sent', value: finalStats.messagesSent, color: '#3b82f6' },
-                    { name: 'Total Replies', value: finalStats.totalReplies, color: '#10b981' },
+                    { name: 'Total Replies', value: wpReplies, color: '#10b981' },
                 ]);
 
                 setTrendData(Object.values(dailyGroups)
@@ -394,7 +396,7 @@ export default function WhatsappDashboardPage() {
         };
 
         calculateStats();
-    }, [dateRange, allLeads, loadingLeads]);
+    }, [dateRange, allLeads, loadingLeads, computeWPReplies]);
 
     const repliedLeads = useMemo(() => {
         // Now accurately filters by the leads active in range that have a reply in range
