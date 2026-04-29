@@ -178,8 +178,10 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_4": getVal(l, ["W.P_4", "WhatsApp 4"]),
                 "W.P_FollowUp": getVal(l, ["W.P_FollowUp"]),
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
-                "W.P_1 TS": getVal(l, ["W.P_1 TS", "WhatsApp 1 TS", "W.P_FollowUp TS", "WP_FollowUp TS"]),
+                "W.P_1 TS": getVal(l, ["W.P_1 TS", "W.P_1  TS", "WhatsApp 1 TS", "W.P_FollowUp TS", "WP_FollowUp TS"]),
                 "W.P_2 TS": getVal(l, ["W.P_2 TS", "WhatsApp 2 TS"]),
+                "W.P_3 TS": getVal(l, ["W.P_3 TS"]),
+                "W.P_4 TS": getVal(l, ["W.P_4 TS"]),
                 unsubscribed: getVal(l, ["Unsubscribed", "Unsubscribed text"]) || "No",
                 WP_Replied_track: getVal(l, ["WP_Replied_track"]) || null,
                 ...getWhatsAppHistory(l)
@@ -267,6 +269,10 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
                 "W.P_Replied": getVal(l, ["W.P_Replied", "whatsapp_replied"]),
                 "W.P_1 TS": getVal(l, ["W.P_1 TS", "WhatsApp 1 TS", "W.P_FollowUp TS", "WP_FollowUp TS"]),
                 "W.P_2 TS": getVal(l, ["W.P_2 TS", "WhatsApp 2 TS"]),
+                "W.P_3 TS": getVal(l, ["W.P_3 TS"]),
+                "W.P_4 TS": getVal(l, ["W.P_4 TS"]),
+                "W.P_5 TS": getVal(l, ["W.P_5 TS"]),
+                "W.P_6 TS": getVal(l, ["W.P_6 TS"]),
                 unsubscribed: getVal(l, ["Unsubscribed", "Unsubscribed text"]) || "No",
                 WP_Replied_track: getVal(l, ["WP_Replied_track"]) || null,
                 ...getWhatsAppHistory(l)

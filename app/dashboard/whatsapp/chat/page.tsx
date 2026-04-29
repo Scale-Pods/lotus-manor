@@ -38,43 +38,115 @@ import { subDays, startOfDay, endOfDay } from "date-fns";
 import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 
 // --- Sorting & Activity Helpers ---
-const getMsgDate = (raw: any) => {
-    if (!raw || !String(raw).trim()) return null;
+const parseMsg = (raw: any): { date: Date | null, content: string } => {
+    if (!raw || !String(raw).trim()) return { date: null, content: "" };
     const content = String(raw).trim();
-    const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
-    const isoMatch = content.match(isoRegex);
-    if (isoMatch) return new Date(isoMatch[1]);
 
+    // 1. Direct ISO (e.g. "2026-04-29T10:30:00.000Z")
+    if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
+        if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
+            return { date: new Date(content), content: "" };
+        }
+    }
+
+    // 2. ISO at the end (with any number of newlines/spaces)
+    const isoRegex = /[\n\s]+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*)$/;
+    const isoMatch = content.match(isoRegex);
+    if (isoMatch) {
+        const d = new Date(isoMatch[1]);
+        if (!isNaN(d.getTime())) {
+            return { date: d, content: content.replace(isoRegex, '').trim() };
+        }
+    }
+
+    // 3. Space-separated datetime at the end (e.g. "2026-04-29 10:30:00")
     const lines = content.split('\n');
     const lastLine = lines[lines.length - 1].trim();
-    const lastLineDate = new Date(lastLine.replace(' ', 'T'));
-    if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-        return lastLineDate;
+    if (lastLine.includes('-') && lastLine.includes(':')) {
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (!isNaN(lastLineDate.getTime())) {
+            return {
+                date: lastLineDate,
+                content: lines.length > 1 ? lines.slice(0, -1).join('\n').trim() : content
+            };
+        }
+    }
+
+    // 4. DD/MM/YYYY at end of content
+    const ddmmRegex = /(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/;
+    const ddmmMatch = content.match(ddmmRegex);
+    if (ddmmMatch) {
+        const d = new Date(Number(ddmmMatch[3]), Number(ddmmMatch[2]) - 1, Number(ddmmMatch[1]));
+        if (!isNaN(d.getTime())) {
+            return { date: d, content: content.replace(ddmmRegex, '').trim() };
+        }
+    }
+
+    return { date: null, content: content };
+};
+
+const getMsgDate = (raw: any) => {
+    return parseMsg(raw).date;
+};
+
+// Parse a date from the TS column (e.g. "Delivered - 29/04/2026", "Read - 29/4/2026 10:30:00 AM")
+const parseTSDate = (tsValue: string): Date | null => {
+    if (!tsValue) return null;
+    const str = String(tsValue).trim();
+
+    // Format: "Status - DD/MM/YYYY" or "Status - DD/MM/YYYY HH:MM:SS"
+    if (str.includes(' - ')) {
+        const parts = str.split(' - ');
+        const datePart = parts[parts.length - 1].trim();
+
+        // Try DD/MM/YYYY
+        const ddmmMatch = datePart.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (ddmmMatch) {
+            const day = Number(ddmmMatch[1]);
+            const month = Number(ddmmMatch[2]) - 1;
+            const year = Number(ddmmMatch[3]);
+            // Check for time portion after the date
+            const timeMatch = datePart.match(/(\d{1,2}):(\d{2}):?(\d{2})?\s*(AM|PM)?/i);
+            if (timeMatch) {
+                let hours = Number(timeMatch[1]);
+                const mins = Number(timeMatch[2]);
+                const secs = Number(timeMatch[3] || 0);
+                if (timeMatch[4]?.toUpperCase() === 'PM' && hours < 12) hours += 12;
+                if (timeMatch[4]?.toUpperCase() === 'AM' && hours === 12) hours = 0;
+                return new Date(year, month, day, hours, mins, secs);
+            }
+            return new Date(year, month, day);
+        }
+
+        // Try ISO format
+        const isoDate = new Date(datePart.replace(' ', 'T'));
+        if (!isNaN(isoDate.getTime())) return isoDate;
     }
     return null;
 };
 
-const parseMsg = (raw: any): { date: Date | null, content: string } => {
-    if (!raw || !String(raw).trim()) return { date: null, content: "" };
-    const content = String(raw).trim();
-    const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
-    const isoMatch = content.match(isoRegex);
-    if (isoMatch) {
-        return {
-            date: new Date(isoMatch[1]),
-            content: content.replace(isoRegex, '').trim()
-        };
+const getMsgDateWithFallback = (lead: any, msgKey: string, tsKey?: string) => {
+    // 1. Try parsing from message content
+    const msgContent = lead[msgKey] || lead.stage_data?.[msgKey];
+    const d = getMsgDate(msgContent);
+    if (d) return d;
+
+    // 2. Try parsing from TS column
+    const resolvedTsKey = tsKey || `${msgKey} TS`;
+    const tsValue = lead[resolvedTsKey];
+    const tsDate = parseTSDate(tsValue);
+    if (tsDate) return tsDate;
+
+    // 3. If the message EXISTS but we couldn't parse a date from content or TS,
+    //    fall back to the lead's "Created At" as the message date.
+    //    This is critical: without this, leads with non-timestamped messages
+    //    are silently dropped from date-filtered views.
+    if (msgContent && String(msgContent).trim() !== "" && String(msgContent).trim().toLowerCase() !== "no") {
+        const createdAt = lead.created_at ? new Date(lead.created_at) : null;
+        if (createdAt && !isNaN(createdAt.getTime())) return createdAt;
     }
-    const lines = content.split('\n');
-    const lastLine = lines[lines.length - 1].trim();
-    const lastLineDate = new Date(lastLine.replace(' ', 'T'));
-    if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-        return {
-            date: lastLineDate,
-            content: lines.slice(0, -1).join('\n').trim()
-        };
-    }
-    return { date: null, content: content };
+
+    return null;
 };
 
 const getLeadLatestActivity = (lead: any) => {
@@ -82,40 +154,24 @@ const getLeadLatestActivity = (lead: any) => {
 
     // Check all bot messages (W.P_1 - W.P_12)
     for (let i = 1; i <= 12; i++) {
-        const tsRaw = lead[`W.P_${i} TS`];
-        let d = getMsgDate(lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]);
-
-        // Try extracting from TS string (e.g. "Delivered - 2026-03-12 10:00:00")
-        // Only use this as a fallback if the message content itself doesn't have a date
-        if (!d && tsRaw && tsRaw.includes(' - ')) {
-            const parts = tsRaw.split(' - ');
-            const datePart = parts[parts.length - 1].trim();
-            const tsDate = new Date(datePart.replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1'));
-            if (!isNaN(tsDate.getTime())) {
-                const rawLower = tsRaw.toLowerCase();
-                // Status receipts like delivered/read/failed don't count as "activity" that bumps the lead to the top
-                if (rawLower.includes('read') || rawLower.includes('delivered') || rawLower.includes('failed')) {
-                    tsDate.setHours(0, 0, 0, 0);
-                }
-                d = tsDate;
-            }
-        }
-
+        const d = getMsgDateWithFallback(lead, `W.P_${i}`);
         if (d && d > latestDate) latestDate = d;
     }
+
     // Check reply
     const rd = getMsgDate(lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"]);
     if (rd && rd > latestDate) latestDate = rd;
+
     // Check followup
-    const fd = getMsgDate(lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]);
+    const fd = getMsgDateWithFallback(lead, "W.P_FollowUp", "W.P_FollowUp TS");
     if (fd && fd > latestDate) latestDate = fd;
 
-    // Check extended history
+    // Check extended history (W.P_Replied 1-10, W.P_FollowUp 1-10)
     for (let i = 1; i <= 10; i++) {
         const dReplied = getMsgDate(lead[`W.P_Replied_${i}`]);
         if (dReplied && dReplied > latestDate) latestDate = dReplied;
 
-        const dFollow = getMsgDate(lead[`W.P_FollowUp_${i}`]);
+        const dFollow = getMsgDateWithFallback(lead, `W.P_FollowUp_${i}`, `W.P_FollowUp_${i} TS`);
         if (dFollow && dFollow > latestDate) latestDate = dFollow;
     }
     return latestDate;
@@ -224,9 +280,9 @@ export default function WhatsappChatPage() {
 
             const wtReplied = lead.WP_Replied_track;
             let hasReplied = false;
-            if (wtReplied) {
+            if (wtReplied && String(wtReplied).trim() !== "") {
                 const s = String(wtReplied).trim().toLowerCase();
-                if (s === "yes" || s === "replied") hasReplied = true;
+                if (s !== "no" && s !== "none") hasReplied = true;
             }
 
             const matchesReplyStatus = activeFilters.replyStatus.length === 0 ||
@@ -253,10 +309,50 @@ export default function WhatsappChatPage() {
 
             let matchesDate = true;
             if (dateRange?.from) {
-                const latestActivity = getLeadLatestActivity(lead);
                 const from = startOfDay(new Date(dateRange.from));
                 const to = endOfDay(new Date(dateRange.to || dateRange.from));
-                matchesDate = latestActivity >= from && latestActivity <= to;
+
+                let hasActivityInRange = false;
+
+                // 1. Check if any bot message was sent in range
+                for (let i = 1; i <= 12; i++) {
+                    const d = getMsgDateWithFallback(lead, `W.P_${i}`);
+                    if (d && d >= from && d <= to) {
+                        hasActivityInRange = true;
+                        break;
+                    }
+                }
+
+                if (!hasActivityInRange) {
+                    const fd = getMsgDateWithFallback(lead, "W.P_FollowUp", "W.P_FollowUp TS");
+                    if (fd && fd >= from && fd <= to) hasActivityInRange = true;
+                }
+
+                if (!hasActivityInRange) {
+                    for (let i = 1; i <= 10; i++) {
+                        const d = getMsgDateWithFallback(lead, `W.P_FollowUp_${i}`);
+                        if (d && d >= from && d <= to) {
+                            hasActivityInRange = true;
+                            break;
+                        }
+                    }
+                }
+
+                // 2. Check if any reply was received in range
+                if (!hasActivityInRange) {
+                    const rt = lead.WP_Replied_track;
+                    if (rt) {
+                        const parsed = parseMsg(rt);
+                        if (parsed.date && parsed.date >= from && parsed.date <= to) {
+                            hasActivityInRange = true;
+                        } else if ((String(rt).toLowerCase() === "yes" || String(rt).toLowerCase() === "replied") && (new Date(lead.created_at) >= from && new Date(lead.created_at) <= to)) {
+                            // Legacy fallback
+                            hasActivityInRange = true;
+                        }
+                    }
+                }
+
+                matchesDate = hasActivityInRange;
             }
 
             return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus && matchesDate;
@@ -317,63 +413,64 @@ export default function WhatsappChatPage() {
         let failedCount = 0;
         let uniqueSentCount = 0;
 
+        const from = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+        const to = endOfDay(new Date(dateRange?.to || dateRange?.from || new Date()));
+
+        const isWithin = (d: Date | null) => {
+            if (!from || !to) return true;
+            if (!d) return false;
+            return d >= from && d <= to;
+        };
+
         if (activeTab === "leads") {
             filteredLeads.forEach(l => {
                 const lead = l as any;
+                let leadHadSentInRange = false;
+
                 for (let i = 1; i <= 12; i++) {
-                    const ts = (lead[`W.P_${i} TS`] || "").toLowerCase();
-                    if (ts.includes("failed")) failedCount++;
+                    const tsValue = lead[`W.P_${i} TS`];
+                    if (tsValue && String(tsValue).toLowerCase().includes("failed")) {
+                        const d = getMsgDateWithFallback(lead, `W.P_${i}`);
+                        if (isWithin(d)) failedCount++;
+                    }
                 }
 
-                // Count bot outgoing messages — identical logic to CustomerRow.sentCount
+                // Count bot outgoing messages within range
                 for (let i = 1; i <= 12; i++) {
-                    if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) sentCount++;
+                    const d = getMsgDateWithFallback(lead, `W.P_${i}`);
+                    if (d && isWithin(d)) {
+                        sentCount++;
+                        leadHadSentInRange = true;
+                    }
                 }
-                if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) sentCount++;
+                const fup = getMsgDateWithFallback(lead, "W.P_FollowUp", "W.P_FollowUp TS");
+                if (fup && isWithin(fup)) {
+                    sentCount++;
+                    leadHadSentInRange = true;
+                }
                 for (let i = 1; i <= 10; i++) {
-                    if (lead[`W.P_FollowUp_${i}`]) sentCount++;
+                    const df = getMsgDateWithFallback(lead, `W.P_FollowUp_${i}`);
+                    if (df && isWithin(df)) {
+                        sentCount++;
+                        leadHadSentInRange = true;
+                    }
                 }
 
-                // Replied check — uses exact date of latest reply for range accuracy
-                const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
-                const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
-                const isWithinRange = (d: Date | null) => {
-                    if (!fromDate || !toDate) return true;
-                    if (!d) return false;
-                    return d >= fromDate && d <= toDate;
-                };
+                if (leadHadSentInRange) uniqueSentCount++;
 
-                const checkWPDate = (raw: any) => {
-                    if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
-                    const parsed = parseMsg(raw);
-                    return parsed.date;
-                };
-
-                let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
-                for (let i = 1; i <= 10; i++) {
-                    const d = checkWPDate(lead[`W.P_Replied_${i}`]);
-                    if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
-                }
-                
-                if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
+                // Replied check: lead is already in filteredLeads (had activity in date range),
+                // so if it has a reply tracked, count it.
+                const rt = lead.WP_Replied_track;
+                if (rt && String(rt).trim() !== "" && String(rt).trim().toLowerCase() !== "no" && String(rt).trim().toLowerCase() !== "none") {
                     repliedCount++;
                 }
             });
-
-            uniqueSentCount = filteredLeads.filter(l => {
-                const lead = l as any;
-                for (let i = 1; i <= 12; i++) {
-                    if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
-                }
-                if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) return true;
-                for (let i = 1; i <= 10; i++) {
-                    if (lead[`W.P_FollowUp_${i}`]) return true;
-                }
-                return false;
-            }).length;
         } else {
             // Owner Stats
             filteredOwners.forEach(o => {
+                const wpDate = o["Whatsapp_1_Date"] ? new Date(o["Whatsapp_1_Date"]) : null;
+                if (!isWithin(wpDate)) return;
+
                 if (o["Whatsapp_1"]) {
                     sentCount++;
                     uniqueSentCount++;
@@ -391,12 +488,16 @@ export default function WhatsappChatPage() {
             });
         }
 
+        // Response rate = replies / unique leads contacted (not total filtered leads)
+        const responseRate = uniqueSentCount > 0 ? ((repliedCount / uniqueSentCount) * 100).toFixed(1) : "0.0";
+
         return {
             totalLeads: activeTab === "leads" ? filteredLeads.length : filteredOwners.length,
             sentCount,
             uniqueSentCount,
             repliedCount,
             failedCount,
+            responseRate,
         };
     }, [filteredLeads, filteredOwners, activeTab, dateRange]);
 
@@ -553,9 +654,9 @@ export default function WhatsappChatPage() {
                 <div className="lg:col-span-3 space-y-4">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <MetricCard title="Messages Sent" value={loading ? "..." : stats.sentCount.toLocaleString()} desc="Total outgoing pulses" icon={Send} />
-                            <MetricCard title="Unique Msg Sent" value={loading ? "..." : stats.uniqueSentCount.toLocaleString()} desc="Unique entities contacted" icon={Users} />
-                            <MetricCard title="Total Replies" value={loading ? "..." : stats.repliedCount.toLocaleString()} desc={`${stats.totalLeads > 0 ? ((stats.repliedCount / stats.totalLeads) * 100).toFixed(1) : 0}% Response Rate`} icon={MessageSquare} />
+                            <MetricCard title="Messages Sent" value={(activeTab === "leads" ? loading : loadingOwners) ? "..." : stats.sentCount.toLocaleString()} desc="Total outgoing pulses" icon={Send} />
+                            <MetricCard title="Unique Msg Sent" value={(activeTab === "leads" ? loading : loadingOwners) ? "..." : stats.uniqueSentCount.toLocaleString()} desc="Unique entities contacted" icon={Users} />
+                            <MetricCard title="Total Replies" value={(activeTab === "leads" ? loading : loadingOwners) ? "..." : stats.repliedCount.toLocaleString()} desc={`${stats.responseRate}% Response Rate`} icon={MessageSquare} />
                         </div>
                         <Card className="border-slate-200 shadow-sm bg-white">
                             <CardContent className="p-4 space-y-4">
@@ -788,9 +889,9 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
     // Status now reads from WP_Replied_track (sourced from nr_wf / followup / nurture based on loop)
     const wtRepliedTrack = lead.WP_Replied_track;
     let hasReplied = false;
-    if (wtRepliedTrack) {
+    if (wtRepliedTrack && String(wtRepliedTrack).trim() !== "") {
         const s = String(wtRepliedTrack).trim().toLowerCase();
-        if (s === "yes" || s === "replied") hasReplied = true;
+        if (s !== "no" && s !== "none") hasReplied = true;
     }
 
     const formatTooltipDate = (date: Date | string) => {

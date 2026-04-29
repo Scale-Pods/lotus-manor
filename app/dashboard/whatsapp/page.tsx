@@ -90,6 +90,50 @@ const parseMsg = (raw: any): { date: Date | null, content: string } => {
     return { date: null, content: content };
 };
 
+const parseTSDate = (tsValue: string): Date | null => {
+    if (!tsValue) return null;
+    const str = String(tsValue).trim();
+    if (str.includes(' - ')) {
+        const parts = str.split(' - ');
+        const datePart = parts[parts.length - 1].trim();
+        const ddmmMatch = datePart.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (ddmmMatch) {
+            const day = Number(ddmmMatch[1]);
+            const month = Number(ddmmMatch[2]) - 1;
+            const year = Number(ddmmMatch[3]);
+            const timeMatch = datePart.match(/(\d{1,2}):(\d{2}):?(\d{2})?\s*(AM|PM)?/i);
+            if (timeMatch) {
+                let hours = Number(timeMatch[1]);
+                const mins = Number(timeMatch[2]);
+                const secs = Number(timeMatch[3] || 0);
+                if (timeMatch[4]?.toUpperCase() === 'PM' && hours < 12) hours += 12;
+                if (timeMatch[4]?.toUpperCase() === 'AM' && hours === 12) hours = 0;
+                return new Date(year, month, day, hours, mins, secs);
+            }
+            return new Date(year, month, day);
+        }
+        const isoDate = new Date(datePart.replace(' ', 'T'));
+        if (!isNaN(isoDate.getTime())) return isoDate;
+    }
+    return null;
+};
+
+const getMsgDateWithFallback = (lead: any, msgKey: string, tsKey?: string) => {
+    const msgContent = lead[msgKey] || lead.stage_data?.[msgKey];
+    const d = parseMsg(msgContent).date;
+    if (d) return d;
+
+    const resolvedTsKey = tsKey || `${msgKey} TS`;
+    const tsDate = parseTSDate(lead[resolvedTsKey]);
+    if (tsDate) return tsDate;
+
+    if (msgContent && String(msgContent).trim() !== "" && String(msgContent).trim().toLowerCase() !== "no") {
+        const createdAt = lead.created_at ? new Date(lead.created_at) : null;
+        if (createdAt && !isNaN(createdAt.getTime())) return createdAt;
+    }
+    return null;
+};
+
 export default function WhatsappDashboardPage() {
     const router = useRouter();
     const { leads: allLeads, loadingLeads } = useData();
@@ -264,21 +308,19 @@ export default function WhatsappDashboardPage() {
                     // Message Sent Detection (Matching Master Dashboard Logic)
                     // Check if lead was actually sent a message in this range
                     for (let i = 1; i <= 12; i++) {
-                        const d = parseMsg(lead[`W.P_${i}`] || stageData[`WhatsApp ${i}`]).date;
+                        const d = getMsgDateWithFallback(lead, `W.P_${i}`);
                         if (d && isWithinRange(d)) {
                             leadSentCount++;
                             hasWPInDate = true;
                         }
                     }
-                    if (lead["W.P_FollowUp"] || stageData["WhatsApp FollowUp"]) {
-                        const d = parseMsg(lead["W.P_FollowUp"] || stageData["WhatsApp FollowUp"]).date;
-                        if (d && isWithinRange(d)) {
-                            leadSentCount++;
-                            hasWPInDate = true;
-                        }
+                    const fup = getMsgDateWithFallback(lead, "W.P_FollowUp", "W.P_FollowUp TS");
+                    if (fup && isWithinRange(fup)) {
+                        leadSentCount++;
+                        hasWPInDate = true;
                     }
                     for (let i = 1; i <= 10; i++) {
-                        const d = parseMsg(lead[`W.P_FollowUp_${i}`]).date;
+                        const d = getMsgDateWithFallback(lead, `W.P_FollowUp_${i}`);
                         if (d && isWithinRange(d)) {
                             leadSentCount++;
                             hasWPInDate = true;
