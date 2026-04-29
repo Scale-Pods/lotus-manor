@@ -17,8 +17,15 @@ import {
     Minimize2,
     X,
     Expand,
-    Wallet
+    Wallet,
+    Info
 } from "lucide-react";
+import {
+    Tooltip as UITooltip,
+    TooltipContent as UITooltipContent,
+    TooltipProvider as UITooltipProvider,
+    TooltipTrigger as UITooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
     AreaChart,
     Area,
@@ -50,6 +57,16 @@ import { useData } from "@/context/DataContext";
 const parseMsg = (raw: any): { date: Date | null, content: string } => {
     if (!raw || !String(raw).trim()) return { date: null, content: "" };
     const content = String(raw).trim();
+    
+    // Check if the content itself is an ISO date (common in Voice columns)
+    if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
+        const d = new Date(content);
+        // Ensure it looks like a date/time string to avoid false positives with short strings
+        if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
+            return { date: d, content: "" };
+        }
+    }
+
     const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
     const isoMatch = content.match(isoRegex);
     if (isoMatch) {
@@ -259,20 +276,46 @@ export default function MasterDashboard() {
                     if (lead.source_loop === "Master Leads" || lead.source_loop === "Master") return;
 
                     const replyVal = lead["WP_Replied_track"];
-                    if (replyVal && String(replyVal).trim()) {
+                    if (replyVal && replyVal !== "" && String(replyVal).toLowerCase() !== "no") {
                         const parsed = parseMsg(replyVal);
-                        const d = parsed.date || new Date(lead.updated_at || lead.created_at);
-                        if (isWithinRange(d)) {
+                        let isRepliedInRange = false;
+
+                        // If it has a timestamp, use it for the date filter
+                        if (parsed.date) {
+                            if (isWithinRange(parsed.date)) isRepliedInRange = true;
+                        } else if (String(replyVal).toLowerCase() === "yes" || String(replyVal).toLowerCase() === "replied") {
+                            // Legacy "yes" - connect to lead creation date for filtering
+                            if (isWithinRange(new Date(lead.created_at))) isRepliedInRange = true;
+                        }
+
+                        if (isRepliedInRange) {
                             totalRepliesCount++;
                             leadsWhoRepliedInRange.push(lead);
                         }
                     }
                 });
 
-                // Call Data (Using All-Time count from DataContext)
-                let totalVoiceSeconds = 0;
-                let totalVoiceCallsCount = allTimeVoiceCount;
+                // 4. Total Voice Calls (from Voice 1 and Voice 2 in loops)
+                let totalVoiceCallsCount = 0;
+                allLeads.forEach((lead: any) => {
+                    const stageData = lead.stage_data || {};
+                    const v1 = lead["Voice 1"] || stageData["Voice 1"];
+                    const v2 = lead["Voice 2"] || stageData["Voice 2"];
+                    
+                    [v1, v2].forEach(v => {
+                        if (v && v !== "" && String(v).toLowerCase() !== "no") {
+                            const parsed = parseMsg(v);
+                            if (parsed.date) {
+                                if (isWithinRange(parsed.date)) totalVoiceCallsCount++;
+                            } else if (String(v).toLowerCase() === "yes") {
+                                // Legacy "yes" - connect to lead creation date
+                                if (isWithinRange(new Date(lead.created_at))) totalVoiceCallsCount++;
+                            }
+                        }
+                    });
+                });
 
+                let totalVoiceSeconds = 0;
                 if (!loadingCalls && Array.isArray(allCalls)) {
                     totalVoiceSeconds = allCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
                 }
@@ -385,25 +428,27 @@ export default function MasterDashboard() {
                 <MetricCard
                     title="Total Voice Calls"
                     value={loading ? "..." : stats.totalVoiceCalls.toLocaleString()}
-                    change="All Time"
+                    change={stats.voiceMinutesString}
                     isUp={true}
                     icon={<Activity className="h-6 w-6" />}
                     color="text-orange-600"
                     bg="bg-orange-50"
                     border="border-orange-100"
                     onClick={() => router.push('/dashboard/voice')}
+                    info="This count is derived from Voice 1 & Voice 2 logs. Disclaimer: This feature has been installed now. To check original voice call counts, please select the 'Last 3 Months' filter."
                 />
                 
                 <MetricCard
                     title="Total Replies"
                     value={loading ? "..." : stats.totalReplies.toLocaleString()}
-                    change={`${stats.totalLeads > 0 ? ((stats.totalReplies / stats.totalLeads) * 100).toFixed(1) : 0}% Rate`}
+                    change={`${stats.totalWhatsApp > 0 ? ((stats.totalReplies / stats.totalWhatsApp) * 100).toFixed(1) : 0}% Rate`}
                     isUp={true}
                     icon={<Expand className="h-6 w-6" />}
                     color="text-indigo-600"
                     bg="bg-indigo-50"
                     border="border-indigo-100"
                     onClick={() => setIsRepliesModalOpen(true)}
+                    info="This rate is calculated as (Total Replies / Total WhatsApp Reachouts). Disclaimer: This feature has been installed now. To check original replies and rates, please select the 'Last 3 Months' filter."
                     action={<Button
                         variant="ghost"
                         size="icon"
@@ -521,7 +566,7 @@ export default function MasterDashboard() {
     );
 }
 
-function MetricCard({ title, value, change, isUp, icon, color, bg, border, onClick, action, subtitle }: {
+function MetricCard({ title, value, change, isUp, icon, color, bg, border, onClick, action, subtitle, info }: {
     title: string,
     value: string,
     change: string,
@@ -532,7 +577,8 @@ function MetricCard({ title, value, change, isUp, icon, color, bg, border, onCli
     border: string,
     onClick?: () => void,
     action?: React.ReactNode,
-    subtitle?: string
+    subtitle?: string,
+    info?: string
 }) {
     return (
         <Card
@@ -543,7 +589,21 @@ function MetricCard({ title, value, change, isUp, icon, color, bg, border, onCli
                 <div className="flex items-start justify-between relative z-10">
                     <div className="flex-1">
                         <div className="flex items-center justify-between mr-2">
-                            <p className="text-sm font-semibold text-slate-500 mb-1">{title}</p>
+                            <div className="flex items-center gap-1.5">
+                                <p className="text-sm font-semibold text-slate-500 mb-1">{title}</p>
+                                {info && (
+                                    <UITooltipProvider>
+                                    <UITooltip>
+                                        <UITooltipTrigger asChild>
+                                            <Info className="h-7 w-7 text-red-500 mb-1 cursor-help hover:text-red-600 transition-colors" />
+                                        </UITooltipTrigger>
+                                        <UITooltipContent className="max-w-[250px] bg-slate-900 text-white border-none p-3 shadow-xl">
+                                            <p className="text-[11px] leading-relaxed">{info}</p>
+                                        </UITooltipContent>
+                                    </UITooltip>
+                                </UITooltipProvider>
+                                )}
+                            </div>
                             {subtitle && <p className="text-xs text-slate-400 mb-2">{subtitle}</p>}
                             {action && <div className="z-20">{action}</div>}
                         </div>

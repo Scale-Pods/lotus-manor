@@ -66,6 +66,15 @@ export default function WhatsappDashboardPage() {
     const parseMsg = (raw: any): { date: Date | null, content: string } => {
         if (!raw || !String(raw).trim()) return { date: null, content: "" };
         const content = String(raw).trim();
+
+        // Check if direct ISO (common in Voice columns or manual entries)
+        if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
+            const d = new Date(content);
+            if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
+                return { date: d, content: "" };
+            }
+        }
+
         const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
         const isoMatch = content.match(isoRegex);
         if (isoMatch) {
@@ -216,22 +225,21 @@ export default function WhatsappDashboardPage() {
                         finalStats.uniqueLeadsContacted++;
                     }
 
-                    // Reply Detection (Matching Master Dashboard Logic)
+                    // Improved Reply Detection using WP_Replied_track
+                    const replyVal = lead["WP_Replied_track"];
                     let isRepliedInRange = false;
-                    const checkWPDate = (raw: any) => {
-                        if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
-                        const parsed = parseMsg(raw);
-                        return parsed.date;
-                    };
-
-                    let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
-                    for (let i = 1; i <= 10; i++) {
-                        const d = checkWPDate(lead[`W.P_Replied_${i}`]);
-                        if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
-                    }
                     
-                    if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
-                        isRepliedInRange = true;
+                    if (replyVal && replyVal !== "" && String(replyVal).toLowerCase() !== "no") {
+                        const parsed = parseMsg(replyVal);
+                        // If it has a timestamp, use it for the date filter
+                        if (parsed.date) {
+                            if (isWithinRange(parsed.date)) isRepliedInRange = true;
+                        } else if (String(replyVal).toLowerCase() === "yes" || String(replyVal).toLowerCase() === "replied") {
+                            // Legacy "yes" - count if the lead's creation date matches the filter (or just count it)
+                            // User said: "count if it contains 'yes' and if contain date filter then connect it to date filter"
+                            // We connect it to the lead's creation date for the filter.
+                            if (isWithinRange(new Date(lead.created_at))) isRepliedInRange = true;
+                        }
                     }
                     
                     if (isRepliedInRange) {
@@ -284,11 +292,8 @@ export default function WhatsappDashboardPage() {
     const repliedLeads = useMemo(() => {
         // Now accurately filters by the leads active in range that have a reply in range
         return leads.filter(lead => {
-            const checkWPDate = (raw: any) => {
-                if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
-                const parsed = parseMsg(raw);
-                return parsed.date;
-            };
+            const replyVal = lead["WP_Replied_track"];
+            if (!replyVal || replyVal === "" || String(replyVal).toLowerCase() === "no") return false;
 
             const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
             const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
@@ -298,13 +303,13 @@ export default function WhatsappDashboardPage() {
                 return d >= fromDate && d <= toDate;
             };
 
-            let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
-            for (let i = 1; i <= 10; i++) {
-                const d = checkWPDate(lead[`W.P_Replied_${i}`]);
-                if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
+            const parsed = parseMsg(replyVal);
+            if (parsed.date) {
+                return isWithinRange(parsed.date);
+            } else if (String(replyVal).toLowerCase() === "yes" || String(replyVal).toLowerCase() === "replied") {
+                return isWithinRange(new Date(lead.created_at));
             }
-            
-            return latestWPReplyDate && isWithinRange(latestWPReplyDate);
+            return false;
         });
     }, [leads, dateRange]);
 

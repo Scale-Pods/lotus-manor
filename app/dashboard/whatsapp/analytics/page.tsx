@@ -34,6 +34,15 @@ export default function WhatsappAnalyticsPage() {
     const parseMsg = (raw: any): { date: Date | null, content: string } => {
         if (!raw || !String(raw).trim()) return { date: null, content: "" };
         const content = String(raw).trim();
+
+        // Check if direct ISO (common in Voice columns or manual entries)
+        if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
+            const d = new Date(content);
+            if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
+                return { date: d, content: "" };
+            }
+        }
+
         const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
         const isoMatch = content.match(isoRegex);
         if (isoMatch) {
@@ -121,15 +130,23 @@ export default function WhatsappAnalyticsPage() {
         return leads.filter(l => {
             const lead = l as any;
             
-            // Identify WhatsApp Reachout (W.P_1 not null/No)
+            // Identify WhatsApp Reachout (W.P_1 not null/No) - STRICT Date Filter on W.P_1 TS
             const wp1 = lead["W.P_1"];
             if (!wp1 || wp1 === "" || wp1 === "No") return false;
 
-            if (dateRange?.from) {
-                const latest = getLeadLatestActivity(lead);
-                return isWithinRange(latest);
+            const wp1Ts = lead["W.P_1 TS"];
+            let reachoutDate: Date | null = null;
+            if (wp1Ts && wp1Ts.includes(' - ')) {
+                const parts = wp1Ts.split(' - ');
+                const datePart = parts[parts.length - 1].trim();
+                const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                if (match) {
+                    reachoutDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                }
             }
-            return true;
+
+            if (!reachoutDate) return false;
+            return isWithinRange(reachoutDate);
         });
     }, [leads, dateRange]);
 
@@ -168,21 +185,19 @@ export default function WhatsappAnalyticsPage() {
                 if (ds && isWithinRange(ds)) totalSent++;
             }
 
-            // Count Replies
+            // Improved Reply Detection using WP_Replied_track
+            const replyVal = lead["WP_Replied_track"];
             let isRepliedInRange = false;
-            const checkWPDate = (raw: any) => {
-                if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
-                return parseMsg(raw).date;
-            };
-
-            let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
-            for (let i = 1; i <= 10; i++) {
-                const d = checkWPDate(lead[`W.P_Replied_${i}`]);
-                if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
-            }
             
-            if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
-                isRepliedInRange = true;
+            if (replyVal && replyVal !== "" && String(replyVal).toLowerCase() !== "no") {
+                const parsed = parseMsg(replyVal);
+                // If it has a timestamp, use it for the date filter
+                if (parsed.date) {
+                    if (isWithinRange(parsed.date)) isRepliedInRange = true;
+                } else if (String(replyVal).toLowerCase() === "yes" || String(replyVal).toLowerCase() === "replied") {
+                    // Legacy "yes" - connect to lead creation date
+                    if (isWithinRange(new Date(lead.created_at))) isRepliedInRange = true;
+                }
             }
 
             if (isRepliedInRange) {
@@ -234,21 +249,17 @@ export default function WhatsappAnalyticsPage() {
                 if (ds && isWithinRange(ds)) groups[dStr].sent++;
             }
 
-            // Replies
+            // Improved Reply Detection using WP_Replied_track
+            const replyVal = lead["WP_Replied_track"];
             let isRepliedInRange = false;
-            const checkWPDate = (raw: any) => {
-                if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
-                return parseMsg(raw).date;
-            };
-
-            let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
-            for (let i = 1; i <= 10; i++) {
-                const d = checkWPDate(lead[`W.P_Replied_${i}`]);
-                if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
-            }
             
-            if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
-                isRepliedInRange = true;
+            if (replyVal && replyVal !== "" && String(replyVal).toLowerCase() !== "no") {
+                const parsed = parseMsg(replyVal);
+                if (parsed.date) {
+                    if (isWithinRange(parsed.date)) isRepliedInRange = true;
+                } else if (String(replyVal).toLowerCase() === "yes" || String(replyVal).toLowerCase() === "replied") {
+                    if (isWithinRange(new Date(lead.created_at))) isRepliedInRange = true;
+                }
             }
 
             if (isRepliedInRange) {
