@@ -11,7 +11,10 @@ import {
     BarChart3,
     Settings,
     Megaphone,
-    Send
+    Send,
+    Building2,
+    MessageSquare,
+    Info
 } from "lucide-react";
 import {
     PieChart,
@@ -38,6 +41,12 @@ import {
     SheetTitle,
 } from "@/components/ui/sheet";
 import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
+import {
+    Tooltip as UITooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { LMLoader } from "@/components/lm-loader";
 
@@ -45,31 +54,39 @@ const parseMsg = (raw: any): { date: Date | null, content: string } => {
     if (!raw || !String(raw).trim()) return { date: null, content: "" };
     const content = String(raw).trim();
 
-    // Check if direct ISO (common in Voice columns or manual entries)
+    // 1. Direct ISO
     if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
-        const d = new Date(content);
         if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
-            return { date: d, content: "" };
+            return { date: new Date(content), content: "" };
         }
     }
 
-    const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+    // 2. ISO at the end (with any number of newlines/spaces)
+    const isoRegex = /[\n\s]+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*)$/;
     const isoMatch = content.match(isoRegex);
     if (isoMatch) {
-        return {
-            date: new Date(isoMatch[1]),
-            content: content.replace(isoRegex, '').trim()
-        };
+        const d = new Date(isoMatch[1]);
+        if (!isNaN(d.getTime())) {
+            return {
+                date: d,
+                content: content.replace(isoRegex, '').trim()
+            };
+        }
     }
+
+    // 3. Space-separated date at the end
     const lines = content.split('\n');
     const lastLine = lines[lines.length - 1].trim();
-    const lastLineDate = new Date(lastLine.replace(' ', 'T'));
-    if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-        return {
-            date: lastLineDate,
-            content: lines.slice(0, -1).join('\n').trim()
-        };
+    if (lastLine.includes('-') && lastLine.includes(':')) {
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (!isNaN(lastLineDate.getTime())) {
+            return {
+                date: lastLineDate,
+                content: lines.length > 1 ? lines.slice(0, -1).join('\n').trim() : content
+            };
+        }
     }
+
     return { date: null, content: content };
 };
 
@@ -94,6 +111,49 @@ export default function WhatsappDashboardPage() {
         from: subDays(new Date(), 7),
         to: new Date()
     });
+
+    // Owner data (separate API)
+    const [ownerLeads, setOwnerLeads] = useState<any[]>([]);
+    const [loadingOwners, setLoadingOwners] = useState(true);
+    useEffect(() => {
+        fetch("/api/owner-leads")
+            .then(res => res.json())
+            .then(data => setOwnerLeads(data.owner_data || []))
+            .catch(err => console.error("Owner fetch error:", err))
+            .finally(() => setLoadingOwners(false));
+    }, []);
+
+    const ownerStats = useMemo(() => {
+        const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+        const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
+        const isInRange = (d: Date | null) => {
+            if (!fromDate || !toDate) return true;
+            if (!d) return false;
+            return d >= fromDate && d <= toDate;
+        };
+
+        let reachouts = 0, replies = 0, msgsSent = 0;
+        ownerLeads.forEach((o: any) => {
+            const wp1 = o["Whatsapp_1"];
+            if (!wp1 || wp1 === "") return;
+
+            const wpDate = o["Whatsapp_1_Date"] ? new Date(o["Whatsapp_1_Date"]) : null;
+            if (!isInRange(wpDate)) return;
+
+            reachouts++;
+            if (wp1) msgsSent++;
+            if (o["retry_1"]) msgsSent++;
+            for (let i = 1; i <= 5; i++) {
+                if (o[`Bot_Replied_${i}`]) msgsSent++;
+            }
+
+            const wtsReply = o["WTS_Reply_Track"];
+            if (wtsReply && wtsReply !== "" && String(wtsReply).toLowerCase() !== "no") {
+                replies++;
+            }
+        });
+        return { reachouts, replies, msgsSent };
+    }, [ownerLeads, dateRange]);
 
     // --- Sorting & Activity Helpers ---
     const getMsgDate = (raw: any) => {
@@ -319,7 +379,7 @@ export default function WhatsappDashboardPage() {
     }, [leads, dateRange]);
 
     return (
-        <div className="space-y-8 pb-10 relative min-h-[500px]">
+        <div className="space-y-3 pb-3 relative min-h-[500px]">
             {loading && <LMLoader />}
             {/* Header & Actions */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -331,7 +391,7 @@ export default function WhatsappDashboardPage() {
             </div>
 
             {/* Overview Metric Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 <MetricCard
                     title="Total Whatsapp Reachouts"
                     value={loading ? "..." : stats.totalLeads.toLocaleString()}
@@ -345,6 +405,7 @@ export default function WhatsappDashboardPage() {
                     icon={MessageCircle}
                     theme="emerald"
                     onClick={() => setIsRepliesOpen(true)}
+                    info="This count is derived from the 'WP_Replied_track' column. Disclaimer: This feature has been installed now. To check original reply counts, please select the 'Last 3 Months' filter."
                 />
                 <MetricCard
                     title="Messages Sent"
@@ -352,6 +413,35 @@ export default function WhatsappDashboardPage() {
                     icon={Send}
                     theme="blue"
                 />
+            </div>
+
+            {/* Owner Metrics Section */}
+            <div>
+                <h2 className="text-sm font-bold text-slate-900 mb-2 flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-amber-500" /> Owner Metrics
+                </h2>
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                    <MetricCard
+                        title="Owner Reachouts"
+                        value={loadingOwners ? "..." : ownerStats.reachouts.toLocaleString()}
+                        icon={Building2}
+                        theme="amber"
+                        onClick={() => router.push('/dashboard/whatsapp/chat?tab=owners')}
+                    />
+                    <MetricCard
+                        title="Owner Replies"
+                        value={loadingOwners ? "..." : ownerStats.replies.toLocaleString()}
+                        icon={MessageSquare}
+                        theme="emerald"
+                        onClick={() => router.push('/dashboard/whatsapp/chat?tab=owners')}
+                    />
+                    <MetricCard
+                        title="Owner Messages Sent"
+                        value={loadingOwners ? "..." : ownerStats.msgsSent.toLocaleString()}
+                        icon={Send}
+                        theme="amber"
+                    />
+                </div>
             </div>
 
             {/* Main Section */}
@@ -364,8 +454,8 @@ export default function WhatsappDashboardPage() {
                             <CardTitle className="text-sm font-bold text-slate-700 uppercase">Conversion Funnel</CardTitle>
                         </div>
                     </CardHeader>
-                    <CardContent className="pt-6">
-                        <div className="w-full" style={{ height: 300, minHeight: 300 }}>
+                    <CardContent className="pt-2">
+                        <div className="w-full" style={{ height: 200, minHeight: 200 }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                     <Pie
@@ -401,8 +491,8 @@ export default function WhatsappDashboardPage() {
                             <CardTitle className="text-sm font-bold text-slate-700 uppercase">Activity Trend</CardTitle>
                         </div>
                     </CardHeader>
-                    <CardContent className="pt-6">
-                        <div className="w-full" style={{ height: 300, minHeight: 300 }}>
+                    <CardContent className="pt-2">
+                        <div className="w-full" style={{ height: 200, minHeight: 200 }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <LineChart data={trendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -444,30 +534,47 @@ export default function WhatsappDashboardPage() {
     );
 }
 
-function MetricCard({ title, value, icon: Icon, theme, desc, onClick }: any) {
+function MetricCard({ title, value, icon: Icon, theme, desc, onClick, info }: any) {
     const themes: any = {
         purple: { bg: "bg-purple-50", text: "text-purple-600", border: "border-purple-100", iconBg: "bg-purple-100/50" },
         blue: { bg: "bg-blue-50", text: "text-blue-600", border: "border-blue-100", iconBg: "bg-blue-100/50" },
         emerald: { bg: "bg-emerald-50", text: "text-emerald-600", border: "border-emerald-100", iconBg: "bg-emerald-100/50" },
         orange: { bg: "bg-orange-50", text: "text-orange-600", border: "border-orange-100", iconBg: "bg-orange-100/50" },
+        amber: { bg: "bg-amber-50", text: "text-amber-600", border: "border-amber-100", iconBg: "bg-amber-100/50" },
     };
 
     const t = themes[theme] || themes.purple;
 
     return (
         <Card
-            className={`border ${t.border} shadow-sm bg-white overflow-hidden ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300 transition-all active:scale-[0.98]' : ''}`}
+            className={`border ${t.border} shadow-sm bg-white overflow-hidden relative ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300 transition-all active:scale-[0.98]' : ''}`}
             onClick={onClick}
         >
-            <CardContent className="p-6">
-                <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-xl ${t.iconBg} ${t.text}`}>
-                        <Icon className="h-6 w-6" />
+            {info && (
+                <div className="absolute top-2 right-2">
+                    <TooltipProvider>
+                        <UITooltip>
+                            <TooltipTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                <div className="p-1 cursor-help hover:scale-110 transition-transform">
+                                    <Info className="h-7 w-7 text-red-500 fill-red-50" strokeWidth={2.5} />
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-[250px] p-3 text-xs bg-slate-900 text-white border-none shadow-2xl rounded-xl">
+                                <p className="font-bold mb-1">Important Note</p>
+                                <p className="opacity-90 leading-relaxed">{info}</p>
+                            </TooltipContent>
+                        </UITooltip>
+                    </TooltipProvider>
+                </div>
+            )}
+            <CardContent className="p-4">
+                <div className="flex items-center gap-3">
+                    <div className={`p-2.5 rounded-xl ${t.iconBg} ${t.text}`}>
+                        <Icon className="h-5 w-5" />
                     </div>
                     <div>
-                        <h3 className="text-3xl font-black text-slate-900 tracking-tight">{value}</h3>
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">{title}</p>
-                        <p className="text-[10px] text-slate-400 mt-1 italic">{desc}</p>
+                        <h3 className="text-2xl font-black text-slate-900 tracking-tight">{value}</h3>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{title}</p>
                     </div>
                 </div>
             </CardContent>
@@ -477,9 +584,9 @@ function MetricCard({ title, value, icon: Icon, theme, desc, onClick }: any) {
 
 function SummaryPill({ label, value, color }: any) {
     return (
-        <div className={`p-4 rounded-xl flex flex-col items-center justify-center text-white ${color} shadow-sm`}>
-            <span className="text-2xl font-black">{value}</span>
-            <span className="text-[10px] uppercase font-bold opacity-90 text-center leading-tight tracking-wider">{label}</span>
+        <div className={`p-3 rounded-xl flex flex-col items-center justify-center text-white ${color} shadow-sm`}>
+            <span className="text-xl font-black">{value}</span>
+            <span className="text-[9px] uppercase font-bold opacity-90 text-center leading-tight tracking-wider">{label}</span>
         </div>
     );
 }

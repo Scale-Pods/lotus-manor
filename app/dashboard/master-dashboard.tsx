@@ -57,33 +57,41 @@ import { useData } from "@/context/DataContext";
 const parseMsg = (raw: any): { date: Date | null, content: string } => {
     if (!raw || !String(raw).trim()) return { date: null, content: "" };
     const content = String(raw).trim();
-    
-    // Check if the content itself is an ISO date (common in Voice columns)
+
+    // 1. Direct ISO
     if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
-        const d = new Date(content);
-        // Ensure it looks like a date/time string to avoid false positives with short strings
         if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
-            return { date: d, content: "" };
+            return { date: new Date(content), content: "" };
         }
     }
 
-    const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+    // 2. ISO at the end (with any number of newlines/spaces)
+    // Matches YYYY-MM-DDTHH:MM:SS.sssZ or similar
+    const isoRegex = /[\n\s]+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*)$/;
     const isoMatch = content.match(isoRegex);
     if (isoMatch) {
-        return {
-            date: new Date(isoMatch[1]),
-            content: content.replace(isoRegex, '').trim()
-        };
+        const d = new Date(isoMatch[1]);
+        if (!isNaN(d.getTime())) {
+            return {
+                date: d,
+                content: content.replace(isoRegex, '').trim()
+            };
+        }
     }
+
+    // 3. Space-separated date at the end (YYYY-MM-DD HH:MM:SS)
     const lines = content.split('\n');
     const lastLine = lines[lines.length - 1].trim();
-    const lastLineDate = new Date(lastLine.replace(' ', 'T'));
-    if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-        return {
-            date: lastLineDate,
-            content: lines.slice(0, -1).join('\n').trim()
-        };
+    if (lastLine.includes('-') && lastLine.includes(':')) {
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (!isNaN(lastLineDate.getTime())) {
+            return {
+                date: lastLineDate,
+                content: lines.length > 1 ? lines.slice(0, -1).join('\n').trim() : content
+            };
+        }
     }
+
     return { date: null, content: content };
 };
 

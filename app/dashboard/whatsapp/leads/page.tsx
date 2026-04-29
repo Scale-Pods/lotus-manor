@@ -17,7 +17,9 @@ import {
     ArrowUpDown,
     Calendar,
     Briefcase,
-    RefreshCw
+    RefreshCw,
+    Building2,
+    Users
 } from "lucide-react";
 import React, { useState, useEffect, useMemo } from "react";
 import { subDays, startOfDay, endOfDay } from "date-fns";
@@ -43,32 +45,40 @@ import { useData } from "@/context/DataContext";
 const parseMsg = (raw: any): { date: Date | null, content: string } => {
     if (!raw || !String(raw).trim()) return { date: null, content: "" };
     const content = String(raw).trim();
-    
-    // Direct ISO check
+
+    // 1. Direct ISO
     if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
-        const d = new Date(content);
         if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
-            return { date: d, content: "" };
+            return { date: new Date(content), content: "" };
         }
     }
 
-    const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+    // 2. ISO at the end (with any number of newlines/spaces)
+    const isoRegex = /[\n\s]+(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*)$/;
     const isoMatch = content.match(isoRegex);
     if (isoMatch) {
-        return {
-            date: new Date(isoMatch[1]),
-            content: content.replace(isoRegex, '').trim()
-        };
+        const d = new Date(isoMatch[1]);
+        if (!isNaN(d.getTime())) {
+            return {
+                date: d,
+                content: content.replace(isoRegex, '').trim()
+            };
+        }
     }
+
+    // 3. Space-separated date at the end
     const lines = content.split('\n');
     const lastLine = lines[lines.length - 1].trim();
-    const lastLineDate = new Date(lastLine.replace(' ', 'T'));
-    if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-        return {
-            date: lastLineDate,
-            content: lines.slice(0, -1).join('\n').trim()
-        };
+    if (lastLine.includes('-') && lastLine.includes(':')) {
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (!isNaN(lastLineDate.getTime())) {
+            return {
+                date: lastLineDate,
+                content: lines.length > 1 ? lines.slice(0, -1).join('\n').trim() : content
+            };
+        }
     }
+
     return { date: null, content: content };
 };
 
@@ -81,6 +91,9 @@ export default function WhatsappLeadsPage() {
     const [selectedLeadIdForChat, setSelectedLeadIdForChat] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
+    const [activeTab, setActiveTab] = useState<"leads" | "owners">("leads");
+    const [ownerLeads, setOwnerLeads] = useState<any[]>([]);
+    const [loadingOwners, setLoadingOwners] = useState(false);
 
     // Filter State
     const [dateRange, setDateRange] = useState<any>({
@@ -98,16 +111,25 @@ export default function WhatsappLeadsPage() {
 
     useEffect(() => {
         if (!loadingLeads) {
-            // Filter: only include leads that have actually been contacted via WhatsApp (matches other views)
             const whatsappLeads = allLeads.filter(l => {
                 const lead = l as any;
-                // Only include leads where W.P_1 is not empty/No
                 const wp1 = lead["W.P_1"];
                 return (wp1 && wp1 !== "" && wp1 !== "No");
             });
             setLeads(whatsappLeads);
         }
     }, [allLeads, loadingLeads]);
+
+    useEffect(() => {
+        if (activeTab === "owners" && ownerLeads.length === 0) {
+            setLoadingOwners(true);
+            fetch("/api/owner-leads")
+                .then(res => res.json())
+                .then(data => setOwnerLeads(data.owner_data || []))
+                .catch(err => console.error("Owner fetch error:", err))
+                .finally(() => setLoadingOwners(false));
+        }
+    }, [activeTab, ownerLeads.length]);
 
     const filteredLeads = useMemo(() => {
         setCurrentPage(1); // Reset to first page on filter change
@@ -212,9 +234,54 @@ export default function WhatsappLeadsPage() {
         }
     };
 
+    const filteredOwners = useMemo(() => {
+        return ownerLeads.filter(o => {
+            const name = (o.Name || o.name || "").toLowerCase();
+            const email = (o.Email || o.email || "").toLowerCase();
+            const phone = (o.contactNo || o.Phone || o.phone || "");
+            const matchesSearch = name.includes(searchQuery.toLowerCase()) || 
+                                email.includes(searchQuery.toLowerCase()) ||
+                                phone.includes(searchQuery);
+            if (!matchesSearch) return false;
+
+            if (dateRange.from) {
+                const wpDateStr = o["Whatsapp_1_Date"];
+                if (wpDateStr) {
+                    const wpDate = new Date(wpDateStr);
+                    const fromDate = startOfDay(new Date(dateRange.from));
+                    const toDate = dateRange.to ? endOfDay(new Date(dateRange.to)) : endOfDay(new Date(fromDate));
+                    if (wpDate < fromDate || wpDate > toDate) return false;
+                } else {
+                    return false;
+                }
+            }
+
+            const wtR = o["WTS_Reply_Track"];
+            let hasReplied = false;
+            if (wtR && wtR !== "" && String(wtR).toLowerCase() !== "no") {
+                hasReplied = true;
+            }
+            if (activeFilters.replyStatus.length > 0) {
+                const matchesReply = (activeFilters.replyStatus.includes("Replied") && hasReplied) ||
+                    (activeFilters.replyStatus.includes("Sent") && !hasReplied);
+                if (!matchesReply) return false;
+            }
+
+            return true;
+        });
+    }, [ownerLeads, searchQuery, dateRange, activeFilters]);
+
     // Pagination Logic
-    const totalPages = Math.ceil(filteredLeads.length / leadsPerPage);
+    const totalPages = activeTab === "leads" 
+        ? Math.ceil(filteredLeads.length / leadsPerPage) 
+        : Math.ceil(filteredOwners.length / leadsPerPage);
+
     const paginatedLeads = filteredLeads.slice(
+        (currentPage - 1) * leadsPerPage,
+        currentPage * leadsPerPage
+    );
+
+    const paginatedOwners = filteredOwners.slice(
         (currentPage - 1) * leadsPerPage,
         currentPage * leadsPerPage
     );
@@ -232,6 +299,22 @@ export default function WhatsappLeadsPage() {
                     <p className="text-slate-500 text-sm">Review leads successfully contacted via WhatsApp</p>
                 </div>
                 <div className="flex items-center gap-3">
+                    {/* Tab Switcher */}
+                    <div className="flex bg-slate-100 rounded-lg p-0.5 mr-2">
+                        <button
+                            onClick={() => { setActiveTab("leads"); setCurrentPage(1); }}
+                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "leads" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                        >
+                            <Users className="h-3.5 w-3.5" /> Leads
+                        </button>
+                        <button
+                            onClick={() => { setActiveTab("owners"); setCurrentPage(1); }}
+                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1.5 ${activeTab === "owners" ? "bg-white text-amber-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                        >
+                            <Building2 className="h-3.5 w-3.5" /> Owners
+                        </button>
+                    </div>
+
                     {(activeFilters.replyStatus.length > 0 || activeFilters.loops.length > 0 || dateRange.from || searchQuery) && (
                         <Button
                             variant="ghost"
@@ -252,7 +335,7 @@ export default function WhatsappLeadsPage() {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                     <Input
                         className="pl-10 h-10 bg-slate-50/50 border-slate-200"
-                        placeholder="Search leads..."
+                        placeholder={`Search ${activeTab}...`}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -326,77 +409,131 @@ export default function WhatsappLeadsPage() {
                                             onCheckedChange={toggleSelectAll}
                                         />
                                     </th>
-                                    <th className="px-4 py-4">Name</th>
+                                    <th className="px-4 py-4">{activeTab === "leads" ? "Name" : "Owner"}</th>
                                     <th className="px-4 py-4">Phone</th>
-                                    <th className="px-4 py-4">Loop</th>
+                                    <th className="px-4 py-4">{activeTab === "leads" ? "Loop" : "Source"}</th>
                                     <th className="px-4 py-4 text-center">Reply Status</th>
-                                    <th className="px-4 py-4">Last Contacted</th>
+                                    <th className="px-4 py-4">{activeTab === "leads" ? "Last Contacted" : "Whatsapp Date"}</th>
                                     <th className="px-4 py-4 text-right"></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {loading ? (
-                                    <tr>
-                                        <td colSpan={7} className="px-4 py-20 text-center text-slate-400">
-                                            <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-emerald-500" />
-                                            Syncing with Supabase...
-                                        </td>
-                                    </tr>
-                                ) : filteredLeads.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={7} className="px-4 py-20 text-center text-slate-400">
-                                            No leads with contact history found.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    paginatedLeads.map((lead, index) => (
-                                        <tr
-                                            key={`${lead.id}-${index}`}
-                                            className="hover:bg-slate-50 transition-colors group cursor-pointer"
-                                            onClick={() => setSelectedLeadIdForChat(lead.id)}
-                                        >
-                                            <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                                                <Checkbox
-                                                    checked={selectedLeads.includes(lead.id)}
-                                                    onCheckedChange={() => toggleSelect(lead.id)}
-                                                />
-                                            </td>
-                                            <td className="px-4 py-4 font-bold text-slate-900">{lead.name}</td>
-                                            <td className="px-4 py-4 text-slate-600 font-mono text-xs">{lead.phone}</td>
-                                            <td className="px-4 py-4">
-                                                <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-100 text-[10px] uppercase font-bold">
-                                                    {lead.source_loop}
-                                                </Badge>
-                                            </td>
-                                            <td className="px-4 py-4 text-center">
-                                                <StatusBadge lead={lead} />
-                                            </td>
-                                            <td className="px-4 py-4 text-slate-500 text-xs">
-                                                {new Date(lead.last_contacted!).toLocaleString()}
-                                            </td>
-                                            <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end">
-                                                        <DropdownMenuItem>View Journey</DropdownMenuItem>
-                                                        <DropdownMenuItem>Send manual WhatsApp</DropdownMenuItem>
-                                                        <DropdownMenuSeparator />
-                                                        <DropdownMenuItem className="text-red-600">Exclude from List</DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
+                                {activeTab === "leads" ? (
+                                    loading ? (
+                                        <tr>
+                                            <td colSpan={7} className="px-4 py-20 text-center text-slate-400">
+                                                <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-emerald-500" />
+                                                Syncing with Supabase...
                                             </td>
                                         </tr>
-                                    ))
+                                    ) : filteredLeads.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={7} className="px-4 py-20 text-center text-slate-400">
+                                                No leads with contact history found.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        paginatedLeads.map((lead, index) => (
+                                            <tr
+                                                key={`${lead.id}-${index}`}
+                                                className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                                                onClick={() => setSelectedLeadIdForChat(lead.id)}
+                                            >
+                                                <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                                                    <Checkbox
+                                                        checked={selectedLeads.includes(lead.id)}
+                                                        onCheckedChange={() => toggleSelect(lead.id)}
+                                                    />
+                                                </td>
+                                                <td className="px-4 py-4 font-bold text-slate-900">{lead.name}</td>
+                                                <td className="px-4 py-4 text-slate-600 font-mono text-xs">{lead.phone}</td>
+                                                <td className="px-4 py-4">
+                                                    <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-100 text-[10px] uppercase font-bold">
+                                                        {lead.source_loop}
+                                                    </Badge>
+                                                </td>
+                                                <td className="px-4 py-4 text-center">
+                                                    <StatusBadge lead={lead} />
+                                                </td>
+                                                <td className="px-4 py-4 text-slate-500 text-xs">
+                                                    {new Date(lead.last_contacted!).toLocaleString()}
+                                                </td>
+                                                <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                                        <MoreVertical className="h-4 w-4" />
+                                                    </Button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )
+                                ) : (
+                                    loadingOwners ? (
+                                        <tr>
+                                            <td colSpan={7} className="px-4 py-20 text-center text-slate-400">
+                                                <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-amber-500" />
+                                                Loading owner leads...
+                                            </td>
+                                        </tr>
+                                    ) : filteredOwners.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={7} className="px-4 py-20 text-center text-slate-400">
+                                                No owner leads found.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        paginatedOwners.map((owner, index) => {
+                                            const wtsReply = owner["WTS_Reply_Track"];
+                                            const hasReplied = wtsReply && wtsReply !== "" && String(wtsReply).toLowerCase() !== "no";
+                                            return (
+                                                <tr
+                                                    key={owner.id || index}
+                                                    className="hover:bg-amber-50/30 transition-colors group cursor-pointer"
+                                                >
+                                                    <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                                                        <Checkbox />
+                                                    </td>
+                                                    <td className="px-4 py-4 font-bold text-slate-900 group-hover:text-amber-700">{owner.Name || owner.name || "—"}</td>
+                                                    <td className="px-4 py-4 text-slate-600 font-mono text-xs">{owner.contactNo || owner.Phone || owner.phone || "—"}</td>
+                                                    <td className="px-4 py-4">
+                                                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-100 text-[10px] uppercase font-bold">
+                                                            OWNER DATA
+                                                        </Badge>
+                                                    </td>
+                                                    <td className="px-4 py-4 text-center">
+                                                        {hasReplied ? (
+                                                            <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none text-[10px] font-bold">REPLIED</Badge>
+                                                        ) : (
+                                                            <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-200">SENT</Badge>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-slate-500 text-xs">
+                                                        {owner["Whatsapp_1_Date"] ? new Date(owner["Whatsapp_1_Date"]).toLocaleString() : "—"}
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                                            <MoreVertical className="h-4 w-4" />
+                                                        </Button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
+                                    )
                                 )}
+
+
+
+
                             </tbody>
                         </table>
                     </div>
                     {/* Footer */}
                     <div className="p-4 border-t border-slate-100 bg-slate-50/50 flex flex-col md:flex-row items-center justify-between gap-4">
                         <p className="text-sm text-slate-500">
-                            Showing <span className="font-bold text-slate-900">{paginatedLeads.length}</span> of <span className="font-bold text-slate-900">{filteredLeads.length}</span> contacted leads
+                            Showing <span className="font-bold text-slate-900">
+                                {activeTab === "leads" ? paginatedLeads.length : paginatedOwners.length}
+                            </span> of <span className="font-bold text-slate-900">
+                                {activeTab === "leads" ? filteredLeads.length : filteredOwners.length}
+                            </span> contacted {activeTab}
                         </p>
 
                         <div className="flex items-center gap-2">

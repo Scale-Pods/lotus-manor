@@ -13,6 +13,7 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { WhatsAppChatDetail } from "@/components/dashboard/whatsapp-chat-detail";
+import { OwnerChatDetail } from "@/components/dashboard/owner-chat-detail";
 import { ConsolidatedLead } from "@/lib/leads-utils";
 import {
     Dialog,
@@ -27,7 +28,8 @@ import {
     Send,
     MessageCircle,
     MessageSquare,
-    RefreshCw
+    RefreshCw,
+    Building2
 } from "lucide-react";
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
@@ -131,11 +133,36 @@ export default function WhatsappChatPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
 
+    // Tab state: "leads" or "owners"
+    const [activeTab, setActiveTab] = useState<"leads" | "owners">("leads");
+
+    // Owner data (separate API)
+    const [ownerLeads, setOwnerLeads] = useState<any[]>([]);
+    const [loadingOwners, setLoadingOwners] = useState(false);
+    const [ownersFetched, setOwnersFetched] = useState(false);
+
+    // Fetch owner data only when tab switches to owners (lazy load)
+    useEffect(() => {
+        if (activeTab === "owners" && !ownersFetched) {
+            setLoadingOwners(true);
+            fetch("/api/owner-leads")
+                .then(res => res.json())
+                .then(data => {
+                    setOwnerLeads(data.owner_data || []);
+                    setOwnersFetched(true);
+                })
+                .catch(err => console.error("Owner leads fetch error:", err))
+                .finally(() => setLoadingOwners(false));
+        }
+    }, [activeTab, ownersFetched]);
+
     // URL Sync for chat
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
     const initialSelectedId = searchParams?.get('chat');
+    const initialTab = searchParams?.get('tab');
 
     const [selectedLeadId, setSelectedLeadId] = useState<string | null>(initialSelectedId || null);
+    const [selectedOwner, setSelectedOwner] = useState<any | null>(null);
 
     useEffect(() => {
         const url = new URL(window.location.origin + window.location.pathname);
@@ -240,74 +267,138 @@ export default function WhatsappChatPage() {
         });
     }, [leads, searchQuery, activeFilters, dateRange]);
 
-    // --- Stats derived directly from filteredLeads so metric card = sum of table rows ---
+    // Owner filtering
+    const filteredOwners = useMemo(() => {
+        return ownerLeads.filter(o => {
+            const name = (o.Name || o.name || "").toLowerCase();
+            const phone = (o.contactNo || o.Phone || o.phone || "");
+            const matchesSearch = name.includes(searchQuery.toLowerCase()) || phone.includes(searchQuery);
+            if (!matchesSearch) return false;
+
+            // Date Range Filter
+            if (dateRange?.from) {
+                const wpDate = o["Whatsapp_1_Date"];
+                if (wpDate) {
+                    const d = new Date(wpDate);
+                    if (!isNaN(d.getTime())) {
+                        const from = startOfDay(new Date(dateRange.from));
+                        const to = endOfDay(new Date(dateRange.to || dateRange.from));
+                        if (d < from || d > to) return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+
+            // Reply Status Filter
+            if (activeFilters.replyStatus.length > 0) {
+                const wtsReply = o["WTS_Reply_Track"];
+                const hasReplied = wtsReply && wtsReply !== "" && String(wtsReply).toLowerCase() !== "no";
+                const matchesReply = (activeFilters.replyStatus.includes("Replied") && hasReplied) ||
+                                     (activeFilters.replyStatus.includes("No Reply") && !hasReplied);
+                if (!matchesReply) return false;
+            }
+
+            // Message Status Filter (e.g. Read, Delivered, Sent, Failed)
+            if (activeFilters.messageStatus.length > 0) {
+                const status = (o["Whatsapp_1_status"] || "").toLowerCase();
+                const matchesStatus = activeFilters.messageStatus.some(s => status.includes(s.toLowerCase()));
+                if (!matchesStatus) return false;
+            }
+
+            return true;
+        });
+    }, [ownerLeads, searchQuery, dateRange, activeFilters]);
+
+    // --- Stats derived directly from filteredLeads/filteredOwners so metric card = sum of table rows ---
     const stats = useMemo(() => {
         let sentCount = 0;
         let repliedCount = 0;
         let failedCount = 0;
+        let uniqueSentCount = 0;
 
-        filteredLeads.forEach(l => {
-            const lead = l as any;
-            for (let i = 1; i <= 12; i++) {
-                const ts = (lead[`W.P_${i} TS`] || "").toLowerCase();
-                if (ts.includes("failed")) failedCount++;
-            }
+        if (activeTab === "leads") {
+            filteredLeads.forEach(l => {
+                const lead = l as any;
+                for (let i = 1; i <= 12; i++) {
+                    const ts = (lead[`W.P_${i} TS`] || "").toLowerCase();
+                    if (ts.includes("failed")) failedCount++;
+                }
 
-            // Count bot outgoing messages — identical logic to CustomerRow.sentCount
-            for (let i = 1; i <= 12; i++) {
-                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) sentCount++;
-            }
-            if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) sentCount++;
-            for (let i = 1; i <= 10; i++) {
-                if (lead[`W.P_FollowUp_${i}`]) sentCount++;
-            }
+                // Count bot outgoing messages — identical logic to CustomerRow.sentCount
+                for (let i = 1; i <= 12; i++) {
+                    if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) sentCount++;
+                }
+                if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) sentCount++;
+                for (let i = 1; i <= 10; i++) {
+                    if (lead[`W.P_FollowUp_${i}`]) sentCount++;
+                }
 
-            // Replied check — uses exact date of latest reply for range accuracy
-            const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
-            const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
-            const isWithinRange = (d: Date | null) => {
-                if (!fromDate || !toDate) return true;
-                if (!d) return false;
-                return d >= fromDate && d <= toDate;
-            };
+                // Replied check — uses exact date of latest reply for range accuracy
+                const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
+                const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
+                const isWithinRange = (d: Date | null) => {
+                    if (!fromDate || !toDate) return true;
+                    if (!d) return false;
+                    return d >= fromDate && d <= toDate;
+                };
 
-            const checkWPDate = (raw: any) => {
-                if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
-                const parsed = parseMsg(raw);
-                return parsed.date;
-            };
+                const checkWPDate = (raw: any) => {
+                    if (!raw || ["no", "none", ""].includes(String(raw).toLowerCase().trim())) return null;
+                    const parsed = parseMsg(raw);
+                    return parsed.date;
+                };
 
-            let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
-            for (let i = 1; i <= 10; i++) {
-                const d = checkWPDate(lead[`W.P_Replied_${i}`]);
-                if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
-            }
-            
-            if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
-                repliedCount++;
-            }
-        });
+                let latestWPReplyDate: Date | null = checkWPDate(lead.whatsapp_replied);
+                for (let i = 1; i <= 10; i++) {
+                    const d = checkWPDate(lead[`W.P_Replied_${i}`]);
+                    if (d && (!latestWPReplyDate || d > latestWPReplyDate)) latestWPReplyDate = d;
+                }
+                
+                if (latestWPReplyDate && isWithinRange(latestWPReplyDate)) {
+                    repliedCount++;
+                }
+            });
 
-        const uniqueSentCount = filteredLeads.filter(l => {
-            const lead = l as any;
-            for (let i = 1; i <= 12; i++) {
-                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
-            }
-            if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) return true;
-            for (let i = 1; i <= 10; i++) {
-                if (lead[`W.P_FollowUp_${i}`]) return true;
-            }
-            return false;
-        }).length;
+            uniqueSentCount = filteredLeads.filter(l => {
+                const lead = l as any;
+                for (let i = 1; i <= 12; i++) {
+                    if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
+                }
+                if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) return true;
+                for (let i = 1; i <= 10; i++) {
+                    if (lead[`W.P_FollowUp_${i}`]) return true;
+                }
+                return false;
+            }).length;
+        } else {
+            // Owner Stats
+            filteredOwners.forEach(o => {
+                if (o["Whatsapp_1"]) {
+                    sentCount++;
+                    uniqueSentCount++;
+                }
+                if (o["retry_1"]) sentCount++;
+                for (let i = 1; i <= 5; i++) {
+                    if (o[`Bot_Replied_${i}`]) sentCount++;
+                }
+                if (o["Whatsapp_1_status"]?.toLowerCase().includes("failed")) failedCount++;
+
+                const wtsReply = o["WTS_Reply_Track"];
+                if (wtsReply && wtsReply !== "" && String(wtsReply).toLowerCase() !== "no") {
+                    repliedCount++;
+                }
+            });
+        }
 
         return {
-            totalLeads: filteredLeads.length,
+            totalLeads: activeTab === "leads" ? filteredLeads.length : filteredOwners.length,
             sentCount,
             uniqueSentCount,
             repliedCount,
             failedCount,
         };
-    }, [filteredLeads]);
+    }, [filteredLeads, filteredOwners, activeTab, dateRange]);
 
     const handleApplyFilters = () => { setActiveFilters(pendingFilters); };
     const handleResetFilters = () => {
@@ -332,7 +423,9 @@ export default function WhatsappChatPage() {
         return filteredLeads.slice(start, start + leadsPerPage);
     }, [filteredLeads, currentPage]);
 
-    const totalPages = Math.ceil(filteredLeads.length / leadsPerPage);
+    const totalPages = activeTab === "leads" 
+        ? Math.ceil(filteredLeads.length / leadsPerPage) 
+        : Math.ceil(filteredOwners.length / leadsPerPage);
 
     useEffect(() => { setCurrentPage(1); }, [searchQuery, activeFilters, dateRange]);
 
@@ -382,17 +475,37 @@ export default function WhatsappChatPage() {
         </Button>
     );
 
+
+
+    const ownerPages = Math.ceil(filteredOwners.length / leadsPerPage);
+    const paginatedOwners = filteredOwners.slice((currentPage - 1) * leadsPerPage, currentPage * leadsPerPage);
+
     return (
         <div className="space-y-6 pb-10 relative min-h-[500px]">
-            {loading && <LMLoader />}
+            {(activeTab === "leads" ? loading : loadingOwners) && <LMLoader />}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Chats</h1>
                     <p className="text-slate-500 text-sm">Real-time engagement across your leads</p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                    {/* Tab Switcher */}
+                    <div className="flex bg-slate-100 rounded-lg p-0.5">
+                        <button
+                            onClick={() => { setActiveTab("leads"); setCurrentPage(1); }}
+                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === "leads" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                        >
+                            <Users className="h-3.5 w-3.5 inline mr-1.5" />Leads
+                        </button>
+                        <button
+                            onClick={() => { setActiveTab("owners"); setCurrentPage(1); }}
+                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === "owners" ? "bg-white text-amber-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+                        >
+                            <Building2 className="h-3.5 w-3.5 inline mr-1.5" />Owners
+                        </button>
+                    </div>
                     <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
-                    <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="gap-2 h-9">
+                    <Button variant="outline" size="sm" onClick={() => { window.location.reload(); }} className="gap-2 h-9">
                         <RefreshCw className="h-4 w-4" /> Refresh
                     </Button>
                 </div>
@@ -416,11 +529,13 @@ export default function WhatsappChatPage() {
                                 <FilterOption label="No Reply" checked={pendingFilters.replyStatus.includes("No Reply")} onCheckedChange={() => toggleFilter('replyStatus', "No Reply")} />
                             </FilterSection>
 
-                            <FilterSection title="Loop">
-                                <FilterOption label="Intro" checked={pendingFilters.loops.includes("Intro")} onCheckedChange={() => toggleFilter('loops', "Intro")} />
-                                <FilterOption label="Follow Up" checked={pendingFilters.loops.includes("Follow Up")} onCheckedChange={() => toggleFilter('loops', "Follow Up")} />
-                                <FilterOption label="Nurture" checked={pendingFilters.loops.includes("Nurture")} onCheckedChange={() => toggleFilter('loops', "Nurture")} />
-                            </FilterSection>
+                            {activeTab === "leads" && (
+                                <FilterSection title="Loop">
+                                    <FilterOption label="Intro" checked={pendingFilters.loops.includes("Intro")} onCheckedChange={() => toggleFilter('loops', "Intro")} />
+                                    <FilterOption label="Follow Up" checked={pendingFilters.loops.includes("Follow Up")} onCheckedChange={() => toggleFilter('loops', "Follow Up")} />
+                                    <FilterOption label="Nurture" checked={pendingFilters.loops.includes("Nurture")} onCheckedChange={() => toggleFilter('loops', "Nurture")} />
+                                </FilterSection>
+                            )}
 
                             <FilterSection title="Message Status">
                                 <FilterOption label="Read" checked={pendingFilters.messageStatus.includes("Read")} onCheckedChange={() => toggleFilter('messageStatus', "Read")} />
@@ -439,7 +554,7 @@ export default function WhatsappChatPage() {
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <MetricCard title="Messages Sent" value={loading ? "..." : stats.sentCount.toLocaleString()} desc="Total outgoing pulses" icon={Send} />
-                            <MetricCard title="Unique Msg Sent" value={loading ? "..." : stats.uniqueSentCount.toLocaleString()} desc="Unique leads contacted" icon={Users} />
+                            <MetricCard title="Unique Msg Sent" value={loading ? "..." : stats.uniqueSentCount.toLocaleString()} desc="Unique entities contacted" icon={Users} />
                             <MetricCard title="Total Replies" value={loading ? "..." : stats.repliedCount.toLocaleString()} desc={`${stats.totalLeads > 0 ? ((stats.repliedCount / stats.totalLeads) * 100).toFixed(1) : 0}% Response Rate`} icon={MessageSquare} />
                         </div>
                         <Card className="border-slate-200 shadow-sm bg-white">
@@ -461,67 +576,141 @@ export default function WhatsappChatPage() {
 
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                        <Input className="pl-10 bg-white" placeholder="Search by name or phone..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+                        <Input className="pl-10 bg-white" placeholder={`Search ${activeTab} by name or phone...`} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                     </div>
 
                     <Card className="border-slate-200 shadow-sm bg-white overflow-hidden">
-                        {loading ? (
-                            <div className="p-10 text-center text-slate-500 flex flex-col items-center gap-2">
-                                <RefreshCw className="h-6 w-6 animate-spin text-emerald-500" />
-                                Loading real-time chats...
-                            </div>
-                        ) : filteredLeads.length === 0 ? (
-                            <div className="p-10 text-center text-slate-500">No WhatsApp chats found.</div>
+                        {activeTab === "leads" ? (
+                            <>
+                                {loading ? (
+                                    <div className="p-10 text-center text-slate-500 flex flex-col items-center gap-2">
+                                        <RefreshCw className="h-6 w-6 animate-spin text-emerald-500" />
+                                        Loading real-time chats...
+                                    </div>
+                                ) : filteredLeads.length === 0 ? (
+                                    <div className="p-10 text-center text-slate-500">No WhatsApp chats found.</div>
+                                ) : (
+                                    <TooltipProvider>
+                                        <table className="w-full text-left text-sm">
+                                            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                                                <tr>
+                                                    <th className="px-4 py-3">Lead</th>
+                                                    <th className="px-4 py-3 text-center">Loop</th>
+                                                    <th className="px-4 py-3 text-center">Messages Sent</th>
+                                                    <th className="px-4 py-3 text-center">Status</th>
+                                                    <th className="px-4 py-3 text-center">Message Status</th>
+                                                    <th className="px-4 py-3 text-right">Last Contacted</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {paginatedLeads.map((lead) => (
+                                                    <CustomerRow key={lead.id} lead={lead} onClick={() => setSelectedLeadId(lead.id)} />
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </TooltipProvider>
+                                )}
+                            </>
                         ) : (
-                            <TooltipProvider>
-                                <table className="w-full text-left text-sm">
-                                    <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
-                                        <tr>
-                                            <th className="px-4 py-3">Lead</th>
-                                            <th className="px-4 py-3 text-center">Loop</th>
-                                            <th className="px-4 py-3 text-center">Messages Sent</th>
-                                            <th className="px-4 py-3 text-center">Status</th>
-                                            <th className="px-4 py-3 text-center">Message Status</th>
-                                            <th className="px-4 py-3 text-right">Last Contacted</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {paginatedLeads.map((lead) => (
-                                            <CustomerRow key={lead.id} lead={lead} onClick={() => setSelectedLeadId(lead.id)} />
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </TooltipProvider>
+                            <>
+                                {loadingOwners ? (
+                                    <div className="p-10 text-center text-slate-500 flex flex-col items-center gap-2">
+                                        <RefreshCw className="h-6 w-6 animate-spin text-amber-500" />
+                                        Loading owner chats...
+                                    </div>
+                                ) : filteredOwners.length === 0 ? (
+                                    <div className="p-10 text-center text-slate-500">No owner chats found.</div>
+                                ) : (
+                                    <TooltipProvider>
+                                        <table className="w-full text-left text-sm">
+                                            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                                                <tr>
+                                                    <th className="px-4 py-3">Owner</th>
+                                                    <th className="px-4 py-3 text-center">WTS Reply</th>
+                                                    <th className="px-4 py-3 text-center">Status</th>
+                                                    <th className="px-4 py-3 text-center">Messages</th>
+                                                    <th className="px-4 py-3 text-right">Date</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {paginatedOwners.map((owner, idx) => {
+                                                    const wtsReply = owner["WTS_Reply_Track"];
+                                                    const hasReply = wtsReply && wtsReply !== "" && String(wtsReply).toLowerCase() !== "no";
+                                                    let msgCount = 0;
+                                                    if (owner["Whatsapp_1"]) msgCount++;
+                                                    if (owner["retry_1"]) msgCount++;
+                                                    for (let i = 1; i <= 5; i++) {
+                                                        if (owner[`User_Replied_${i}`]) msgCount++;
+                                                        if (owner[`Bot_Replied_${i}`]) msgCount++;
+                                                    }
+                                                    const wpDate = owner["Whatsapp_1_Date"];
+                                                    return (
+                                                        <tr key={owner.id || idx} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => setSelectedOwner(owner)}>
+                                                            <td className="px-4 py-3">
+                                                                <div className="font-bold text-slate-900 group-hover:text-amber-700">{owner.Name || owner.name || "—"}</div>
+                                                                <div className="text-xs text-slate-500">{owner.contactNo || owner.Phone || owner.phone || "—"}</div>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                {hasReply ? (
+                                                                    <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none text-[10px] font-bold">REPLIED</Badge>
+                                                                ) : (
+                                                                    <Badge variant="outline" className="text-[10px] text-slate-400 border-slate-200">SENT</Badge>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                <Badge variant="outline" className="text-[10px] uppercase font-bold border-amber-100 text-amber-600 bg-amber-50">
+                                                                    {owner["Whatsapp_1_status"] || "—"}
+                                                                </Badge>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center font-bold text-slate-700">{msgCount}</td>
+                                                            <td className="px-4 py-3 text-right text-slate-500 text-xs text-nowrap">
+                                                                {wpDate ? new Date(wpDate).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : "—"}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </TooltipProvider>
+                                )}
+                            </>
                         )}
 
-                        {!loading && filteredLeads.length > 0 && (
+                        {totalPages > 1 && (
                             <div className="bg-slate-50 border-t border-slate-100 px-4 py-3 flex items-center justify-between">
                                 <div className="text-xs text-slate-500 font-medium">
-                                    Showing <span className="text-slate-900 font-bold">{filteredLeads.length > 0 ? (currentPage - 1) * leadsPerPage + 1 : 0}</span> to <span className="text-slate-900 font-bold">{Math.min(currentPage * leadsPerPage, filteredLeads.length)}</span> of <span className="text-slate-900 font-bold">{filteredLeads.length}</span> leads
+                                    Showing <span className="text-slate-900 font-bold">{(currentPage - 1) * leadsPerPage + 1}</span> to <span className="text-slate-900 font-bold">{Math.min(currentPage * leadsPerPage, (activeTab === "leads" ? filteredLeads.length : filteredOwners.length))}</span> of <span className="text-slate-900 font-bold">{(activeTab === "leads" ? filteredLeads.length : filteredOwners.length)}</span> {activeTab}
                                 </div>
-                                {filteredLeads.length > leadsPerPage && (
-                                    <div className="flex gap-1 items-center">
-                                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={currentPage === 1} onClick={() => setCurrentPage(prev => prev - 1)}>
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </Button>
-                                        <div className="flex gap-1">
-                                            {renderPaginationItems()}
-                                        </div>
-                                        <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => prev + 1)}>
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Button>
+                                <div className="flex gap-1 items-center">
+                                    <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={currentPage === 1} onClick={() => setCurrentPage(prev => prev - 1)}>
+                                        <ChevronLeft className="h-4 w-4" />
+                                    </Button>
+                                    <div className="flex gap-1">
+                                        {renderPaginationItems()}
                                     </div>
-                                )}
+                                    <Button variant="outline" size="sm" className="h-8 w-8 p-0" disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => prev + 1)}>
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     </Card>
                 </div>
             </div>
 
+            {/* Lead Chat Dialog */}
             <Dialog open={!!selectedLeadId} onOpenChange={(open) => !open && setSelectedLeadId(null)}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden p-6 gap-0">
                     <DialogHeader className="sr-only"><DialogTitle>WhatsApp Chat Detail</DialogTitle></DialogHeader>
                     {selectedLeadId && <WhatsAppChatDetail customerId={selectedLeadId} onClose={() => setSelectedLeadId(null)} />}
+                </DialogContent>
+            </Dialog>
+
+            {/* Owner Chat Dialog */}
+            <Dialog open={!!selectedOwner} onOpenChange={(open) => !open && setSelectedOwner(null)}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden p-6 gap-0">
+                    <DialogHeader className="sr-only"><DialogTitle>Owner Chat Detail</DialogTitle></DialogHeader>
+                    {selectedOwner && <OwnerChatDetail owner={selectedOwner} onClose={() => setSelectedOwner(null)} />}
                 </DialogContent>
             </Dialog>
         </div>
