@@ -22,6 +22,38 @@ import { Button } from "@/components/ui/button";
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
 
+const parseMsg = (raw: any): { date: Date | null, content: string } => {
+    if (!raw || !String(raw).trim()) return { date: null, content: "" };
+    const content = String(raw).trim();
+
+    // Check if direct ISO (common in Voice columns or manual entries)
+    if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
+        const d = new Date(content);
+        if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
+            return { date: d, content: "" };
+        }
+    }
+
+    const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+    const isoMatch = content.match(isoRegex);
+    if (isoMatch) {
+        return {
+            date: new Date(isoMatch[1]),
+            content: content.replace(isoRegex, '').trim()
+        };
+    }
+    const lines = content.split('\n');
+    const lastLine = lines[lines.length - 1].trim();
+    const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+    if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+        return {
+            date: lastLineDate,
+            content: lines.slice(0, -1).join('\n').trim()
+        };
+    }
+    return { date: null, content: content };
+};
+
 export default function WhatsappAnalyticsPage() {
     const { leads: allLeads, loadingLeads } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
@@ -30,38 +62,6 @@ export default function WhatsappAnalyticsPage() {
         from: subDays(new Date(), 7),
         to: new Date()
     });
-
-    const parseMsg = (raw: any): { date: Date | null, content: string } => {
-        if (!raw || !String(raw).trim()) return { date: null, content: "" };
-        const content = String(raw).trim();
-
-        // Check if direct ISO (common in Voice columns or manual entries)
-        if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
-            const d = new Date(content);
-            if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
-                return { date: d, content: "" };
-            }
-        }
-
-        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
-        const isoMatch = content.match(isoRegex);
-        if (isoMatch) {
-            return {
-                date: new Date(isoMatch[1]),
-                content: content.replace(isoRegex, '').trim()
-            };
-        }
-        const lines = content.split('\n');
-        const lastLine = lines[lines.length - 1].trim();
-        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
-        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
-            return {
-                date: lastLineDate,
-                content: lines.slice(0, -1).join('\n').trim()
-            };
-        }
-        return { date: null, content: content };
-    };
 
     const getLeadLatestActivity = (lead: any) => {
         // PRIORITY: Use the specific reachout timestamp for Analytics
