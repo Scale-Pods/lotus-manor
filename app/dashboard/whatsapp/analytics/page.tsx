@@ -130,18 +130,23 @@ export default function WhatsappAnalyticsPage() {
         return leads.filter(l => {
             const lead = l as any;
             
-            // Identify WhatsApp Reachout (W.P_1 not null/No) - STRICT Date Filter on W.P_1 TS
+            // Identify WhatsApp Reachout (W.P_1 not null/No) - STRICT Date Filter
             const wp1 = lead["W.P_1"];
             if (!wp1 || wp1 === "" || wp1 === "No") return false;
 
-            const wp1Ts = lead["W.P_1 TS"];
-            let reachoutDate: Date | null = null;
-            if (wp1Ts && wp1Ts.includes(' - ')) {
-                const parts = wp1Ts.split(' - ');
-                const datePart = parts[parts.length - 1].trim();
-                const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                if (match) {
-                    reachoutDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+            // Try to parse from content first
+            let reachoutDate = parseMsg(wp1).date;
+            
+            // Fallback to W.P_1 TS
+            if (!reachoutDate) {
+                const wp1Ts = lead["W.P_1 TS"];
+                if (wp1Ts && wp1Ts.includes(' - ')) {
+                    const parts = wp1Ts.split(' - ');
+                    const datePart = parts[parts.length - 1].trim();
+                    const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                    if (match) {
+                        reachoutDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                    }
                 }
             }
 

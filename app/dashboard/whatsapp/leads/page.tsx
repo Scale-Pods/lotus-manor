@@ -49,6 +49,37 @@ export default function WhatsappLeadsPage() {
     const [selectedLeadIdForChat, setSelectedLeadIdForChat] = useState<string | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
+    const parseMsg = (raw: any): { date: Date | null, content: string } => {
+        if (!raw || !String(raw).trim()) return { date: null, content: "" };
+        const content = String(raw).trim();
+        
+        // Direct ISO check
+        if (content.length >= 10 && !isNaN(new Date(content).getTime())) {
+            const d = new Date(content);
+            if (content.includes('T') || (content.includes('-') && content.includes(':'))) {
+                return { date: d, content: "" };
+            }
+        }
+
+        const isoRegex = /\n\n(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.+)$/;
+        const isoMatch = content.match(isoRegex);
+        if (isoMatch) {
+            return {
+                date: new Date(isoMatch[1]),
+                content: content.replace(isoRegex, '').trim()
+            };
+        }
+        const lines = content.split('\n');
+        const lastLine = lines[lines.length - 1].trim();
+        const lastLineDate = new Date(lastLine.replace(' ', 'T'));
+        if (lines.length > 1 && !isNaN(lastLineDate.getTime()) && lastLine.includes('-') && lastLine.includes(':')) {
+            return {
+                date: lastLineDate,
+                content: lines.slice(0, -1).join('\n').trim()
+            };
+        }
+        return { date: null, content: content };
+    };
 
     // Filter State
     const [dateRange, setDateRange] = useState<any>({
@@ -100,15 +131,24 @@ export default function WhatsappLeadsPage() {
             };
 
             if (dateRange.from) {
+                const wp1 = (l as any)["W.P_1"];
                 const wp1Ts = (l as any)["W.P_1 TS"];
-                let reachoutDate = parseWPStamp(wp1Ts);
                 
-                if (!reachoutDate) return false; // Strict: No TS = Hide
+                // Priority: parse date from content, fallback to W.P_1 TS
+                let reachoutDate = parseMsg(wp1).date;
+                if (!reachoutDate && wp1Ts && wp1Ts.includes(' - ')) {
+                    const parts = wp1Ts.split(' - ');
+                    const datePart = parts[parts.length - 1].trim();
+                    const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                    if (match) {
+                        reachoutDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                    }
+                }
+                
+                if (!reachoutDate) return false; 
 
-                const fromDate = new Date(dateRange.from);
-                fromDate.setHours(0, 0, 0, 0);
-                const toDate = dateRange.to ? new Date(dateRange.to) : new Date(fromDate);
-                toDate.setHours(23, 59, 59, 999);
+                const fromDate = startOfDay(new Date(dateRange.from));
+                const toDate = dateRange.to ? endOfDay(new Date(dateRange.to)) : endOfDay(new Date(fromDate));
 
                 if (reachoutDate < fromDate || reachoutDate > toDate) return false;
             }
@@ -116,9 +156,11 @@ export default function WhatsappLeadsPage() {
             // Reply status filter
             const wtR = (l as any).WP_Replied_track;
             let hasReplied = false;
-            if (wtR) {
-                const s = String(wtR).trim().toLowerCase();
-                if (s === "yes" || s === "replied") hasReplied = true;
+            if (wtR && wtR !== "" && String(wtR).toLowerCase() !== "no") {
+                const parsed = parseMsg(wtR);
+                if (parsed.date || String(wtR).toLowerCase() === "yes" || String(wtR).toLowerCase() === "replied") {
+                    hasReplied = true;
+                }
             }
             
             if (activeFilters.replyStatus.length > 0) {
@@ -425,9 +467,11 @@ function StatusBadge({ lead: leadRaw }: { lead: any }) {
     const lead = leadRaw as any;
     const wtR = lead.WP_Replied_track;
     let hasReplied = false;
-    if (wtR) {
-        const s = String(wtR).trim().toLowerCase();
-        if (s === "yes" || s === "replied") hasReplied = true;
+    if (wtR && wtR !== "" && String(wtR).toLowerCase() !== "no") {
+        const parsed = parseMsg(wtR);
+        if (parsed.date || String(wtR).toLowerCase() === "yes" || String(wtR).toLowerCase() === "replied") {
+            hasReplied = true;
+        }
     }
 
     const classes = !hasReplied ? "bg-slate-100 text-slate-600" : "bg-emerald-100 text-emerald-700";

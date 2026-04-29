@@ -253,8 +253,12 @@ export default function MasterDashboard() {
                 allLeads.forEach((lead: any) => {
                     const wp1Val = lead["W.P_1"];
                     if (wp1Val && wp1Val !== "" && wp1Val !== "No") {
-                        const wp1Ts = lead["W.P_1 TS"];
-                        const reachoutDate = parseWPStamp(wp1Ts);
+                        // Priority: parse date from content, fallback to W.P_1 TS
+                        let reachoutDate = parseMsg(wp1Val).date;
+                        if (!reachoutDate) {
+                            const wp1Ts = lead["W.P_1 TS"];
+                            reachoutDate = parseWPStamp(wp1Ts);
+                        }
                         
                         if (reachoutDate && isWithinRange(reachoutDate)) {
                             whatsappChatsCount++;

@@ -160,23 +160,28 @@ export default function WhatsappDashboardPage() {
                     return d >= fromDate && d <= toDate;
                 };
 
-                // Strict Reachout Filter: W.P_1 must exist AND its TS must be in range
+                // Strict Reachout Filter: W.P_1 must exist AND its date must be in range
                 const filteredLeads = allLeads.filter((lead: any) => {
                     const wp1 = lead["W.P_1"];
                     if (!wp1 || wp1 === "" || wp1 === "No") return false;
 
-                    const wp1Ts = lead["W.P_1 TS"];
-                    let reachoutDate: Date | null = null;
-                    if (wp1Ts && wp1Ts.includes(' - ')) {
-                        const parts = wp1Ts.split(' - ');
-                        const datePart = parts[parts.length - 1].trim();
-                        const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                        if (match) {
-                            reachoutDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                    // Try to parse from content first
+                    let reachoutDate = parseMsg(wp1).date;
+                    
+                    // Fallback to W.P_1 TS
+                    if (!reachoutDate) {
+                        const wp1Ts = lead["W.P_1 TS"];
+                        if (wp1Ts && wp1Ts.includes(' - ')) {
+                            const parts = wp1Ts.split(' - ');
+                            const datePart = parts[parts.length - 1].trim();
+                            const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+                            if (match) {
+                                reachoutDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+                            }
                         }
                     }
 
-                    if (!reachoutDate) return false; // Strict: No TS = Hide from dashboard
+                    if (!reachoutDate) return false;
                     return isWithinRange(reachoutDate);
                 });
 
