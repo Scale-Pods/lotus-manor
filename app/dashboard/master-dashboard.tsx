@@ -156,9 +156,24 @@ export default function MasterDashboard() {
                 const toDate = dateRange?.to ? endOfDay(new Date(dateRange.to)) : (fromDate ? endOfDay(new Date(fromDate)) : null);
 
                 const isWithinRange = (d: Date | null) => {
-                    if (!fromDate || !toDate) return true; // All time
+                    if (!fromDate || !toDate) return true;
                     if (!d) return false;
-                    return d >= fromDate && d <= toDate;
+
+                    // Standard time comparison
+                    if (d >= fromDate && d <= toDate) return true;
+
+                    // Local day comparison (YYYY-MM-DD) to handle timezone boundaries correctly
+                    const toYYYYMMDD = (date: Date) => {
+                        const y = date.getFullYear();
+                        const m = String(date.getMonth() + 1).padStart(2, '0');
+                        const day = String(date.getDate()).padStart(2, '0');
+                        return `${y}-${m}-${day}`;
+                    };
+                    
+                    const dStr = toYYYYMMDD(d);
+                    const fStr = toYYYYMMDD(fromDate);
+                    const tStr = toYYYYMMDD(toDate);
+                    return dStr >= fStr && dStr <= tStr;
                 };
 
                 const parseWPStamp = (tsRaw: any): Date | null => {
@@ -260,18 +275,28 @@ export default function MasterDashboard() {
                 let minWPDate: Date | null = null;
                 allLeads.forEach((lead: any) => {
                     const wp1Val = lead["W.P_1"];
-                    if (wp1Val && wp1Val !== "" && wp1Val !== "No") {
-                        // Priority: parse date from content, fallback to W.P_1 TS
-                        let reachoutDate = parseMsg(wp1Val).date;
-                        if (!reachoutDate) {
-                            const wp1Ts = lead["W.P_1 TS"];
-                            reachoutDate = parseWPStamp(wp1Ts);
-                        }
-                        
-                        if (reachoutDate && isWithinRange(reachoutDate)) {
-                            whatsappChatsCount++;
-                            if (!minWPDate || reachoutDate < minWPDate) minWPDate = reachoutDate;
-                        }
+                    if (!wp1Val || wp1Val === "" || wp1Val === "No") return;
+
+                    const trimmed = String(wp1Val).trim();
+                    let reachoutDate: Date | null = null;
+                    
+                    // Try parsing as direct ISO timestamp
+                    const dObj = new Date(trimmed);
+                    if (!isNaN(dObj.getTime()) && (trimmed.includes('T') || (trimmed.includes('-') && trimmed.includes(':')))) {
+                        reachoutDate = dObj;
+                    } else {
+                        reachoutDate = parseMsg(trimmed).date;
+                    }
+
+                    // Fallback to W.P_1 TS if still no date
+                    if (!reachoutDate) {
+                        const wp1Ts = lead["W.P_1 TS"];
+                        reachoutDate = parseWPStamp(wp1Ts);
+                    }
+                    
+                    if (reachoutDate && isWithinRange(reachoutDate)) {
+                        whatsappChatsCount++;
+                        if (!minWPDate || reachoutDate < minWPDate) minWPDate = reachoutDate;
                     }
                 });
 
