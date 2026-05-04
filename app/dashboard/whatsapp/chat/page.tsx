@@ -158,9 +158,12 @@ const getLeadLatestActivity = (lead: any) => {
         if (d && d > latestDate) latestDate = d;
     }
 
-    // Check reply
+    // Check reply (legacy and new track)
     const rd = getMsgDate(lead.whatsapp_replied || lead.stage_data?.["WhatsApp Replied"]);
     if (rd && rd > latestDate) latestDate = rd;
+
+    const rt = getMsgDate(lead.WP_Replied_track);
+    if (rt && rt > latestDate) latestDate = rt;
 
     // Check followup
     const fd = getMsgDateWithFallback(lead, "W.P_FollowUp", "W.P_FollowUp TS");
@@ -175,6 +178,38 @@ const getLeadLatestActivity = (lead: any) => {
         if (dFollow && dFollow > latestDate) latestDate = dFollow;
     }
     return latestDate;
+};
+
+const getOwnerLatestActivity = (o: any) => {
+    let latest = o.createdOn ? new Date(o.createdOn) : (o.created_at ? new Date(o.created_at) : new Date(0));
+    
+    // Check Whatsapp_1_Date
+    if (o.Whatsapp_1_Date) {
+        const d = new Date(o.Whatsapp_1_Date);
+        if (!isNaN(d.getTime()) && d > latest) latest = d;
+    }
+    
+    // Check WTS_Reply_Track for timestamp
+    if (o.WTS_Reply_Track) {
+        const { date } = parseMsg(o.WTS_Reply_Track);
+        if (date && date > latest) latest = date;
+    }
+    
+    // Check Bot_Replied_X and User_Replied_X
+    for (let i = 1; i <= 10; i++) {
+        const br = o[`Bot_Replied_${i}`];
+        if (br) {
+            const { date } = parseMsg(br);
+            if (date && date > latest) latest = date;
+        }
+        const ur = o[`User_Replied_${i}`];
+        if (ur) {
+            const { date } = parseMsg(ur);
+            if (date && date > latest) latest = date;
+        }
+    }
+    
+    return latest;
 };
 
 export default function WhatsappChatPage() {
@@ -403,6 +438,10 @@ export default function WhatsappChatPage() {
             }
 
             return true;
+        }).sort((a, b) => {
+            const dateA = getOwnerLatestActivity(a);
+            const dateB = getOwnerLatestActivity(b);
+            return dateB.getTime() - dateA.getTime();
         });
     }, [ownerLeads, searchQuery, dateRange, activeFilters]);
 
