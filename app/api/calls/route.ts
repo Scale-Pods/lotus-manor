@@ -168,10 +168,10 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
     const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
     const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
 
-    // SELECT metadata and raw_data for filtering/display. 
-    // We include raw_data to get assistantId, isInbound, etc.
-    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,summary,vapi_account,recording_url,raw_data';
-    let url = `${baseUrl}/vapi_call_logs?select=${columns}&order=started_at.desc&limit=2000`;
+    // SELECT metadata and extracted fields from raw_data for filtering/display. 
+    // We avoid fetching the full 'raw_data' blob to prevent statement timeouts.
+    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,summary,vapi_account,recording_url,assistant_id:raw_data->>assistantId,is_inbound:raw_data->>isInbound,ended_reason:raw_data->>endedReason';
+    let url = `${baseUrl}/vapi_call_logs?select=${columns}&order=started_at.desc&limit=1000`;
     
     if (fromDate) {
         url += `&started_at=gte.${fromDate.toISOString()}`;
@@ -188,7 +188,8 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
     try {
         const res = await fetch(url, { headers });
         if (!res.ok) {
-            console.error(`[SupabaseFetch] HTTP ${res.status}:`, await res.text());
+            const errorText = await res.text();
+            console.error(`[SupabaseFetch] HTTP ${res.status}:`, errorText);
             return [];
         }
         const data = await res.json();
@@ -198,7 +199,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
             const dur = d.duration_seconds || 0;
             const costVal = d.cost_usd ?? 0;
             const ph = d.customer_phone || 'Unknown';
-            const raw = d.raw_data || {};
+            const isInbound = d.is_inbound === 'true' || d.is_inbound === true;
 
             return {
                 id: d.id,
@@ -211,21 +212,21 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
                 phoneNumber: ph,
                 callSummary: d.summary || '',
                 status: d.status || 'answered',
-                type: (raw.isInbound ?? false) ? "Inbound" : "Outbound",
-                isInbound: raw.isInbound ?? false,
+                type: isInbound ? "Inbound" : "Outbound",
+                isInbound: isInbound,
                 country: getRateInfo(ph)?.Country || 'Unknown',
                 source: d.vapi_account === 'elevenlabs' ? 'elevenlabs' : 'vapi',
                 vapiAccount: d.vapi_account,
-                assistantId: raw.assistantId || null,
-                endedReason: raw.endedReason || null,
+                assistantId: d.assistant_id || null,
+                endedReason: d.ended_reason || null,
                 breakdown: { agent: costVal, telephony: 0, total: costVal },
                 raw: { 
-                    ...raw,
                     id: d.id, 
                     startedAt: d.started_at, 
                     recordingUrl: d.recording_url,
-                    assistantId: raw.assistantId || null,
-                    isInbound: raw.isInbound ?? false
+                    assistantId: d.assistant_id || null,
+                    isInbound: isInbound,
+                    endedReason: d.ended_reason || null
                 }
             };
         });
@@ -442,25 +443,26 @@ export async function GET(req: Request) {
         // provider: 'vapi' | 'elevenlabs' | 'all'
         const provider = searchParams.get('provider') || 'vapi';
 
-        // Use archive when from-date is older than 14 days (vapi provides 14 days)
+        // HYBRID STRATEGY: Always fetch from Archive, supplement with Live data for the last 24 hours.
         const now = Date.now();
-        const fourteenDaysAgo = now - (15 * 24 * 60 * 60 * 1000); // 15 days for timezone buffer
-        const useArchiveOnly = fromDate ? fromDate.getTime() < fourteenDaysAgo : false;
-
+        const oneDayAgo = new Date(now - (24 * 60 * 60 * 1000));
+        
         const vapiPrivKey = process.env.VAPI_PRIVATE_KEY || "";
         const vapiOwnersKey = process.env.VAPI_OWNERS_DATA_BOT_PRIVATE_KEY || "";
 
-        let archivedCalls: any[] = [];
+        // Always fetch from Supabase Archive first (extremely fast)
+        let archivedCalls = await fetchArchivedCallLogs(fromDate, toDate, 'vapi');
         let vapiNormalized: any[] = [];
 
-        // Always fetch the Vapi phone mappings (this is very fast)
+        // Determine if we need live data (only for very recent calls)
+        const needsLive = !toDate || toDate.getTime() > oneDayAgo.getTime();
+        
+        // Always fetch the Vapi phone mappings (fast)
         const vapiPhoneCache = await fetchVapiPhonesCache(vapiPrivKey);
 
-        if (useArchiveOnly) {
-            // Fetch strictly from Supabase Archive for older dates
-            archivedCalls = await fetchArchivedCallLogs(fromDate, toDate, 'vapi');
-        } else {
-            // Fetch strictly from Live VAPI for recent 14 days
+        if (needsLive) {
+            const liveFrom = fromDate && fromDate.getTime() > oneDayAgo.getTime() ? fromDate : oneDayAgo;
+            
             const NORMAL_AGENT_IDS = new Set([
                 process.env.VAPI_US_BOT,
                 process.env.VAPI_UK_BOT,
@@ -471,34 +473,11 @@ export async function GET(req: Request) {
             ].filter(Boolean));
 
             try {
-                const midPoint = fromDate && toDate ? new Date((fromDate.getTime() + toDate.getTime()) / 2) : null;
-                
-                let normalPromises = [];
-                let ownersPromises = [];
-
-                if (midPoint && (toDate!.getTime() - fromDate!.getTime() > 3 * 24 * 60 * 60 * 1000)) {
-                    normalPromises = [
-                        vapiPrivKey ? fetchVapiCallsForAccount(vapiPrivKey, fromDate, midPoint) : Promise.resolve([]),
-                        vapiPrivKey ? fetchVapiCallsForAccount(vapiPrivKey, midPoint, toDate) : Promise.resolve([])
-                    ];
-                    ownersPromises = [
-                        vapiOwnersKey ? fetchVapiCallsForAccount(vapiOwnersKey, fromDate, midPoint) : Promise.resolve([]),
-                        vapiOwnersKey ? fetchVapiCallsForAccount(vapiOwnersKey, midPoint, toDate) : Promise.resolve([])
-                    ];
-                } else {
-                    normalPromises = [vapiPrivKey ? fetchVapiCallsForAccount(vapiPrivKey, fromDate, toDate) : Promise.resolve([])];
-                    ownersPromises = [vapiOwnersKey ? fetchVapiCallsForAccount(vapiOwnersKey, fromDate, toDate) : Promise.resolve([])];
-                }
-
-                const [n1, n2, o1, o2] = await Promise.all([
-                    normalPromises[0] || Promise.resolve([]),
-                    normalPromises[1] || Promise.resolve([]),
-                    ownersPromises[0] || Promise.resolve([]),
-                    ownersPromises[1] || Promise.resolve([])
+                // Fetch only for the small live window (max 24h)
+                const [normalRawCalls, ownersRawCalls] = await Promise.all([
+                    vapiPrivKey ? fetchVapiCallsForAccount(vapiPrivKey, liveFrom, toDate) : Promise.resolve([]),
+                    vapiOwnersKey ? fetchVapiCallsForAccount(vapiOwnersKey, liveFrom, toDate) : Promise.resolve([])
                 ]);
-
-                const normalRawCalls = [...(n1 || []), ...(n2 || [])];
-                const ownersRawCalls = [...(o1 || []), ...(o2 || [])];
 
                 const filteredNormal = NORMAL_AGENT_IDS.size > 0
                     ? normalRawCalls.filter(vc => NORMAL_AGENT_IDS.has(vc.assistantId))

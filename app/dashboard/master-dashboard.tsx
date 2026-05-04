@@ -105,7 +105,21 @@ export default function MasterDashboard() {
         to: new Date()
     });
 
-    const { leads: allLeads, calls: allCalls, allTimeVoiceCount, loadingLeads, loadingCalls, refreshLeads, refreshCalls, refreshAll, maqsamBalance, loadingBalances } = useData();
+    const { 
+        leads: allLeads, 
+        calls: allCalls, 
+        ownerLeads,
+        allTimeVoiceCount, 
+        loadingLeads, 
+        loadingCalls, 
+        loadingOwners,
+        refreshLeads, 
+        refreshCalls, 
+        refreshOwners,
+        refreshAll, 
+        maqsamBalance, 
+        loadingBalances 
+    } = useData();
     const [leads, setLeads] = useState<any[]>([]);
     const [acquisitionChartData, setAcquisitionChartData] = useState<any[]>([]);
     const [stats, setStats] = useState({
@@ -120,10 +134,19 @@ export default function MasterDashboard() {
         whatsappUniqueSent: 0,
         oldestLeadDate: "",
         oldestEmailDate: "",
-        oldestWPDate: ""
+        oldestWPDate: "",
+        // Owner stats
+        totalOwnerLeads: 0,
+        ownerWhatsappReachouts: 0,
+        ownerVoiceCalls: 0,
+        ownerTotalReplies: 0,
+        ownerLeadsSince: "Real-time",
+        ownerWhatsappSince: "Real-time",
+        ownerVoiceSince: "Real-time",
+        ownerRepliesSince: "Real-time"
     });
     const [replyLeads, setReplyLeads] = useState<any[]>([]);
-    const loading = loadingLeads || loadingCalls;
+    const loading = loadingLeads || loadingCalls || loadingOwners;
 
     // Trigger server-side refresh when date range changes
     useEffect(() => {
@@ -138,7 +161,8 @@ export default function MasterDashboard() {
         
         refreshCalls(params);
         refreshLeads(params);
-    }, [dateRange, refreshCalls, refreshLeads]);
+        refreshOwners(params);
+    }, [dateRange, refreshCalls, refreshLeads, refreshOwners]);
 
     const handleDateUpdate = ({ range, label }: { range: any, label?: string }) => {
         if (label) {
@@ -382,6 +406,49 @@ export default function MasterDashboard() {
                 setLeads(masterLeads);
                 setReplyLeads(leadsWhoRepliedInRange);
 
+                // Calculate Owner Stats
+                let ownerLeadsCount = 0;
+                let ownerWhatsappReachoutsCount = 0;
+                let ownerVoiceCallsCount = 0;
+                let ownerTotalRepliesCount = 0;
+                
+                let minOwnerLeadDate: Date | null = null;
+                let minOwnerWPDate: Date | null = null;
+                let minOwnerVoiceDate: Date | null = null;
+                let minOwnerReplyDate: Date | null = null;
+
+                (ownerLeads || []).forEach((o: any) => {
+                    // 1. Total Owner Leads (createdOn)
+                    const cDate = parseMsg(o.createdOn).date;
+                    if (cDate && isWithinRange(cDate)) {
+                        ownerLeadsCount++;
+                        if (!minOwnerLeadDate || cDate < minOwnerLeadDate) minOwnerLeadDate = cDate;
+                    }
+
+                    // 2. Whatsapp Reachouts (Whatsapp_1_Date)
+                    const wDate = parseMsg(o.Whatsapp_1_Date).date;
+                    if (wDate && isWithinRange(wDate)) {
+                        ownerWhatsappReachoutsCount++;
+                        if (!minOwnerWPDate || wDate < minOwnerWPDate) minOwnerWPDate = wDate;
+                    }
+
+                    // 3. Voice Calls (Voice_1)
+                    const vDate = parseMsg(o.Voice_1).date;
+                    if (vDate && isWithinRange(vDate)) {
+                        ownerVoiceCallsCount++;
+                        if (!minOwnerVoiceDate || vDate < minOwnerVoiceDate) minOwnerVoiceDate = vDate;
+                    }
+
+                    // 4. Replies (WTS_Reply_Track)
+                    const rDate = parseMsg(o.WTS_Reply_Track).date;
+                    if (rDate && isWithinRange(rDate)) {
+                        ownerTotalRepliesCount++;
+                        if (!minOwnerReplyDate || rDate < minOwnerReplyDate) minOwnerReplyDate = rDate;
+                    }
+                });
+
+                const formatDateLabel = (d: Date | null) => d ? `Since ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : "Real-time";
+
                 setStats({
                     totalLeads: masterLeads.length,
                     totalEmails: emailCount,
@@ -394,7 +461,16 @@ export default function MasterDashboard() {
                     totalReplies: totalRepliesCount,
                     oldestLeadDate: oldestLeadStr,
                     oldestEmailDate: oldestEmailStr,
-                    oldestWPDate: oldestWPStr
+                    oldestWPDate: oldestWPStr,
+                    // Owner Stats
+                    totalOwnerLeads: ownerLeadsCount,
+                    ownerWhatsappReachouts: ownerWhatsappReachoutsCount,
+                    ownerVoiceCalls: ownerVoiceCallsCount,
+                    ownerTotalReplies: ownerTotalRepliesCount,
+                    ownerLeadsSince: formatDateLabel(minOwnerLeadDate),
+                    ownerWhatsappSince: formatDateLabel(minOwnerWPDate),
+                    ownerVoiceSince: formatDateLabel(minOwnerVoiceDate),
+                    ownerRepliesSince: formatDateLabel(minOwnerReplyDate)
                 });
 
             } catch (e) {
@@ -403,7 +479,7 @@ export default function MasterDashboard() {
         };
 
         calculateStats();
-    }, [dateRange, allLeads, allCalls, loadingLeads, loadingCalls]);
+    }, [dateRange, allLeads, allCalls, ownerLeads, loadingLeads, loadingCalls, loadingOwners]);
 
     const router = useRouter();
 
@@ -498,6 +574,58 @@ export default function MasterDashboard() {
                         {isRepliesExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                     </Button>}
                 />
+            </div>
+
+            {/* Owner Leads Data Section */}
+            <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                    <div className="p-2 bg-amber-100 text-amber-700 rounded-lg">
+                        <Users className="h-5 w-5" />
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-900">Owner Leads Data</h2>
+                </div>
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                    <MetricCard
+                        title="Total Owner Leads"
+                        value={loading ? "..." : stats.totalOwnerLeads.toLocaleString()}
+                        change={stats.ownerLeadsSince}
+                        isUp={true}
+                        icon={<Users className="h-6 w-6" />}
+                        color="text-amber-600"
+                        bg="bg-amber-50"
+                        border="border-amber-100"
+                    />
+                    <MetricCard
+                        title="Total Whatsapp Reachouts (owner)"
+                        value={loading ? "..." : stats.ownerWhatsappReachouts.toLocaleString()}
+                        change={stats.ownerWhatsappSince}
+                        isUp={true}
+                        icon={<MessageCircle className="h-6 w-6" />}
+                        color="text-emerald-600"
+                        bg="bg-emerald-50"
+                        border="border-emerald-100"
+                    />
+                    <MetricCard
+                        title="Total Voice Calls (owner)"
+                        value={loading ? "..." : stats.ownerVoiceCalls.toLocaleString()}
+                        change={stats.ownerVoiceSince}
+                        isUp={true}
+                        icon={<Phone className="h-6 w-6" />}
+                        color="text-blue-600"
+                        bg="bg-blue-50"
+                        border="border-blue-100"
+                    />
+                    <MetricCard
+                        title="Total Replies (owner)"
+                        value={loading ? "..." : stats.ownerTotalReplies.toLocaleString()}
+                        change={stats.ownerRepliesSince}
+                        isUp={true}
+                        icon={<MessageCircle className="h-6 w-6" />}
+                        color="text-purple-600"
+                        bg="bg-purple-50"
+                        border="border-purple-100"
+                    />
+                </div>
             </div>
 
             {/* Expanded View Section */}

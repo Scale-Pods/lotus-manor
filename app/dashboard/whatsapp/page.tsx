@@ -136,7 +136,7 @@ const getMsgDateWithFallback = (lead: any, msgKey: string, tsKey?: string) => {
 
 export default function WhatsappDashboardPage() {
     const router = useRouter();
-    const { leads: allLeads, loadingLeads, computeWPReplies } = useData();
+    const { leads: allLeads, loadingLeads, ownerLeads, loadingOwners, computeWPReplies } = useData();
     const [leads, setLeads] = useState<any[]>([]);
     const [isRepliesOpen, setIsRepliesOpen] = useState(false);
     const [stats, setStats] = useState({
@@ -156,16 +156,6 @@ export default function WhatsappDashboardPage() {
         to: new Date()
     });
 
-    // Owner data (separate API)
-    const [ownerLeads, setOwnerLeads] = useState<any[]>([]);
-    const [loadingOwners, setLoadingOwners] = useState(true);
-    useEffect(() => {
-        fetch("/api/owner-leads")
-            .then(res => res.json())
-            .then(data => setOwnerLeads(data.owner_data || []))
-            .catch(err => console.error("Owner fetch error:", err))
-            .finally(() => setLoadingOwners(false));
-    }, []);
 
     const ownerStats = useMemo(() => {
         const fromDate = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;

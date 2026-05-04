@@ -7,9 +7,11 @@ import { subDays, startOfDay, endOfDay } from "date-fns";
 interface DataContextType {
     leads: ConsolidatedLead[];
     calls: any[];
+    ownerLeads: any[];
     allTimeVoiceCount: number;
     loadingLeads: boolean;
     loadingCalls: boolean;
+    loadingOwners: boolean;
     loadingBalances: boolean;
     voiceBalance: any;
     maqsamBalance: any;
@@ -17,6 +19,7 @@ interface DataContextType {
     error: string | null;
     refreshLeads: (params?: { from?: Date; to?: Date; force?: boolean }) => Promise<void>;
     refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; provider?: string; force?: boolean }) => Promise<void>;
+    refreshOwners: (params?: { from?: Date; to?: Date; force?: boolean }) => Promise<void>;
     refreshBalances: () => Promise<void>;
     refreshAll: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
     computeWPReplies: (dateRange?: { from?: Date; to?: Date } | null) => number;
@@ -28,8 +31,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
     const [allTimeVoiceCount, setAllTimeVoiceCount] = useState(0);
+    const [ownerLeads, setOwnerLeads] = useState<any[]>([]);
     const [loadingLeads, setLoadingLeads] = useState(true);
     const [loadingCalls, setLoadingCalls] = useState(true);
+    const [loadingOwners, setLoadingOwners] = useState(true);
     const [loadingBalances, setLoadingBalances] = useState(true);
     const [voiceBalance, setVoiceBalance] = useState<any>(null);
     const [maqsamBalance, setMaqsamBalance] = useState<any>(null);
@@ -116,6 +121,30 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
+    const fetchOwners = useCallback(async (params?: { from?: Date; to?: Date; force?: boolean }) => {
+        setLoadingOwners(true);
+        try {
+            const now = new Date();
+            const fromDate = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
+            const toDate = params?.to ? endOfDay(params.to) : endOfDay(now);
+
+            const query = new URLSearchParams({
+                from: fromDate.toISOString(),
+                to: toDate.toISOString()
+            });
+
+            const response = await fetch(`/api/owner-leads?${query.toString()}`);
+            if (response.ok) {
+                const data = await response.json();
+                setOwnerLeads(data.owner_data || []);
+            }
+        } catch (err: any) {
+            console.error('DataProvider owners fetch error:', err);
+        } finally {
+            setLoadingOwners(false);
+        }
+    }, []);
+
     const fetchBalances = useCallback(async () => {
         try {
             const [vapiRes, maqsamRes, twilioRes] = await Promise.all([
@@ -131,8 +160,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const refreshAll = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => {
-        await Promise.all([fetchLeads(params), fetchCalls(params), fetchBalances()]);
-    }, [fetchLeads, fetchCalls, fetchBalances]);
+        await Promise.all([fetchLeads(params), fetchCalls(params), fetchOwners(params), fetchBalances()]);
+    }, [fetchLeads, fetchCalls, fetchOwners, fetchBalances]);
 
     useEffect(() => {
         // Master Dashboard strategy: Fetch everything on mount
@@ -201,9 +230,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         <DataContext.Provider value={{
             leads,
             calls,
+            ownerLeads,
             allTimeVoiceCount,
             loadingLeads,
             loadingCalls,
+            loadingOwners,
             loadingBalances,
             voiceBalance,
             maqsamBalance,
@@ -211,6 +242,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             error,
             refreshLeads: fetchLeads,
             refreshCalls: fetchCalls,
+            refreshOwners: fetchOwners,
             refreshBalances: fetchBalances,
             refreshAll,
             computeWPReplies
