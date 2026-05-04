@@ -171,7 +171,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
     // SELECT metadata and extracted fields from raw_data for filtering/display. 
     // We avoid fetching the full 'raw_data' blob to prevent statement timeouts.
     const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,summary,vapi_account,recording_url,assistant_id:raw_data->>assistantId,is_inbound:raw_data->>isInbound,ended_reason:raw_data->>endedReason';
-    let url = `${baseUrl}/vapi_call_logs?select=${columns}&order=started_at.desc&limit=1000`;
+    let url = `${baseUrl}/vapi_call_logs?select=${columns}&order=started_at.desc&limit=20000`;
     
     if (fromDate) {
         url += `&started_at=gte.${fromDate.toISOString()}`;
