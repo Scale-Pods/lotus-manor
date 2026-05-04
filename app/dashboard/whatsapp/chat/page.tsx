@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -254,16 +254,55 @@ export default function WhatsappChatPage() {
 
     const [selectedLeadId, setSelectedLeadId] = useState<string | null>(initialSelectedId || null);
     const [selectedOwner, setSelectedOwner] = useState<any | null>(null);
+    const initialProcessed = useRef(false);
 
     useEffect(() => {
         const url = new URL(window.location.origin + window.location.pathname);
         if (selectedLeadId) {
             url.searchParams.set('chat', selectedLeadId);
+            url.searchParams.set('tab', 'leads');
+        } else if (selectedOwner) {
+            const ownerId = selectedOwner.id || selectedOwner.contactNo || selectedOwner.Phone || selectedOwner.phone;
+            url.searchParams.set('chat', ownerId);
+            url.searchParams.set('tab', 'owners');
         } else {
             url.searchParams.delete('chat');
+            url.searchParams.delete('tab');
         }
         window.history.replaceState({}, '', url.toString());
-    }, [selectedLeadId]);
+    }, [selectedLeadId, selectedOwner]);
+
+    // Handle initial URL parameters
+    useEffect(() => {
+        if (initialProcessed.current) return;
+        
+        if (initialTab === 'owners') {
+            setActiveTab('owners');
+        }
+        
+        if (initialSelectedId) {
+            if (initialTab === 'owners') {
+                // If we're on owners tab, wait for owners to load then find it
+                if (ownersFetched && ownerLeads.length > 0) {
+                    const found = ownerLeads.find(o => 
+                        String(o.id) === initialSelectedId || 
+                        String(o.contactNo) === initialSelectedId || 
+                        String(o.Phone) === initialSelectedId || 
+                        String(o.phone) === initialSelectedId
+                    );
+                    if (found) {
+                        setSelectedOwner(found);
+                        initialProcessed.current = true;
+                    }
+                }
+            } else {
+                setSelectedLeadId(initialSelectedId);
+                initialProcessed.current = true;
+            }
+        } else {
+            initialProcessed.current = true;
+        }
+    }, [initialSelectedId, initialTab, ownersFetched, ownerLeads]);
 
     // Filter State
     const [pendingFilters, setPendingFilters] = useState<{
@@ -744,7 +783,10 @@ export default function WhatsappChatPage() {
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
                                                 {paginatedLeads.map((lead) => (
-                                                    <CustomerRow key={lead.id} lead={lead} onClick={() => setSelectedLeadId(lead.id)} />
+                                                    <CustomerRow key={lead.id} lead={lead} onClick={() => {
+                                                        setSelectedOwner(null);
+                                                        setSelectedLeadId(lead.id);
+                                                    }} />
                                                 ))}
                                             </tbody>
                                         </table>
@@ -785,7 +827,10 @@ export default function WhatsappChatPage() {
                                                     }
                                                     const wpDate = owner["Whatsapp_1_Date"];
                                                     return (
-                                                        <tr key={owner.id || idx} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => setSelectedOwner(owner)}>
+                                                        <tr key={owner.id || idx} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => {
+                                                            setSelectedLeadId(null);
+                                                            setSelectedOwner(owner);
+                                                        }}>
                                                             <td className="px-4 py-3">
                                                                 <div className="font-bold text-slate-900 group-hover:text-amber-700">{owner.Name || owner.name || "—"}</div>
                                                                 <div className="text-xs text-slate-500">{owner.contactNo || owner.Phone || owner.phone || "—"}</div>

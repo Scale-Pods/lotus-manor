@@ -25,7 +25,9 @@ export function OwnerChatDetail({ owner, onClose }: OwnerChatDetailProps) {
     const handleCopyLink = () => {
         if (!owner) return;
         const baseUrl = window.location.origin;
-        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat?tab=owners&id=${encodeURIComponent(owner.id || owner.contactNo || owner.Phone || "")}`;
+        // Use the phone number for the dynamic route, same as normal leads
+        const phone = owner.contactNo || owner.Phone || owner.phone || "";
+        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat/${encodeURIComponent(phone)}`;
         navigator.clipboard.writeText(shareUrl);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
