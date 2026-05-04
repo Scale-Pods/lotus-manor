@@ -759,9 +759,11 @@ export default function WhatsappChatPage() {
                                                                 )}
                                                             </td>
                                                             <td className="px-4 py-3 text-center">
-                                                                <Badge variant="outline" className="text-[10px] uppercase font-bold border-amber-100 text-amber-600 bg-amber-50">
-                                                                    {owner["Whatsapp_1_status"] || "—"}
-                                                                </Badge>
+                                                                {owner["Whatsapp_1_status"] ? (
+                                                                    <MessageStatusBadge index={1} status={owner["Whatsapp_1_status"]} />
+                                                                ) : (
+                                                                    <span className="text-slate-300 text-[10px]">—</span>
+                                                                )}
                                                             </td>
                                                             <td className="px-4 py-3 text-center font-bold text-slate-700">{msgCount}</td>
                                                             <td className="px-4 py-3 text-right text-slate-500 text-xs text-nowrap">
