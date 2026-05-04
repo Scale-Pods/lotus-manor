@@ -28,7 +28,7 @@ export async function GET(req: Request) {
         let hasMore = true;
 
         while (hasMore) {
-            const select = 'name,"contactNo","createdOn","Replied","Last Contacted","Voice_1",voice1_sentiment,call1_note,"Call_Reply_Track","Whatsapp_1","Whatsapp_1_status",retry_1,retry_1_count,"WTS_Reply_Track","User_Replied_1","User_Replied_2","User_Replied_3","User_Replied_4","User_Replied_5","User_Replied_6","User_Replied_7","User_Replied_8","User_Replied_9","User_Replied_10","Bot_Replied_1","Bot_Replied_2","Bot_Replied_3","Bot_Replied_4","Bot_Replied_5","Bot_Replied_6","Bot_Replied_7","Bot_Replied_8","Bot_Replied_9","Bot_Replied_10","Bot_Replied_Status_1","Bot_Replied_Status_2","Bot_Replied_Status_3","Bot_Replied_Status_4","Bot_Replied_Status_5","Whatsapp_1_Date"';
+            const select = 'name,"contactNo","createdOn","Replied","Last Contacted","Voice_1",voice1_sentiment,call1_note,"call Lead Status","Call_Reply_Track","Whatsapp_1","Whatsapp_1_status",retry_1,retry_1_count,"WTS_Reply_Track","User_Replied_1","User_Replied_2","User_Replied_3","User_Replied_4","User_Replied_5","User_Replied_6","User_Replied_7","User_Replied_8","User_Replied_9","User_Replied_10","Bot_Replied_1","Bot_Replied_2","Bot_Replied_3","Bot_Replied_4","Bot_Replied_5","Bot_Replied_6","Bot_Replied_7","Bot_Replied_8","Bot_Replied_9","Bot_Replied_10","Bot_Replied_Status_1","Bot_Replied_Status_2","Bot_Replied_Status_3","Bot_Replied_Status_4","Bot_Replied_Status_5","Whatsapp_1_Date"';
             let url = `${baseUrl}/${tableName}?select=${select}&offset=${offset}&limit=${limit}`;
             
             // Apply date filtering on createdOn if provided - REMOVED to allow activity-based metrics on older leads

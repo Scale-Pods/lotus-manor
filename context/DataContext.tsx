@@ -9,6 +9,7 @@ interface DataContextType {
     calls: any[];
     ownerLeads: any[];
     allTimeVoiceCount: number;
+    allTimeOwnerVoiceCount: number;
     loadingLeads: boolean;
     loadingCalls: boolean;
     loadingOwners: boolean;
@@ -31,6 +32,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const [calls, setCalls] = useState<any[]>([]);
     const [allTimeVoiceCount, setAllTimeVoiceCount] = useState(0);
+    const [allTimeOwnerVoiceCount, setAllTimeOwnerVoiceCount] = useState(0);
     const [ownerLeads, setOwnerLeads] = useState<any[]>([]);
     const [loadingLeads, setLoadingLeads] = useState(true);
     const [loadingCalls, setLoadingCalls] = useState(true);
@@ -63,6 +65,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             setLeads(consolidated);
             if (typeof data.allTimeVoiceCount === 'number') {
                 setAllTimeVoiceCount(data.allTimeVoiceCount);
+            }
+            if (typeof data.allTimeOwnerVoiceCount === 'number') {
+                setAllTimeOwnerVoiceCount(data.allTimeOwnerVoiceCount);
             }
         } catch (err: any) {
             console.error('DataProvider leads fetch error:', err);
@@ -232,6 +237,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             calls,
             ownerLeads,
             allTimeVoiceCount,
+            allTimeOwnerVoiceCount,
             loadingLeads,
             loadingCalls,
             loadingOwners,

@@ -25,7 +25,14 @@ export async function GET(req: Request) {
     const getTableCount = async (tableName: string, filter = "") => {
         try {
             let url = `${baseUrl}/${tableName}?select=count&limit=0`;
-            if (filter) url += `&${filter}`;
+            if (filter) {
+                // Ensure spaces and quotes are encoded for the URL
+                const encodedFilter = filter.split('&').map(part => {
+                    const [key, val] = part.split('=');
+                    return `${encodeURIComponent(key.replace(/"/g, ''))}=${val}`;
+                }).join('&');
+                url += `&${encodedFilter}`;
+            }
             
             const response = await fetch(url, { 
                 headers: { ...commonHeaders, "Prefer": "count=exact" }, 
@@ -80,20 +87,22 @@ export async function GET(req: Request) {
 
     try {
         // Parallel execution
-        const [nr_wf, followup, nurture, master_leads, v1_nw, v2_nw, v1_fu, v2_fu] = await Promise.all([
+        const [nr_wf, followup, nurture, master_leads, v1_nw, v2_nw, v1_fu, v2_fu, v1_own, v2_own] = await Promise.all([
             // Workflows: No date limit, all columns, ensures WhatsApp works
             fetchTableData("nr_wf", false),
             fetchTableData("followup", false),
             fetchTableData("nurture", false),
             
             // Master Leads: Filtered by date for dashboard performance
-            fetchTableData("master_leads", true, '"Lead ID",Name,Phone,Email,"Created At"'),
+            fetchTableData("master_leads", true, '"Lead ID",Name,Phone,Email,"Created At",lead_status'),
             
             // Background counts for All-Time Voice metric
             getTableCount("nr_wf", '"Voice 1"=not.is.null&"Voice 1"=not.eq.'),
             getTableCount("nr_wf", '"Voice 2"=not.is.null&"Voice 2"=not.eq.'),
             getTableCount("followup", '"Voice 1"=not.is.null&"Voice 1"=not.eq.'),
-            getTableCount("followup", '"Voice 2"=not.is.null&"Voice 2"=not.eq.')
+            getTableCount("followup", '"Voice 2"=not.is.null&"Voice 2"=not.eq.'),
+            getTableCount("owner_data", '"Voice_1"=not.is.null'),
+            getTableCount("owner_data", '"Voice_2"=not.is.null')
         ]);
 
         return new NextResponse(JSON.stringify({
@@ -101,7 +110,8 @@ export async function GET(req: Request) {
             followup,
             nurture,
             master_leads,
-            allTimeVoiceCount: (v1_nw || 0) + (v2_nw || 0) + (v1_fu || 0) + (v2_fu || 0)
+            allTimeVoiceCount: (v1_nw || 0) + (v2_nw || 0) + (v1_fu || 0) + (v2_fu || 0),
+            allTimeOwnerVoiceCount: (v1_own || 0) + (v2_own || 0)
         }), {
             status: 200,
             headers: {
