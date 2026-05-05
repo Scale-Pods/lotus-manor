@@ -213,10 +213,11 @@ const getOwnerLatestActivity = (o: any) => {
 };
 
 export default function WhatsappChatPage() {
-    const { leads: allLeads, loadingLeads } = useData();
+    const { leads: allLeads, loadingLeads, ownerLeads, loadingOwners } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");
+
     const [dateRange, setDateRange] = useState<any>({
         from: subDays(new Date(), 7),
         to: new Date(),
@@ -226,26 +227,6 @@ export default function WhatsappChatPage() {
 
     // Tab state: "leads" or "owners"
     const [activeTab, setActiveTab] = useState<"leads" | "owners">("leads");
-
-    // Owner data (separate API)
-    const [ownerLeads, setOwnerLeads] = useState<any[]>([]);
-    const [loadingOwners, setLoadingOwners] = useState(false);
-    const [ownersFetched, setOwnersFetched] = useState(false);
-
-    // Fetch owner data only when tab switches to owners (lazy load)
-    useEffect(() => {
-        if (activeTab === "owners" && !ownersFetched) {
-            setLoadingOwners(true);
-            fetch("/api/owner-leads")
-                .then(res => res.json())
-                .then(data => {
-                    setOwnerLeads(data.owner_data || []);
-                    setOwnersFetched(true);
-                })
-                .catch(err => console.error("Owner leads fetch error:", err))
-                .finally(() => setLoadingOwners(false));
-        }
-    }, [activeTab, ownersFetched]);
 
     // URL Sync for chat
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
@@ -282,8 +263,8 @@ export default function WhatsappChatPage() {
         
         if (initialSelectedId) {
             if (initialTab === 'owners') {
-                // If we're on owners tab, wait for owners to load then find it
-                if (ownersFetched && ownerLeads.length > 0) {
+                // Find in global ownerLeads
+                if (ownerLeads.length > 0) {
                     const found = ownerLeads.find(o => 
                         String(o.id) === initialSelectedId || 
                         String(o.contactNo) === initialSelectedId || 
@@ -302,7 +283,7 @@ export default function WhatsappChatPage() {
         } else {
             initialProcessed.current = true;
         }
-    }, [initialSelectedId, initialTab, ownersFetched, ownerLeads]);
+    }, [initialSelectedId, initialTab, ownerLeads]);
 
     // Filter State
     const [pendingFilters, setPendingFilters] = useState<{
@@ -349,8 +330,8 @@ export default function WhatsappChatPage() {
     const filteredLeads = useMemo(() => {
         return leads.filter(l => {
             const lead = l as any;
-            const matchesSearch = lead.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                lead.phone.includes(searchQuery);
+            const matchesSearch = String(lead.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+                String(lead.phone || "").includes(searchQuery);
 
             const wtReplied = lead.WP_Replied_track;
             let hasReplied = false;
@@ -440,8 +421,8 @@ export default function WhatsappChatPage() {
     // Owner filtering
     const filteredOwners = useMemo(() => {
         return ownerLeads.filter(o => {
-            const name = (o.Name || o.name || "").toLowerCase();
-            const phone = (o.contactNo || o.Phone || o.phone || "");
+            const name = String(o.Name || o.name || "").toLowerCase();
+            const phone = String(o.contactNo || o.Phone || o.phone || "");
             const matchesSearch = name.includes(searchQuery.toLowerCase()) || phone.includes(searchQuery);
             if (!matchesSearch) return false;
 
