@@ -35,6 +35,18 @@ export async function login(prevState: any, formData: FormData) {
             return { error: 'Invalid email or password' };
         }
 
+        // Check password age (90 days)
+        const passwordChangedAt = user.password_changed_at ? new Date(user.password_changed_at) : new Date(0);
+        const ninetyDaysAgo = new Date();
+        ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+        if (passwordChangedAt < ninetyDaysAgo) {
+            return { 
+                error: 'Your password has expired (90 days). Please use "Forgot Password" to set a new one.',
+                requiresReset: true 
+            };
+        }
+
         // Create JWT
         const token = await new SignJWT({ userId: user.id, email: user.email })
             .setProtectedHeader({ alg: 'HS256' })
@@ -218,10 +230,13 @@ export async function resetPassword(prevState: any, formData: FormData) {
         // Hash new password
         const passwordHash = await hashPassword(password);
 
-        // Update user
+        // Update user password and password_changed_at timestamp
         const { error: updateError } = await supabaseAdmin
             .from('users')
-            .update({ password_hash: passwordHash })
+            .update({ 
+                password_hash: passwordHash,
+                password_changed_at: new Date().toISOString()
+            })
             .eq('email', resetEntry.email);
 
         if (updateError) throw updateError;
