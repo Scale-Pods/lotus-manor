@@ -110,14 +110,18 @@ async function syncRecentVapiCalls(calls: any[]) {
             const chunk = recentCalls.slice(i, i + CHUNK_SIZE).map(c => {
                 const aid = c.assistantId || c.raw?.assistantId || null;
                 
-                // Specific requested categorization
+                // Specific requested categorization using environment variables if available
                 let categoricalAccount = c.vapiAccount || 'normal';
-                const ownerBotId = "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd";
+                
+                const ownerBotId = process.env.VAPI_OWNERS_DATA_BOT || "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd";
                 const normalBotIds = [
-                    "b35e3032-7865-4913-ba22-a913b5d4117b", // US
-                    "918c25eb-9882-452e-86df-b4851d464852", // UK
-                    "70f05e16-18f3-4f6e-964a-f47b299c6c1d"  // UAE
-                ];
+                    process.env.VAPI_US_BOT,
+                    process.env.VAPI_UK_BOT,
+                    process.env.VAPI_UAE_BOT,
+                    "b35e3032-7865-4913-ba22-a913b5d4117b", // Fallback US
+                    "918c25eb-9882-452e-86df-b4851d464852", // Fallback UK
+                    "70f05e16-18f3-4f6e-964a-f47b299c6c1d"  // Fallback UAE
+                ].filter(Boolean);
 
                 if (aid === ownerBotId) categoricalAccount = 'owners';
                 else if (normalBotIds.includes(aid)) categoricalAccount = 'normal';
@@ -379,7 +383,7 @@ async function fetchVapiCallsForAccount(
     const batchSize = 1000;
     let batchedFetched = 0;
 
-    while (hasMoreVapi && batchedFetched < 10) {
+    while (hasMoreVapi && batchedFetched < 20) {
         const params = new URLSearchParams({ limit: String(batchSize) });
 
         if (lastCreatedAt) {
@@ -443,9 +447,10 @@ export async function GET(req: Request) {
         // provider: 'vapi' | 'elevenlabs' | 'all'
         const provider = searchParams.get('provider') || 'vapi';
 
-        // HYBRID STRATEGY: Always fetch from Archive, supplement with Live data for the last 24 hours.
+        // HYBRID STRATEGY: Always fetch from Archive, supplement with Live data for a rolling window.
+        // We use a 7-day window for 'live' fetching to ensure no gaps exist between the last sync and current time.
         const now = Date.now();
-        const oneDayAgo = new Date(now - (24 * 60 * 60 * 1000));
+        const liveWindowLimit = new Date(now - (7 * 24 * 60 * 60 * 1000));
         
         const vapiPrivKey = process.env.VAPI_PRIVATE_KEY || "";
         const vapiOwnersKey = process.env.VAPI_OWNERS_DATA_BOT_PRIVATE_KEY || "";
@@ -454,14 +459,14 @@ export async function GET(req: Request) {
         let archivedCalls = await fetchArchivedCallLogs(fromDate, toDate, 'vapi');
         let vapiNormalized: any[] = [];
 
-        // Determine if we need live data (only for very recent calls)
-        const needsLive = !toDate || toDate.getTime() > oneDayAgo.getTime();
+        // Determine if we need live data (anything within the last 7 days)
+        const needsLive = !toDate || toDate.getTime() > liveWindowLimit.getTime();
         
         // Always fetch the Vapi phone mappings (fast)
         const vapiPhoneCache = await fetchVapiPhonesCache(vapiPrivKey);
 
         if (needsLive) {
-            const liveFrom = fromDate && fromDate.getTime() > oneDayAgo.getTime() ? fromDate : oneDayAgo;
+            const liveFrom = fromDate && fromDate.getTime() > liveWindowLimit.getTime() ? fromDate : liveWindowLimit;
             
             const NORMAL_AGENT_IDS = new Set([
                 process.env.VAPI_US_BOT,
@@ -515,7 +520,7 @@ export async function GET(req: Request) {
         const allAllowedAgentIds = new Set([...NORMAL_AGENT_IDS_ARCHIVE, ...OWNERS_AGENT_IDS_ARCHIVE]);
         
         const filteredArchivedCalls = archivedCalls.filter((c: any) => {
-            if (c.vapiAccount === 'elevenlabs') return false; // exclude ElevenLabs
+            if (!includeElevenLabs && c.vapiAccount === 'elevenlabs') return false; // exclude ElevenLabs unless requested
             if (allAllowedAgentIds.size > 0 && c.assistantId) {
                 return allAllowedAgentIds.has(c.assistantId);
             }
