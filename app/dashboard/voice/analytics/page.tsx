@@ -388,7 +388,7 @@ export default function VoiceAnalyticsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card className="border-slate-200">
                     <CardHeader>
-                        <CardTitle className="text-lg">Call Volume Trends</CardTitle>
+                        <CardTitle className="text-lg">Call Volume-Trends</CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="w-full h-[300px]">
