@@ -25,12 +25,32 @@ export function OwnerChatDetail({ owner, onClose }: OwnerChatDetailProps) {
     const handleCopyLink = () => {
         if (!owner) return;
         const baseUrl = window.location.origin;
-        // Use the phone number for the dynamic route, same as normal leads
+        // Use ID for stable routing, fallback to phone
         const phone = owner.contactNo || owner.Phone || owner.phone || "";
-        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat/${encodeURIComponent(phone)}`;
-        navigator.clipboard.writeText(shareUrl);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        const shareId = owner.id || phone;
+        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat/${encodeURIComponent(shareId)}`;
+        
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            }).catch(err => {
+                console.error("Failed to copy link:", err);
+            });
+        } else {
+            const textArea = document.createElement("textarea");
+            textArea.value = shareUrl;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            } catch (err) {
+                console.error("Fallback copy failed:", err);
+            }
+            document.body.removeChild(textArea);
+        }
     };
 
     useEffect(() => {

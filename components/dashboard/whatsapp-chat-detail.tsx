@@ -31,11 +31,32 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
     const handleCopyLink = () => {
         if (!lead) return;
         const baseUrl = window.location.origin;
-        // Construct the URL using the phone number as requested
-        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat/${encodeURIComponent(lead.phone)}`;
-        navigator.clipboard.writeText(shareUrl);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        // Construct the URL using the ID as it's more stable for routing
+        const shareId = lead.id || lead.phone;
+        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat/${encodeURIComponent(shareId)}`;
+        
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(shareUrl).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            }).catch(err => {
+                console.error("Failed to copy link:", err);
+            });
+        } else {
+            // Fallback for non-secure contexts
+            const textArea = document.createElement("textarea");
+            textArea.value = shareUrl;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            } catch (err) {
+                console.error("Fallback copy failed:", err);
+            }
+            document.body.removeChild(textArea);
+        }
     };
 
     useEffect(() => {

@@ -25,7 +25,9 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ custo
 
         // 1. Check leads
         const leadFound = leads.find(l => {
-            if (String(l.id).toLowerCase() === searchVal) return true;
+            const lId = String(l.id || "").toLowerCase();
+            if (lId === searchVal) return true;
+            
             if (l.phone) {
                 const lPhoneReplaced = String(l.phone).replace(/\D/g, '');
                 if (searchReplaced && lPhoneReplaced === searchReplaced) return true;
@@ -40,12 +42,13 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ custo
 
         // 2. Check owners
         const ownerFound = ownerLeads.find(o => {
-            const id = String(o.id || "").toLowerCase();
+            const oId = String(o.id || "").toLowerCase();
+            if (oId === searchVal) return true;
+
             const contact = String(o.contactNo || "").replace(/\D/g, '');
             const phone = String(o.Phone || "").replace(/\D/g, '');
             const phone2 = String(o.phone || "").replace(/\D/g, '');
 
-            if (id === searchVal) return true;
             if (searchReplaced && (contact === searchReplaced || phone === searchReplaced || phone2 === searchReplaced)) return true;
             return false;
         });
