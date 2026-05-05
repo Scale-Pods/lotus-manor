@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { subDays, startOfDay } from "date-fns";
 
 export const dynamic = 'force-dynamic';
 
@@ -27,15 +28,24 @@ export async function GET(req: Request) {
         const limit = 1000;
         let hasMore = true;
 
+        // Default to last 7 days if no date range is provided to ensure maximum performance
+        const now = new Date();
+        const defaultFrom = subDays(startOfDay(now), 7).toISOString();
+        const effectiveFrom = from || defaultFrom;
+
         while (hasMore) {
-            const select = 'id,name,"contactNo","createdOn","Replied","Last Contacted","Voice_1",voice1_sentiment,call1_note,"call Lead Status","Call_Reply_Track","Whatsapp_1","Whatsapp_1_status",retry_1,retry_1_count,"WTS_Reply_Track","User_Replied_1","User_Replied_2","User_Replied_3","User_Replied_4","User_Replied_5","User_Replied_6","User_Replied_7","User_Replied_8","User_Replied_9","User_Replied_10","Bot_Replied_1","Bot_Replied_2","Bot_Replied_3","Bot_Replied_4","Bot_Replied_5","Bot_Replied_6","Bot_Replied_7","Bot_Replied_8","Bot_Replied_9","Bot_Replied_10","Bot_Replied_Status_1","Bot_Replied_Status_2","Bot_Replied_Status_3","Bot_Replied_Status_4","Bot_Replied_Status_5","Whatsapp_1_Date"';
+            // Pruned columns: Only fetch what's used in the Dashboard and WhatsApp Panels
+            const select = 'id,name,"contactNo","createdOn","Voice_1","Voice_2","Whatsapp_1","Whatsapp_1_status","Whatsapp_1_Date","WTS_Reply_Track","retry_1",' +
+                '"User_Replied_1","User_Replied_2","User_Replied_3","User_Replied_4","User_Replied_5",' +
+                '"Bot_Replied_1","Bot_Replied_2","Bot_Replied_3","Bot_Replied_4","Bot_Replied_5",' +
+                '"Bot_Replied_Status_1","Bot_Replied_Status_2","Bot_Replied_Status_3","Bot_Replied_Status_4","Bot_Replied_Status_5"';
+            
             let url = `${baseUrl}/${tableName}?select=${select}&offset=${offset}&limit=${limit}`;
             
-            // Apply date filtering on createdOn if provided - REMOVED to allow activity-based metrics on older leads
-            // if (from) url += `&createdOn=gte.${from}`;
-            // if (to) url += `&createdOn=lte.${to}`;
+            // Apply date filtering to keep the payload manageable
+            if (effectiveFrom) url += `&createdOn=gte.${effectiveFrom}`;
+            if (to) url += `&createdOn=lte.${to}`;
             
-            // Order by createdOn descending to get latest first
             url += `&order=createdOn.desc`;
 
             try {
@@ -60,7 +70,8 @@ export async function GET(req: Request) {
                 break; 
             }
 
-            if (offset > 15000) break; // Safety cap
+            // Hybrid Strategy: Cap at 3,000 latest records for dashboard performance
+            if (offset >= 3000) break; 
         }
         return allData;
     };
