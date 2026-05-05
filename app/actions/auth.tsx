@@ -3,8 +3,10 @@
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase';
 import { hashPassword, comparePassword } from '@/lib/auth-utils';
+import React from 'react';
 import { SignJWT, jwtVerify } from 'jose';
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-fallback-secret-change-this';
 const secret = new TextEncoder().encode(JWT_SECRET);
@@ -37,14 +39,14 @@ export async function login(prevState: any, formData: FormData) {
         const token = await new SignJWT({ userId: user.id, email: user.email })
             .setProtectedHeader({ alg: 'HS256' })
             .setIssuedAt()
-            .setExpirationTime('24h')
+            .setExpirationTime('1h') // Changed from 24h to 1h
             .sign(secret);
 
         (await cookies()).set('auth_token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'lax',
-            maxAge: 60 * 60 * 24, // 1 day
+            maxAge: 60 * 60, // 1 hour (Changed from 1 day)
             path: '/',
         });
 
@@ -64,78 +66,135 @@ export async function logout() {
     return { success: true };
 }
 
-import { Resend } from 'resend';
-import { ResetPasswordEmail } from '@/components/emails/reset-password-template';
+// Helper to send email via Nodemailer (SMTP)
+async function sendOTPEmail(email: string, otp: string, fullName: string) {
+    const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.SMTP_PORT || '465'),
+        secure: true, // true for 465, false for other ports
+        auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS,
+        },
+        tls: {
+            rejectUnauthorized: false // This bypasses the 'self-signed certificate' error
+        }
+    });
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+    try {
+        await transporter.sendMail({
+            from: `"Lotus Manor" <${process.env.SMTP_USER}>`,
+            to: email,
+            subject: 'Your Password Reset OTP',
+            html: `
+                <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                    <h2 style="color: #10b981;">Reset Your Password</h2>
+                    <p>Hello ${fullName},</p>
+                    <p>You requested a password reset. Please use the following One-Time Password (OTP) to proceed:</p>
+                    <div style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #10b981; padding: 20px; text-align: center; background: #f0fdf4; border-radius: 8px;">
+                        ${otp}
+                    </div>
+                    <p style="margin-top: 20px; color: #666; font-size: 14px;">This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+                    <p style="font-size: 12px; color: #aaa;">© 2026 Lotus Manor. Powered by ScalePods.</p>
+                </div>
+            `,
+        });
+        console.log(`OTP Email sent to ${email}`);
+        return { success: true };
+    } catch (error) {
+        console.error('Nodemailer error:', error);
+        return { error: 'Failed to send OTP email.' };
+    }
+}
 
 export async function forgotPassword(prevState: any, formData: FormData) {
-    const email = formData.get('email') as string;
+    const email = (formData.get('email') as string)?.toLowerCase();
 
     if (!email) {
         return { error: 'Email is required' };
     }
 
     try {
-        const { data: user } = await supabaseAdmin
+        const { data: user, error: userError } = await supabaseAdmin
             .from('users')
             .select('id, full_name')
             .eq('email', email)
-            .single();
+            .maybeSingle();
+
+        if (userError) {
+            console.error('Error fetching user:', userError);
+            return { error: 'An error occurred while looking up your account.' };
+        }
 
         if (user) {
-            console.log(`Found user: ${user.full_name}, generating token...`);
-            const token = crypto.randomUUID();
-            const expiresAt = new Date(Date.now() + 3600000); // 1 hour
+            // Generate a 6-digit OTP
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            const expiresAt = new Date(Date.now() + 600000); // 10 minutes
 
-            // Save token to Supabase (Ensure you have run the SQL to create this table)
+            // Clean up existing tokens/OTPs
+            await supabaseAdmin
+                .from('password_resets')
+                .delete()
+                .eq('email', email);
+
+            // Save OTP to Supabase
             const { error: resetError } = await supabaseAdmin
                 .from('password_resets')
                 .insert([{
                     email,
-                    token,
+                    token: otp, // reusing token field for OTP
                     expires_at: expiresAt.toISOString()
                 }]);
 
             if (resetError) {
-                console.error('Database error saving reset token:', resetError);
-                throw resetError;
+                console.error('Database error saving OTP:', resetError);
+                return { error: 'Database error. Please ensure password_resets table exists.' };
             }
 
-            // Send Email
-            const resetLink = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
-            console.log(`Sending email to ${email} via Resend... Link: ${resetLink}`);
-
-            const { data, error } = await resend.emails.send({
-                from: 'Lotus Manor <onboarding@resend.dev>',
-                to: [email],
-                subject: 'Reset your Lotus Manor password',
-                react: <ResetPasswordEmail fullName={user.full_name} resetLink={resetLink} />,
-            });
-
-            if (error) {
-                console.error('Resend API error:', error);
-                return { error: 'Failed to send reset email. Please try again later.' };
-            }
-
-            console.log('Resend success:', data);
-        } else {
-            console.log(`No user found with email: ${email}`);
+            // Send OTP Email
+            await sendOTPEmail(email, otp, user.full_name || 'User');
         }
 
-        return { success: true, message: 'If an account exists with that email, we have sent password reset instructions.' };
+        // Always return success for security
+        return { success: true, email };
     } catch (err) {
         console.error('Forgot password error:', err);
         return { error: 'An unexpected error occurred' };
     }
 }
 
+export async function verifyOTP(prevState: any, formData: FormData) {
+    const email = formData.get('email') as string;
+    const otp = formData.get('otp') as string;
+
+    if (!email || !otp) return { error: 'Email and OTP are required' };
+
+    try {
+        const { data: resetEntry, error } = await supabaseAdmin
+            .from('password_resets')
+            .select('*')
+            .eq('email', email)
+            .eq('token', otp)
+            .single();
+
+        if (error || !resetEntry || new Date(resetEntry.expires_at) < new Date()) {
+            return { error: 'Invalid or expired OTP' };
+        }
+
+        return { success: true, email, otp };
+    } catch (err) {
+        return { error: 'Verification failed' };
+    }
+}
+
 export async function resetPassword(prevState: any, formData: FormData) {
     const token = formData.get('token') as string;
+    const email = formData.get('email') as string;
     const password = formData.get('password') as string;
     const confirmPassword = formData.get('confirmPassword') as string;
 
-    if (!token || !password || !confirmPassword) {
+    if (!token || !email || !password || !confirmPassword) {
         return { error: 'All fields are required' };
     }
 
@@ -144,15 +203,16 @@ export async function resetPassword(prevState: any, formData: FormData) {
     }
 
     try {
-        // Validate token
+        // Validate token and email
         const { data: resetEntry, error: tokenError } = await supabaseAdmin
             .from('password_resets')
             .select('*')
             .eq('token', token)
+            .eq('email', email)
             .single();
 
         if (tokenError || !resetEntry || new Date(resetEntry.expires_at) < new Date()) {
-            return { error: 'Invalid or expired token' };
+            return { error: 'Invalid or expired session. Please try again.' };
         }
 
         // Hash new password

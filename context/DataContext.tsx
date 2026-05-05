@@ -3,6 +3,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { consolidateLeads, ConsolidatedLead } from "@/lib/leads-utils";
 import { subDays, startOfDay, endOfDay } from "date-fns";
+import { useRouter } from 'next/navigation';
+import { logout } from '@/app/actions/auth';
 
 interface DataContextType {
     leads: ConsolidatedLead[];
@@ -168,10 +170,30 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         await Promise.all([fetchLeads(params), fetchCalls(params), fetchOwners(params), fetchBalances()]);
     }, [fetchLeads, fetchCalls, fetchOwners, fetchBalances]);
 
+    const router = useRouter();
+
     useEffect(() => {
         // Master Dashboard strategy: Fetch everything on mount
         refreshAll({ includeElevenLabs: false });
-    }, []);
+
+        // Session Monitor: Checks every 1 minute if the session is still valid
+        const checkSession = async () => {
+            try {
+                const res = await fetch('/api/auth/session');
+                if (!res.ok) {
+                    // Session expired or invalid
+                    await logout();
+                    router.push('/');
+                    router.refresh();
+                }
+            } catch (err) {
+                console.error("Session check failed", err);
+            }
+        };
+
+        const interval = setInterval(checkSession, 60000); // Check every 60 seconds
+        return () => clearInterval(interval);
+    }, [refreshAll, router]);
 
     const computeWPReplies = useCallback((dateRange?: { from?: Date; to?: Date } | null): number => {
         if (!leads) return 0;
