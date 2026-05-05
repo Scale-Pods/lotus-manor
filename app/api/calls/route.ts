@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import RATES_DATA from '../../../context/rates.json';
 
-// --- Helper: Timeout Signal (for older Node.js) ---
+// --- Helper: Timeout Signal ---
 function getTimeoutSignal(ms: number) {
     if (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal) {
         return (AbortSignal as any).timeout(ms);
@@ -78,25 +78,13 @@ function getMaqsamSignature(method: string, endpoint: string, timestamp: string,
         .digest("base64");
 }
 
-// --- Global In-Memory Cache (Expires every 5 minutes) ---
-
-
-
 /**
- * Syncs the last 7 days of Vapi calls to Supabase. Includes vapi_account tag.
+ * Syncs live Vapi calls to Supabase archive in the background.
  */
 async function syncRecentVapiCalls(calls: any[]) {
     const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
     const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
     if (!supabaseUrl || !secretKey || !calls.length) return;
-
-    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    const recentCalls = calls.filter(c => {
-        const time = new Date(c.startedAt).getTime();
-        return time > sevenDaysAgo && (c.source === 'vapi' || c.source === 'elevenlabs');
-    });
-
-    if (recentCalls.length === 0) return;
 
     const headers = {
         "apikey": secretKey,
@@ -105,66 +93,70 @@ async function syncRecentVapiCalls(calls: any[]) {
         "Prefer": "resolution=merge-duplicates"
     };
 
-        const CHUNK_SIZE = 70;
-        for (let i = 0; i < recentCalls.length; i += CHUNK_SIZE) {
-            const chunk = recentCalls.slice(i, i + CHUNK_SIZE).map(c => {
-                const aid = c.assistantId || c.raw?.assistantId || null;
-                
-                // Specific requested categorization using environment variables if available
-                let categoricalAccount = c.vapiAccount || 'normal';
-                
-                const ownerBotId = process.env.VAPI_OWNERS_DATA_BOT || "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd";
-                const normalBotIds = [
-                    process.env.VAPI_US_BOT,
-                    process.env.VAPI_UK_BOT,
-                    process.env.VAPI_UAE_BOT,
-                    "b35e3032-7865-4913-ba22-a913b5d4117b", // Fallback US
-                    "918c25eb-9882-452e-86df-b4851d464852", // Fallback UK
-                    "70f05e16-18f3-4f6e-964a-f47b299c6c1d"  // Fallback UAE
-                ].filter(Boolean);
+    const ownerBotId = process.env.VAPI_OWNERS_DATA_BOT || "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd";
+    const normalBotIds = new Set([
+        process.env.VAPI_US_BOT,
+        process.env.VAPI_UK_BOT,
+        process.env.VAPI_UAE_BOT,
+        "b35e3032-7865-4913-ba22-a913b5d4117b",
+        "918c25eb-9882-452e-86df-b4851d464852",
+        "70f05e16-18f3-4f6e-964a-f47b299c6c1d"
+    ].filter(Boolean));
 
-                if (aid === ownerBotId) categoricalAccount = 'owners';
-                else if (normalBotIds.includes(aid)) categoricalAccount = 'normal';
-                else if (c.source === 'elevenlabs') categoricalAccount = 'elevenlabs';
+    const CHUNK_SIZE = 70;
+    const chunks: any[][] = [];
+    for (let i = 0; i < calls.length; i += CHUNK_SIZE) {
+        chunks.push(calls.slice(i, i + CHUNK_SIZE));
+    }
 
-                return {
-                    id: c.id,
-                    started_at: c.startedAt || new Date().toISOString(),
-                    customer_phone: c.phone || c.customer_number || "Unknown",
-                    customer_name: (c.name && c.name !== "Unknown") ? c.name : "Guest",
-                    duration_seconds: c.durationSeconds,
-                    status: c.status,
-                    cost_usd: c.costValue,
-                    transcript: c.raw?.transcript || c.raw?.messages || c.raw?.analysis?.transcript || [],
-                    summary: c.callSummary || "",
-                    recording_url: c.raw?.audio_url || c.raw?.recordingUrl || c.raw?.artifact?.recordingUrl || "",
-                    raw_data: {
-                        ...c.raw,
-                        vapiAccount: categoricalAccount,
-                        isInbound: c.isInbound,
-                        type: c.isInbound ? "Inbound" : "Outbound"
-                    },
-                    vapi_account: categoricalAccount,
-                    source: c.source || (categoricalAccount === 'elevenlabs' ? 'elevenlabs' : 'vapi')
-                };
-            });
+    // Fire all sync chunks in parallel for speed
+    await Promise.allSettled(chunks.map(async (chunk) => {
+        const payload = chunk.map(c => {
+            const aid = c.assistantId || c.raw?.assistantId || null;
+            let categoricalAccount = c.vapiAccount || 'normal';
+            if (aid === ownerBotId) categoricalAccount = 'owners';
+            else if (normalBotIds.has(aid)) categoricalAccount = 'normal';
+            else if (c.source === 'elevenlabs') categoricalAccount = 'elevenlabs';
+
+            return {
+                id: c.id,
+                started_at: c.startedAt || new Date().toISOString(),
+                customer_phone: c.phone || c.customer_number || "Unknown",
+                customer_name: (c.name && c.name !== "Unknown") ? c.name : "Guest",
+                duration_seconds: c.durationSeconds,
+                status: c.status,
+                cost_usd: c.costValue,
+                transcript: c.raw?.transcript || c.raw?.messages || c.raw?.analysis?.transcript || [],
+                summary: c.callSummary || "",
+                recording_url: c.raw?.audio_url || c.raw?.recordingUrl || c.raw?.artifact?.recordingUrl || "",
+                raw_data: {
+                    ...c.raw,
+                    vapiAccount: categoricalAccount,
+                    isInbound: c.isInbound,
+                    type: c.isInbound ? "Inbound" : "Outbound"
+                },
+                vapi_account: categoricalAccount,
+                source: c.source || (categoricalAccount === 'elevenlabs' ? 'elevenlabs' : 'vapi')
+            };
+        });
 
         try {
             await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/vapi_call_logs`, {
                 method: "POST",
                 headers,
-                body: JSON.stringify(chunk)
+                body: JSON.stringify(payload)
             });
         } catch (e) {
-            console.error(`[SupabaseSync] Batch of ${chunk.length} failed:`, e);
+            console.error(`[SupabaseSync] Batch failed:`, e);
         }
-    }
+    }));
 }
 
 /**
- * Fetches archived call logs from Supabase for a given date range.
+ * Fetches archived call logs from Supabase in parallel batches of 200
+ * for the given date range. This prevents timeouts on large ranges.
  */
-async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null, provider: string = 'all') {
+async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null): Promise<any[]> {
     const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
     const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
     if (!supabaseUrl || !secretKey) return [];
@@ -172,68 +164,97 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null,
     const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
     const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
 
-    // SELECT metadata and extracted fields from raw_data for filtering/display. 
-    // We avoid fetching the full 'raw_data' blob to prevent statement timeouts.
-    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,summary,vapi_account,recording_url,assistant_id:raw_data->>assistantId,is_inbound:raw_data->>isInbound,ended_reason:raw_data->>endedReason';
-    let url = `${baseUrl}/vapi_call_logs?select=${columns}&order=started_at.desc&limit=20000`;
-    
-    if (fromDate) {
-        url += `&started_at=gte.${fromDate.toISOString()}`;
-    }
+    // Lean column selection for list view - transcripts/recordings fetched on-demand via /api/calls/[id]
+    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,vapi_account,source,assistant_id:raw_data->>assistantId,is_inbound:raw_data->>isInbound';
+    const BATCH_SIZE = 200;
+
+    // Build date filter suffix
+    let dateFilter = '';
+    if (fromDate) dateFilter += `&started_at=gte.${fromDate.toISOString()}`;
     if (toDate) {
-        // Ensure toDate includes the full day if it's just a date (00:00:00)
         const endOfRange = new Date(toDate);
         if (endOfRange.getUTCHours() === 0 && endOfRange.getUTCMinutes() === 0 && endOfRange.getUTCSeconds() === 0) {
             endOfRange.setUTCHours(23, 59, 59, 999);
         }
-        url += `&started_at=lte.${endOfRange.toISOString()}`;
+        dateFilter += `&started_at=lte.${endOfRange.toISOString()}`;
     }
 
+    const normalizeRow = (d: any) => {
+        const dur = d.duration_seconds || 0;
+        const costVal = d.cost_usd ?? 0;
+        const ph = d.customer_phone || 'Unknown';
+        const isInbound = d.is_inbound === 'true' || d.is_inbound === true;
+        return {
+            id: d.id,
+            startedAt: d.started_at,
+            durationSeconds: dur,
+            costValue: costVal,
+            cost: `$${Number(costVal).toFixed(3)}`,
+            phone: ph,
+            name: d.customer_name || 'Guest',
+            phoneNumber: ph,
+            callSummary: '',
+            status: d.status || 'answered',
+            type: isInbound ? "Inbound" : "Outbound",
+            isInbound,
+            country: getRateInfo(ph)?.Country || 'Unknown',
+            source: d.source === 'elevenlabs' ? 'elevenlabs' : 'vapi',
+            vapiAccount: d.vapi_account,
+            assistantId: d.assistant_id || null,
+            endedReason: null,
+            breakdown: { agent: costVal, telephony: 0, total: costVal },
+            raw: { id: d.id, startedAt: d.started_at, assistantId: d.assistant_id || null, isInbound }
+        };
+    };
+
     try {
-        const res = await fetch(url, { headers });
-        if (!res.ok) {
-            const errorText = await res.text();
-            console.error(`[SupabaseFetch] HTTP ${res.status}:`, errorText);
+        // First: fetch batch 0 to know total count (Supabase returns count in header with Prefer: count=exact)
+        const countUrl = `${baseUrl}/vapi_call_logs?select=${columns}${dateFilter}&order=started_at.desc&limit=${BATCH_SIZE}&offset=0`;
+        const countRes = await fetch(countUrl, {
+            headers: { ...headers, 'Prefer': 'count=exact' }
+        });
+
+        if (!countRes.ok) {
+            const errText = await countRes.text();
+            console.error(`[SupabaseFetch] HTTP ${countRes.status}:`, errText);
             return [];
         }
-        const data = await res.json();
-        if (!Array.isArray(data)) return [];
 
-        return data.map((d: any) => {
-            const dur = d.duration_seconds || 0;
-            const costVal = d.cost_usd ?? 0;
-            const ph = d.customer_phone || 'Unknown';
-            const isInbound = d.is_inbound === 'true' || d.is_inbound === true;
+        const firstBatch = await countRes.json();
+        if (!Array.isArray(firstBatch)) return [];
 
-            return {
-                id: d.id,
-                startedAt: d.started_at,
-                durationSeconds: dur,
-                costValue: costVal,
-                cost: `$${Number(costVal).toFixed(3)}`,
-                phone: ph,
-                name: d.customer_name || 'Guest',
-                phoneNumber: ph,
-                callSummary: d.summary || '',
-                status: d.status || 'answered',
-                type: isInbound ? "Inbound" : "Outbound",
-                isInbound: isInbound,
-                country: getRateInfo(ph)?.Country || 'Unknown',
-                source: d.vapi_account === 'elevenlabs' ? 'elevenlabs' : 'vapi',
-                vapiAccount: d.vapi_account,
-                assistantId: d.assistant_id || null,
-                endedReason: d.ended_reason || null,
-                breakdown: { agent: costVal, telephony: 0, total: costVal },
-                raw: { 
-                    id: d.id, 
-                    startedAt: d.started_at, 
-                    recordingUrl: d.recording_url,
-                    assistantId: d.assistant_id || null,
-                    isInbound: isInbound,
-                    endedReason: d.ended_reason || null
-                }
-            };
-        });
+        const contentRange = countRes.headers.get('content-range');
+        let totalCount = firstBatch.length;
+        if (contentRange) {
+            const match = contentRange.match(/\/(\d+)$/);
+            if (match) totalCount = parseInt(match[1], 10);
+        }
+
+        // If all data fits in first batch, return immediately
+        if (firstBatch.length >= totalCount || firstBatch.length < BATCH_SIZE) {
+            return firstBatch.map(normalizeRow);
+        }
+
+        // Build parallel requests for remaining batches
+        const remainingBatches: Promise<any[]>[] = [];
+        for (let offset = BATCH_SIZE; offset < totalCount; offset += BATCH_SIZE) {
+            const batchUrl = `${baseUrl}/vapi_call_logs?select=${columns}${dateFilter}&order=started_at.desc&limit=${BATCH_SIZE}&offset=${offset}`;
+            remainingBatches.push(
+                fetch(batchUrl, { headers })
+                    .then(r => r.ok ? r.json() : [])
+                    .then(data => Array.isArray(data) ? data : [])
+                    .catch(() => [])
+            );
+        }
+
+        // Fire all remaining batches in parallel
+        const batchResults = await Promise.all(remainingBatches);
+        const allRows = [
+            ...firstBatch,
+            ...batchResults.flat()
+        ];
+
+        return allRows.map(normalizeRow);
     } catch (e) {
         console.error("[SupabaseFetch] Error:", e);
         return [];
@@ -276,8 +297,8 @@ async function fetchVapiPhonesCache(vapiPrivKey: string) {
             });
         }
         globalVapiPhoneCache = { data: phoneMap, timestamp: now };
-    } catch (e) { 
-        console.error("Vapi phone cache error:", e); 
+    } catch (e) {
+        console.error("Vapi phone cache error:", e);
     }
     return phoneMap;
 }
@@ -305,7 +326,6 @@ function normalizeVapiCall(
     }
 
     const rateEntry: any = getRateInfo(phoneRaw);
-    // Agent cost is the total Vapi cost minus any transport (telephony) Vapi might have charged
     const vapiTotalCharge = vc.cost || 0;
     const vapiTransportCharge = vc.costBreakdown?.transport || 0;
     const agentCost = vapiTotalCharge - vapiTransportCharge;
@@ -317,8 +337,7 @@ function normalizeVapiCall(
         vapiAssistantNum = "Internal-Line";
     }
 
-    let vapiTelephonyCost = calculateTelephonyCost(safeDuration, phoneRaw, isInbound, vapiAssistantNum);
-
+    const vapiTelephonyCost = calculateTelephonyCost(safeDuration, phoneRaw, isInbound, vapiAssistantNum);
     const vapiTotalCost = agentCost + vapiTelephonyCost;
 
     let vapiName = customer.name || "Guest";
@@ -370,7 +389,8 @@ function normalizeVapiCall(
 }
 
 /**
- * Fetches all calls for a single VAPI account key within date range.
+ * Fetches all calls for a single VAPI account key within a date range.
+ * No hard page limit - fetches everything in the date window.
  */
 async function fetchVapiCallsForAccount(
     apiKey: string,
@@ -381,9 +401,8 @@ async function fetchVapiCallsForAccount(
     let hasMoreVapi = true;
     let lastCreatedAt: string | null = null;
     const batchSize = 1000;
-    let batchedFetched = 0;
 
-    while (hasMoreVapi && batchedFetched < 20) {
+    while (hasMoreVapi) {
         const params = new URLSearchParams({ limit: String(batchSize) });
 
         if (lastCreatedAt) {
@@ -426,7 +445,6 @@ async function fetchVapiCallsForAccount(
         }
 
         if (list.length < batchSize) hasMoreVapi = false;
-        batchedFetched++;
     }
 
     return allVapiCalls;
@@ -438,99 +456,127 @@ export async function GET(req: Request) {
         const fromParam = searchParams.get('from');
         const toParam = searchParams.get('to');
         const includeElevenLabs = searchParams.get('includeElevenLabs') === 'true';
+        const provider = searchParams.get('provider') || 'vapi';
 
         const fromDateRaw = fromParam ? new Date(fromParam) : null;
         const toDateRaw = toParam ? new Date(toParam) : null;
-        
+
         const fromDate = fromDateRaw && !isNaN(fromDateRaw.getTime()) ? fromDateRaw : null;
         const toDate = toDateRaw && !isNaN(toDateRaw.getTime()) ? toDateRaw : null;
-        // provider: 'vapi' | 'elevenlabs' | 'all'
-        const provider = searchParams.get('provider') || 'vapi';
 
-        // HYBRID STRATEGY: Always fetch from Archive, supplement with Live data for a rolling window.
-        // We use a 7-day window for 'live' fetching to ensure no gaps exist between the last sync and current time.
-        const now = Date.now();
-        const liveWindowLimit = new Date(now - (7 * 24 * 60 * 60 * 1000));
-        
         const vapiPrivKey = process.env.VAPI_PRIVATE_KEY || "";
         const vapiOwnersKey = process.env.VAPI_OWNERS_DATA_BOT_PRIVATE_KEY || "";
 
-        // Always fetch from Supabase Archive first (extremely fast)
-        let archivedCalls = await fetchArchivedCallLogs(fromDate, toDate, 'vapi');
+        // =========================================================
+        // SMART HYBRID STRATEGY:
+        // - Last 1 day  → fetch LIVE from Vapi API (complete, real-time, no limits)
+        // - Day 2–7     → fetch from Supabase archive (fast, parallel batches)
+        // - Beyond 7d   → fetch from Supabase archive only (filtered by user date range)
+        // =========================================================
+
+        const now = Date.now();
+        const oneDayAgo = new Date(now - (1 * 24 * 60 * 60 * 1000));   // Live window boundary
+        const sevenDaysAgo = new Date(now - (7 * 24 * 60 * 60 * 1000)); // Default archive boundary
+
+        // Determine effective window for archive fetch.
+        // Archive covers: fromDate → (oneDayAgo - 1ms) so we don't double-count live.
+        const archiveTo = new Date(oneDayAgo.getTime() - 1000); // 1 second before live window
+
+        // Archive fromDate: either the user's from param, or 7 days ago by default
+        const archiveFrom = fromDate ? fromDate : sevenDaysAgo;
+
+        // Only query Vapi live if the request date range overlaps with the last 1 day
+        const toDateForLiveCheck = toDate || new Date(now);
+        const needsLiveData = toDateForLiveCheck.getTime() > oneDayAgo.getTime();
+
+        // Only query archive if the request date range includes anything before oneDayAgo
+        const fromDateForArchiveCheck = fromDate || sevenDaysAgo;
+        const needsArchiveData = fromDateForArchiveCheck.getTime() < oneDayAgo.getTime();
+
         let vapiNormalized: any[] = [];
+        let archivedCalls: any[] = [];
 
-        // Determine if we need live data (anything within the last 7 days)
-        const needsLive = !toDate || toDate.getTime() > liveWindowLimit.getTime();
-        
-        // Always fetch the Vapi phone mappings (fast)
-        const vapiPhoneCache = await fetchVapiPhonesCache(vapiPrivKey);
-
-        if (needsLive) {
-            const liveFrom = fromDate && fromDate.getTime() > liveWindowLimit.getTime() ? fromDate : liveWindowLimit;
-            
-            const NORMAL_AGENT_IDS = new Set([
-                process.env.VAPI_US_BOT,
-                process.env.VAPI_UK_BOT,
-                process.env.VAPI_UAE_BOT,
-            ].filter(Boolean));
-            const OWNERS_AGENT_IDS = new Set([
-                process.env.VAPI_OWNERS_DATA_BOT,
-            ].filter(Boolean));
-
-            try {
-                // Fetch only for the small live window (max 24h)
-                const [normalRawCalls, ownersRawCalls] = await Promise.all([
-                    vapiPrivKey ? fetchVapiCallsForAccount(vapiPrivKey, liveFrom, toDate) : Promise.resolve([]),
-                    vapiOwnersKey ? fetchVapiCallsForAccount(vapiOwnersKey, liveFrom, toDate) : Promise.resolve([])
-                ]);
-
-                const filteredNormal = NORMAL_AGENT_IDS.size > 0
-                    ? normalRawCalls.filter(vc => NORMAL_AGENT_IDS.has(vc.assistantId))
-                    : normalRawCalls;
-
-                const filteredOwners = OWNERS_AGENT_IDS.size > 0
-                    ? ownersRawCalls.filter(vc => OWNERS_AGENT_IDS.has(vc.assistantId))
-                    : ownersRawCalls;
-
-                const normalNormalized = filteredNormal.map(vc =>
-                    normalizeVapiCall(vc, 'normal', vapiPhoneCache)
-                ).filter(Boolean) as any[];
-
-                const ownersNormalized = filteredOwners.map(vc =>
-                    normalizeVapiCall(vc, 'owners', vapiPhoneCache)
-                ).filter(Boolean) as any[];
-
-                vapiNormalized = [...normalNormalized, ...ownersNormalized];
-
-            } catch (e) {
-                console.error("Vapi live aggregation fail:", e);
-            }
-        }
-
-        // Filter archived calls if we fetched them (agent ID allow-list)
-        const NORMAL_AGENT_IDS_ARCHIVE = new Set([
+        // Start both fetches concurrently where possible
+        const NORMAL_AGENT_IDS = new Set([
             process.env.VAPI_US_BOT,
             process.env.VAPI_UK_BOT,
             process.env.VAPI_UAE_BOT,
         ].filter(Boolean));
-        const OWNERS_AGENT_IDS_ARCHIVE = new Set([
+
+        const OWNERS_AGENT_IDS = new Set([
             process.env.VAPI_OWNERS_DATA_BOT,
         ].filter(Boolean));
 
-        const allAllowedAgentIds = new Set([...NORMAL_AGENT_IDS_ARCHIVE, ...OWNERS_AGENT_IDS_ARCHIVE]);
-        
+        const allAllowedAgentIds = new Set([...NORMAL_AGENT_IDS, ...OWNERS_AGENT_IDS]);
+
+        // Fire archive + phone cache in parallel (both are fast Supabase reads)
+        const [vapiPhoneCache] = await Promise.all([
+            fetchVapiPhonesCache(vapiPrivKey),
+        ]);
+
+        // Now fire live fetch + archive fetch concurrently
+        const [liveResult, archiveResult] = await Promise.all([
+            // LIVE: Vapi real-time for last 1 day — separate parallel requests for Normal + Owners accounts
+            needsLiveData ? (async () => {
+                // Live window: from oneDayAgo up to toDate (or now)
+                const liveFrom = oneDayAgo;
+                const liveTo = toDate && toDate.getTime() < now ? toDate : null; // null = no upper bound
+
+                try {
+                    // Fire Normal + Owners Vapi accounts in parallel
+                    const [normalRawCalls, ownersRawCalls] = await Promise.all([
+                        vapiPrivKey ? fetchVapiCallsForAccount(vapiPrivKey, liveFrom, liveTo) : Promise.resolve([]),
+                        vapiOwnersKey ? fetchVapiCallsForAccount(vapiOwnersKey, liveFrom, liveTo) : Promise.resolve([])
+                    ]);
+
+                    const filteredNormal = NORMAL_AGENT_IDS.size > 0
+                        ? normalRawCalls.filter(vc => NORMAL_AGENT_IDS.has(vc.assistantId))
+                        : normalRawCalls;
+
+                    const filteredOwners = OWNERS_AGENT_IDS.size > 0
+                        ? ownersRawCalls.filter(vc => OWNERS_AGENT_IDS.has(vc.assistantId))
+                        : ownersRawCalls;
+
+                    const normalNormalized = filteredNormal.map(vc =>
+                        normalizeVapiCall(vc, 'normal', vapiPhoneCache)
+                    ).filter(Boolean) as any[];
+
+                    const ownersNormalized = filteredOwners.map(vc =>
+                        normalizeVapiCall(vc, 'owners', vapiPhoneCache)
+                    ).filter(Boolean) as any[];
+
+                    return [...normalNormalized, ...ownersNormalized];
+                } catch (e) {
+                    console.error("[Live] Vapi live fetch failed:", e);
+                    return [];
+                }
+            })() : Promise.resolve([]),
+
+            // ARCHIVE: Supabase for everything before the live window
+            needsArchiveData ? fetchArchivedCallLogs(archiveFrom, archiveTo) : Promise.resolve([])
+        ]);
+
+        vapiNormalized = liveResult;
+        archivedCalls = archiveResult;
+
+        // Filter archived calls by allowed agent IDs & ElevenLabs preference
         const filteredArchivedCalls = archivedCalls.filter((c: any) => {
-            if (!includeElevenLabs && c.vapiAccount === 'elevenlabs') return false; // exclude ElevenLabs unless requested
+            if (!includeElevenLabs && (c.vapiAccount === 'elevenlabs' || c.source === 'elevenlabs')) return false;
             if (allAllowedAgentIds.size > 0 && c.assistantId) {
                 return allAllowedAgentIds.has(c.assistantId);
             }
             return true;
         });
 
-        // --- Final Merge ---
+        // Filter live calls by ElevenLabs preference
+        const filteredLiveCalls = includeElevenLabs
+            ? vapiNormalized
+            : vapiNormalized.filter(c => c.source !== 'elevenlabs');
+
+        // --- Final Merge (live overrides archive for same ID) ---
         const mergedMap = new Map();
         filteredArchivedCalls.forEach((h: any) => mergedMap.set(h.id, h));
-        vapiNormalized.forEach((l: any) => mergedMap.set(l.id, l));
+        filteredLiveCalls.forEach((l: any) => mergedMap.set(l.id, l)); // live wins
 
         const final = Array.from(mergedMap.values()).sort((a, b) => {
             const timeA = a.startedAt ? new Date(a.startedAt).getTime() : 0;
@@ -538,7 +584,7 @@ export async function GET(req: Request) {
             return timeB - timeA;
         });
 
-        // Background sync of recent calls to archive
+        // Background sync: push live calls to archive (non-blocking)
         if (vapiNormalized.length > 0) {
             syncRecentVapiCalls(vapiNormalized).catch(err => console.error("[SyncTrigger] Error:", err));
         }
