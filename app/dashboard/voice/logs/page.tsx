@@ -208,6 +208,7 @@ export default function VoiceLogsPage() {
             if (accountFilter === 'vapi-normal' && (call.source !== 'vapi' || call.vapiAccount !== 'normal')) return false;
             if (accountFilter === 'vapi-owners' && (call.source !== 'vapi' || call.vapiAccount !== 'owners')) return false;
             if (accountFilter === 'elevenlabs' && call.source !== 'elevenlabs') return false;
+            if (accountFilter === 'open-house' && call.assistantId !== '1ef6ea66-0a75-45f5-b025-1743e048dc90') return false;
 
             // 2. Status filter
             if (statusFilter !== "all" && call.status !== statusFilter) return false;
@@ -219,8 +220,6 @@ export default function VoiceLogsPage() {
 
                 if (typeFilter === "secondary-leads") {
                     if (!isSecondaryLeads) return false;
-                } else if (typeFilter === "open-house-event") {
-                    if (call.assistantId !== '1ef6ea66-0a75-45f5-b025-1743e048dc90') return false;
                 } else if (typeFilter === "normal") {
                     if (isSecondaryLeads) return false;
                 } else if (normalizedCallType !== typeFilter.toLowerCase()) {
@@ -241,37 +240,26 @@ export default function VoiceLogsPage() {
             // 5. Region / Assistant filter
             if (regionFilter !== "all") {
                 const assistantId = call.assistantId;
-                const OPEN_HOUSE_ID = '1ef6ea66-0a75-45f5-b025-1743e048dc90';
-
-                // Open House: strictly match by bot ID only — no phone number fallback
-                if (regionFilter === "open-house") {
-                    if (assistantId !== OPEN_HOUSE_ID) return false;
-                } else {
-                    // For all other regions, exclude the open-house bot first
-                    if (assistantId === OPEN_HOUSE_ID) return false;
-
-                    const assistantNum = (call.phoneNumber || call.fromNumber || "").replace(/\D/g, '');
-                    const regionMap: Record<string, { nums: string[], ids: string[] }> = {
-                        "uae": {
-                            nums: ["97148714150"],
-                            ids: ["70f05e16-18f3-4f6e-964a-f47b299c6c1d", "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd"]
-                        },
-                        "us": {
-                            nums: ["14782159151", "17624000439"],
-                            ids: ["b35e3032-7865-4913-ba22-a913b5d4117b"]
-                        },
-                        "uk": {
-                            nums: ["447462179309", "7462179309"],
-                            ids: ["918c25eb-9882-452e-86df-b4851d464852"]
-                        }
-                    };
-
-                    const target = regionMap[regionFilter];
-                    if (target) {
-                        const matchesNum = assistantNum && target.nums.some(n => assistantNum.endsWith(n) || n.endsWith(assistantNum));
-                        const matchesId = assistantId && target.ids.includes(assistantId);
-                        if (!matchesNum && !matchesId) return false;
+                const assistantNum = (call.phoneNumber || call.fromNumber || "").replace(/\D/g, '');
+                const regionMap: Record<string, { nums: string[], ids: string[] }> = {
+                    "uae": {
+                        nums: ["97148714150"],
+                        ids: ["70f05e16-18f3-4f6e-964a-f47b299c6c1d", "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd"]
+                    },
+                    "us": {
+                        nums: ["14782159151", "17624000439"],
+                        ids: ["b35e3032-7865-4913-ba22-a913b5d4117b"]
+                    },
+                    "uk": {
+                        nums: ["447462179309", "7462179309"],
+                        ids: ["918c25eb-9882-452e-86df-b4851d464852"]
                     }
+                };
+                const target = regionMap[regionFilter];
+                if (target) {
+                    const matchesNum = assistantNum && target.nums.some(n => assistantNum.endsWith(n) || n.endsWith(assistantNum));
+                    const matchesId = assistantId && target.ids.includes(assistantId);
+                    if (!matchesNum && !matchesId) return false;
                 }
             }
 
@@ -390,13 +378,14 @@ export default function VoiceLogsPage() {
                     </div>
 
                     <Select value={accountFilter} onValueChange={setAccountFilter}>
-                        <SelectTrigger className="w-[190px] h-9">
+                        <SelectTrigger className="w-[200px] h-9">
                             <SelectValue placeholder="Account / Provider" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="vapi">All Vapi Calls</SelectItem>
                             <SelectItem value="vapi-owners">Owner Leads</SelectItem>
                             <SelectItem value="vapi-normal">Normal Calls</SelectItem>
+                            <SelectItem value="open-house">🏠 Open House Event</SelectItem>
                             <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
                         </SelectContent>
                     </Select>
@@ -407,7 +396,6 @@ export default function VoiceLogsPage() {
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="Inbound">Inbound</SelectItem>
                             <SelectItem value="Outbound">Outbound</SelectItem>
-                            <SelectItem value="open-house-event">🏠 Open House Event</SelectItem>
                         </SelectContent>
                     </Select>
 
@@ -432,7 +420,6 @@ export default function VoiceLogsPage() {
                             <SelectItem value="us">United States</SelectItem>
                             <SelectItem value="uk">United Kingdom</SelectItem>
                             <SelectItem value="uae">UAE (Dubai)</SelectItem>
-                            <SelectItem value="open-house">🏠 Open House Event</SelectItem>
                         </SelectContent>
                     </Select>
 
