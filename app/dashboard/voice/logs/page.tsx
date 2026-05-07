@@ -62,6 +62,11 @@ const DynamicRowCells = ({ call, leads, telephonyCost }: { call: any, leads: any
                             secondary leads reachout
                         </Badge>
                     )}
+                    {call.assistantId === '1ef6ea66-0a75-45f5-b025-1743e048dc90' && (
+                        <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 border-orange-200 text-[8px] px-1.5 py-0 h-3.5 font-bold uppercase tracking-wider w-fit flex items-center gap-1">
+                            🏠 open house event
+                        </Badge>
+                    )}
                 </div>
             </TableCell>
             <TableCell className="text-slate-600 font-medium">{formatDuration(call.durationSeconds)}</TableCell>
@@ -214,6 +219,8 @@ export default function VoiceLogsPage() {
 
                 if (typeFilter === "secondary-leads") {
                     if (!isSecondaryLeads) return false;
+                } else if (typeFilter === "open-house-event") {
+                    if (call.assistantId !== '1ef6ea66-0a75-45f5-b025-1743e048dc90') return false;
                 } else if (typeFilter === "normal") {
                     if (isSecondaryLeads) return false;
                 } else if (normalizedCallType !== typeFilter.toLowerCase()) {
@@ -233,29 +240,38 @@ export default function VoiceLogsPage() {
 
             // 5. Region / Assistant filter
             if (regionFilter !== "all") {
-                const assistantNum = (call.phoneNumber || call.fromNumber || "").replace(/\D/g, '');
                 const assistantId = call.assistantId;
-                
-                const regionMap: Record<string, { nums: string[], ids: string[] }> = {
-                    "uae": { 
-                        nums: ["97148714150"], 
-                        ids: ["70f05e16-18f3-4f6e-964a-f47b299c6c1d"] 
-                    },
-                    "us": { 
-                        nums: ["14782159151"], 
-                        ids: ["b35e3032-7865-4913-ba22-a913b5d4117b"] 
-                    },
-                    "uk": { 
-                        nums: ["447462179309"], 
-                        ids: ["918c25eb-9882-452e-86df-b4851d464852"] 
-                    }
-                };
+                const OPEN_HOUSE_ID = '1ef6ea66-0a75-45f5-b025-1743e048dc90';
 
-                const target = regionMap[regionFilter];
-                if (target) {
-                    const matchesNum = target.nums.some(n => assistantNum.includes(n));
-                    const matchesId = assistantId && target.ids.includes(assistantId);
-                    if (!matchesNum && !matchesId) return false;
+                // Open House: strictly match by bot ID only — no phone number fallback
+                if (regionFilter === "open-house") {
+                    if (assistantId !== OPEN_HOUSE_ID) return false;
+                } else {
+                    // For all other regions, exclude the open-house bot first
+                    if (assistantId === OPEN_HOUSE_ID) return false;
+
+                    const assistantNum = (call.phoneNumber || call.fromNumber || "").replace(/\D/g, '');
+                    const regionMap: Record<string, { nums: string[], ids: string[] }> = {
+                        "uae": {
+                            nums: ["97148714150"],
+                            ids: ["70f05e16-18f3-4f6e-964a-f47b299c6c1d", "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd"]
+                        },
+                        "us": {
+                            nums: ["14782159151", "17624000439"],
+                            ids: ["b35e3032-7865-4913-ba22-a913b5d4117b"]
+                        },
+                        "uk": {
+                            nums: ["447462179309", "7462179309"],
+                            ids: ["918c25eb-9882-452e-86df-b4851d464852"]
+                        }
+                    };
+
+                    const target = regionMap[regionFilter];
+                    if (target) {
+                        const matchesNum = assistantNum && target.nums.some(n => assistantNum.endsWith(n) || n.endsWith(assistantNum));
+                        const matchesId = assistantId && target.ids.includes(assistantId);
+                        if (!matchesNum && !matchesId) return false;
+                    }
                 }
             }
 
@@ -391,6 +407,7 @@ export default function VoiceLogsPage() {
                             <SelectItem value="all">All Types</SelectItem>
                             <SelectItem value="Inbound">Inbound</SelectItem>
                             <SelectItem value="Outbound">Outbound</SelectItem>
+                            <SelectItem value="open-house-event">🏠 Open House Event</SelectItem>
                         </SelectContent>
                     </Select>
 
@@ -404,7 +421,7 @@ export default function VoiceLogsPage() {
                     </Select>
 
                     <Select value={regionFilter} onValueChange={setRegionFilter}>
-                        <SelectTrigger className="w-[140px] h-9">
+                        <SelectTrigger className="w-[165px] h-9">
                             <div className="flex items-center gap-2">
                                 <Phone className="h-3.5 w-3.5 text-slate-400" />
                                 <SelectValue placeholder="Region" />
@@ -415,6 +432,7 @@ export default function VoiceLogsPage() {
                             <SelectItem value="us">United States</SelectItem>
                             <SelectItem value="uk">United Kingdom</SelectItem>
                             <SelectItem value="uae">UAE (Dubai)</SelectItem>
+                            <SelectItem value="open-house">🏠 Open House Event</SelectItem>
                         </SelectContent>
                     </Select>
 

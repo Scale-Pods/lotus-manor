@@ -100,7 +100,8 @@ async function syncRecentVapiCalls(calls: any[]) {
         process.env.VAPI_UAE_BOT,
         "b35e3032-7865-4913-ba22-a913b5d4117b",
         "918c25eb-9882-452e-86df-b4851d464852",
-        "70f05e16-18f3-4f6e-964a-f47b299c6c1d"
+        "70f05e16-18f3-4f6e-964a-f47b299c6c1d",
+        "1ef6ea66-0a75-45f5-b025-1743e048dc90", // Open House Event
     ].filter(Boolean));
 
     const CHUNK_SIZE = 70;
@@ -165,7 +166,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
     const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
 
     // Lean column selection for list view - transcripts/recordings fetched on-demand via /api/calls/[id]
-    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,vapi_account,source,assistant_id:raw_data->>assistantId,is_inbound:raw_data->>isInbound';
+    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,vapi_account,source,assistant_id:raw_data->>assistantId,assistant_phone:raw_data->phoneNumber->>number,is_inbound:raw_data->>isInbound';
     const BATCH_SIZE = 200;
 
     // Build date filter suffix
@@ -184,6 +185,19 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
         const costVal = d.cost_usd ?? 0;
         const ph = d.customer_phone || 'Unknown';
         const isInbound = d.is_inbound === 'true' || d.is_inbound === true;
+        const aid = d.assistant_id || null;
+        
+        // Fallback mapping for archived calls that might not have raw_data->phoneNumber
+        const assistantIdToPhone: Record<string, string> = {
+            '70f05e16-18f3-4f6e-964a-f47b299c6c1d': '97148714150', // UAE
+            'b35e3032-7865-4913-ba22-a913b5d4117b': '14782159151', // US
+            '918c25eb-9882-452e-86df-b4851d464852': '447462179309', // UK
+            '9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd': '447462179309', // Owners (UAE)
+            '1ef6ea66-0a75-45f5-b025-1743e048dc90': '14782159151', // Open House Event (UAE)
+        };
+
+        const assistantPhone = d.assistant_phone || (aid ? assistantIdToPhone[aid] : null) || 'Unknown';
+
         return {
             id: d.id,
             startedAt: d.started_at,
@@ -192,7 +206,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
             cost: `$${Number(costVal).toFixed(3)}`,
             phone: ph,
             name: d.customer_name || 'Guest',
-            phoneNumber: ph,
+            phoneNumber: assistantPhone,
             callSummary: '',
             status: d.status || 'answered',
             type: isInbound ? "Inbound" : "Outbound",
@@ -200,10 +214,10 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
             country: getRateInfo(ph)?.Country || 'Unknown',
             source: d.source === 'elevenlabs' ? 'elevenlabs' : 'vapi',
             vapiAccount: d.vapi_account,
-            assistantId: d.assistant_id || null,
+            assistantId: aid,
             endedReason: null,
             breakdown: { agent: costVal, telephony: 0, total: costVal },
-            raw: { id: d.id, startedAt: d.started_at, assistantId: d.assistant_id || null, isInbound }
+            raw: { id: d.id, startedAt: d.started_at, assistantId: aid, isInbound }
         };
     };
 
@@ -501,6 +515,7 @@ export async function GET(req: Request) {
             process.env.VAPI_US_BOT,
             process.env.VAPI_UK_BOT,
             process.env.VAPI_UAE_BOT,
+            "1ef6ea66-0a75-45f5-b025-1743e048dc90", // Open House Event
         ].filter(Boolean));
 
         const OWNERS_AGENT_IDS = new Set([
