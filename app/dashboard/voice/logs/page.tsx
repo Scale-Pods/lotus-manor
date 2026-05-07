@@ -126,6 +126,7 @@ export default function VoiceLogsPage() {
     const [accountFilter, setAccountFilter] = useState("vapi");
     const [phoneFilter, setPhoneFilter] = useState("");
     const [sortBy, setSortBy] = useState("newest");
+    const [regionFilter, setRegionFilter] = useState("all");
     const [costModalOpen, setCostModalOpen] = useState(false);
     const [telephonyCosts, setTelephonyCosts] = useState<Record<string, number>>({});
 
@@ -193,7 +194,7 @@ export default function VoiceLogsPage() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [dateRange, statusFilter, typeFilter, accountFilter, phoneFilter, sortBy]);
+    }, [dateRange, statusFilter, typeFilter, accountFilter, phoneFilter, sortBy, regionFilter]);
 
     useEffect(() => {
         const filteredCalls = allCallsMapped.filter((call: any) => {
@@ -230,6 +231,34 @@ export default function VoiceLogsPage() {
                 if (!matchesPhone && !matchesName) return false;
             }
 
+            // 5. Region / Assistant filter
+            if (regionFilter !== "all") {
+                const assistantNum = (call.phoneNumber || call.fromNumber || "").replace(/\D/g, '');
+                const assistantId = call.assistantId;
+                
+                const regionMap: Record<string, { nums: string[], ids: string[] }> = {
+                    "uae": { 
+                        nums: ["97148714150"], 
+                        ids: ["70f05e16-18f3-4f6e-964a-f47b299c6c1d"] 
+                    },
+                    "us": { 
+                        nums: ["14782159151"], 
+                        ids: ["b35e3032-7865-4913-ba22-a913b5d4117b"] 
+                    },
+                    "uk": { 
+                        nums: ["447462179309"], 
+                        ids: ["918c25eb-9882-452e-86df-b4851d464852"] 
+                    }
+                };
+
+                const target = regionMap[regionFilter];
+                if (target) {
+                    const matchesNum = target.nums.some(n => assistantNum.includes(n));
+                    const matchesId = assistantId && target.ids.includes(assistantId);
+                    if (!matchesNum && !matchesId) return false;
+                }
+            }
+
             return true;
         });
 
@@ -243,7 +272,7 @@ export default function VoiceLogsPage() {
         });
 
         setCalls(sortedCalls);
-    }, [allCallsMapped, dateRange, statusFilter, typeFilter, accountFilter, phoneFilter, sortBy]);
+    }, [allCallsMapped, dateRange, statusFilter, typeFilter, accountFilter, phoneFilter, sortBy, regionFilter]);
 
     const handleRefresh = () => {
         const includeElevenLabs = accountFilter === 'elevenlabs';
@@ -371,6 +400,21 @@ export default function VoiceLogsPage() {
                             <SelectItem value="all">All Status</SelectItem>
                             <SelectItem value="answered">Answered / Done</SelectItem>
                             <SelectItem value="failed">Failed / Error</SelectItem>
+                        </SelectContent>
+                    </Select>
+
+                    <Select value={regionFilter} onValueChange={setRegionFilter}>
+                        <SelectTrigger className="w-[140px] h-9">
+                            <div className="flex items-center gap-2">
+                                <Phone className="h-3.5 w-3.5 text-slate-400" />
+                                <SelectValue placeholder="Region" />
+                            </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Regions</SelectItem>
+                            <SelectItem value="us">United States</SelectItem>
+                            <SelectItem value="uk">United Kingdom</SelectItem>
+                            <SelectItem value="uae">UAE (Dubai)</SelectItem>
                         </SelectContent>
                     </Select>
 
