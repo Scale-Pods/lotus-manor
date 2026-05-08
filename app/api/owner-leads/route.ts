@@ -22,38 +22,21 @@ export async function GET(req: Request) {
         "Content-Type": "application/json"
     };
 
-    const fetchAllRows = async (tableName: string) => {
+    const fetchTableData = async (tableName: string, filterRange = true, select = "*") => {
         let allData: any[] = [];
         let offset = 0;
         const limit = 1000;
         let hasMore = true;
 
-        // Default to last 7 days if no date range is provided to ensure maximum performance
-        const now = new Date();
-        const defaultFrom = subDays(startOfDay(now), 7).toISOString();
-        const effectiveFrom = from || defaultFrom;
-
         while (hasMore) {
-            // Pruned columns: Only fetch what's used in the Dashboard and WhatsApp Panels
-            const select = 'id,name,"contactNo","createdOn","Voice_1","Voice_2","Whatsapp_1","Whatsapp_1_status","Whatsapp_1_Date","WTS_Reply_Track","retry_1",' +
-                '"User_Replied_1","User_Replied_2","User_Replied_3","User_Replied_4","User_Replied_5",' +
-                '"Bot_Replied_1","Bot_Replied_2","Bot_Replied_3","Bot_Replied_4","Bot_Replied_5",' +
-                '"Bot_Replied_Status_1","Bot_Replied_Status_2","Bot_Replied_Status_3","Bot_Replied_Status_4","Bot_Replied_Status_5"';
-            
             let url = `${baseUrl}/${tableName}?select=${select}&offset=${offset}&limit=${limit}`;
             
-            // Apply date filtering to keep the payload manageable
-            if (effectiveFrom) url += `&createdOn=gte.${effectiveFrom}`;
-            if (to) url += `&createdOn=lte.${to}`;
-            
-            url += `&order=createdOn.desc`;
+            // Match the logic of the main leads API
+            if (filterRange && from) url += `&createdOn=gte.${from}`;
+            if (filterRange && to) url += `&createdOn=lte.${to}`;
 
             try {
-                const response = await fetch(url, { 
-                    headers: commonHeaders, 
-                    cache: 'no-store',
-                    signal: AbortSignal.timeout(25000) 
-                });
+                const response = await fetch(url, { headers: commonHeaders, cache: 'no-store' });
                 if (!response.ok) {
                     const errMsg = await response.text();
                     console.error(`Fetch error for ${tableName}:`, errMsg);
@@ -65,19 +48,17 @@ export async function GET(req: Request) {
                     if (data.length < limit) hasMore = false;
                     else offset += limit;
                 } else { hasMore = false; }
-            } catch (err) { 
-                console.error(`Error fetching ${tableName}:`, err);
-                break; 
-            }
-
-            // Hybrid Strategy: Cap at 3,000 latest records for dashboard performance
-            if (offset >= 3000) break; 
+            } catch (err) { break; }
+            
+            if (offset > 20000) break; // Safety cap matching leads API
         }
         return allData;
     };
 
     try {
-        const ownerData = await fetchAllRows("owner_data");
+        // Fetch owner data with filterRange=false to get "complete data" as requested
+        // similar to nr_wf and followup in the main leads API
+        const ownerData = await fetchTableData("owner_data", false);
 
         return new NextResponse(JSON.stringify({ owner_data: ownerData }), {
             status: 200,
@@ -88,6 +69,7 @@ export async function GET(req: Request) {
                 'Expires': '0',
             }
         });
+
     } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

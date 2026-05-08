@@ -418,29 +418,36 @@ export default function MasterDashboard() {
                 let minOwnerReplyDate: Date | null = null;
 
                 (ownerLeads || []).forEach((o: any) => {
-                    // 1. Total Owner Leads (createdOn)
-                    const cDate = parseMsg(o.createdOn).date;
+                    // 1. Total Owner Leads (Always show if it exists, or filter by creation if desired)
+                    // The user said "createdOn not needed", implying they want to see all reachable owners.
+                    // However, we still use creation date for the "Total Leads" metric to stay consistent with the UI.
+                    const cDate = o.createdOn ? new Date(o.createdOn) : (o.created_at ? new Date(o.created_at) : null);
                     if (cDate && isWithinRange(cDate)) {
                         ownerLeadsCount++;
                         if (!minOwnerLeadDate || cDate < minOwnerLeadDate) minOwnerLeadDate = cDate;
                     }
 
-                    // 2. Whatsapp Reachouts (Whatsapp_1_Date)
-                    const wDate = parseMsg(o.Whatsapp_1_Date).date;
+                    // 2. Whatsapp Reachouts (Uses the actual reachout date column)
+                    // This is the "Complete Data" fix: count it if the REACHOUT happened in range, 
+                    // even if the lead was created months ago.
+                    let wDate = o.Whatsapp_1_Date ? new Date(o.Whatsapp_1_Date) : null;
+                    // Fallback to parsing from content if the date column is empty
+                    if (!wDate && o.Whatsapp_1) wDate = parseMsg(o.Whatsapp_1).date;
+                    
                     if (wDate && isWithinRange(wDate)) {
                         ownerWhatsappReachoutsCount++;
                         if (!minOwnerWPDate || wDate < minOwnerWPDate) minOwnerWPDate = wDate;
                     }
 
-                    // 3. Voice Calls (Voice_1)
-                    const vDate = parseMsg(o.Voice_1).date;
+                    // 3. Voice Calls (Uses Voice_1 timestamp)
+                    const vDate = o.Voice_1 ? parseMsg(o.Voice_1).date : null;
                     if (vDate && isWithinRange(vDate)) {
                         ownerVoiceCallsCount++;
                         if (!minOwnerVoiceDate || vDate < minOwnerVoiceDate) minOwnerVoiceDate = vDate;
                     }
 
-                    // 4. Replies (WTS_Reply_Track)
-                    const rDate = parseMsg(o.WTS_Reply_Track).date;
+                    // 4. Replies (Uses WTS_Reply_Track timestamp)
+                    const rDate = o.WTS_Reply_Track ? parseMsg(o.WTS_Reply_Track).date : null;
                     if (rDate && isWithinRange(rDate)) {
                         ownerTotalRepliesCount++;
                         if (!minOwnerReplyDate || rDate < minOwnerReplyDate) minOwnerReplyDate = rDate;

@@ -100,15 +100,21 @@ export default function WhatsappAnalyticsPage() {
         let reachouts = 0, replies = 0, msgsSent = 0;
         ownerLeads.forEach((o: any) => {
             const wp1 = o["Whatsapp_1"];
-            if (!wp1 || wp1 === "") return;
+            if (!wp1 || wp1 === "" || String(wp1).toLowerCase() === "no") return;
 
-            const wpDate = o["Whatsapp_1_Date"] ? new Date(o["Whatsapp_1_Date"]) : null;
+            // Robust date parsing for complete data
+            let wpDate = o["Whatsapp_1_Date"] ? new Date(o["Whatsapp_1_Date"]) : null;
+            if (!wpDate || isNaN(wpDate.getTime())) {
+                wpDate = parseMsg(wp1).date;
+            }
+            
             if (!isInRange(wpDate)) return;
 
             reachouts++;
             if (wp1) msgsSent++;
             if (o["retry_1"]) msgsSent++;
-            for (let i = 1; i <= 5; i++) {
+            // Check all bot replies
+            for (let i = 1; i <= 10; i++) {
                 if (o[`Bot_Replied_${i}`]) msgsSent++;
             }
 
