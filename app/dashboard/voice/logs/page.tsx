@@ -451,10 +451,8 @@ export default function VoiceLogsPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {loading && calls.length === 0 ? (
-                                <TableRow><TableCell colSpan={8} className="h-24 text-center">Loading calls...</TableCell></TableRow>
-                            ) : calls.length === 0 ? (
-                                <TableRow><TableCell colSpan={8} className="h-24 text-center text-slate-500">No calls matching filters.</TableCell></TableRow>
+                            {calls.length === 0 && !loading ? (
+                                <TableRow><TableCell colSpan={8} className="h-24 text-center text-slate-500 font-medium">No calls matching filters.</TableCell></TableRow>
                             ) : (
                                 (paginatedCalls as any[]).map((call) => (
                                     <TableRow

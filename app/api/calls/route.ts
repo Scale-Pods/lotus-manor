@@ -91,8 +91,9 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
     const headers = { "apikey": secretKey, "Authorization": `Bearer ${secretKey}` };
 
     // Lean column selection for list view
-    const columns = 'id,started_at,duration_seconds,cost_usd,customer_phone,customer_name,status,vapi_account,source,assistant_id:raw_data->>assistantId,assistant_phone:raw_data->phoneNumber->>number,is_inbound:raw_data->>isInbound';
-    const BATCH_SIZE = 200;
+    // Fetch specific columns based on schema. User added assistantId and type columns.
+    const columns = 'id,started_at,customer_phone,customer_name,duration_seconds,status,cost_usd,source,transcript,summary,recording_url,vapi_account,assistantId,type';
+    const BATCH_SIZE = 1000;
 
     // Build date filter
     let dateFilter = '';
@@ -109,9 +110,14 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
         const dur = d.duration_seconds || 0;
         const costVal = d.cost_usd ?? 0;
         const ph = d.customer_phone || 'Unknown';
-        const isInbound = d.is_inbound === 'true' || d.is_inbound === true;
-        const aid = d.assistant_id || null;
         
+        const aid = d.assistantId || null;
+        const UAE_BOT_ID = '70f05e16-18f3-4f6e-964a-f47b299c6c1d';
+
+        // Mapping rules for call type
+        let isInbound = d.type === 'inboundPhoneCall';
+        if (aid === UAE_BOT_ID) isInbound = false; // UAE bot is always outbound
+
         const assistantIdToPhone: Record<string, string> = {
             '70f05e16-18f3-4f6e-964a-f47b299c6c1d': '97148714150',
             'b35e3032-7865-4913-ba22-a913b5d4117b': '14782159151',
@@ -120,7 +126,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
             '1ef6ea66-0a75-45f5-b025-1743e048dc90': '14782159151',
         };
 
-        const assistantPhone = d.assistant_phone || (aid ? assistantIdToPhone[aid] : null) || 'Unknown';
+        const assistantPhone = (aid ? assistantIdToPhone[aid] : null) || 'Unknown';
 
         return {
             id: d.id,
@@ -131,8 +137,13 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
             phone: ph,
             name: d.customer_name || 'Guest',
             phoneNumber: assistantPhone,
-            callSummary: '',
-            status: d.status || 'answered',
+            callSummary: d.summary || '',
+            transcript: d.transcript || '',
+            recordingUrl: d.recording_url || '',
+            // Map various Vapi success statuses to 'answered' for the dashboard filter
+            status: (d.status === 'ended' || d.status === 'customer-ended-call' || d.status === 'assistant-ended-call' || d.status === 'voicemail') 
+                ? 'answered' 
+                : (d.status || 'answered'),
             type: isInbound ? "Inbound" : "Outbound",
             isInbound,
             country: getRateInfo(ph)?.Country || 'Unknown',
