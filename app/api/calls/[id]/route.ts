@@ -137,6 +137,20 @@ export async function GET(
                     if (data && data[0]) {
                         const call = data[0];
                         const raw = call.raw_data || {};
+                        const assistantId = call.assistantId || raw.assistantId || null;
+                        const assistantIdToPhone: Record<string, string> = {
+                            '70f05e16-18f3-4f6e-964a-f47b299c6c1d': '97148714150',
+                            'b35e3032-7865-4913-ba22-a913b5d4117b': '14782159151',
+                            '918c25eb-9882-452e-86df-b4851d464852': '447462179309',
+                            '9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd': '447462179309',
+                            '1ef6ea66-0a75-45f5-b025-1743e048dc90': '14782159151',
+                            'd91ba874-2522-4d62-adf6-681f2a0bf4fe': '97148714150',
+                            '4a7e7a31-0bbc-4fde-831e-2489119ee226': '17624000439',
+                            'e66fe46b-9fe2-4628-a32b-08ced680bc04': '97144396291',
+                            '4baf3613-ba3d-4860-9ea1-62156686b6f1': '447462179309',
+                            '66dff692-d2a5-47d4-bbe0-245509dc7404': '14782159151',
+                        };
+
                         return NextResponse.json({
                             ...raw, // Spreads real Vapi fields back out
                             id: call.id,
@@ -144,10 +158,14 @@ export async function GET(
                             analysis: { ...raw.analysis, summary: call.summary },
                             callSummary: call.summary,
                             startedAt: call.started_at,
+                            durationSeconds: call.duration_seconds || raw.duration_seconds || raw.durationSeconds || 0,
+                            status: call.status || call.vapi_status || raw.status || 'unknown',
                             recordingUrl: call.recording_url,
                             source: call.vapi_account === 'elevenlabs' ? 'elevenlabs' : 'vapi',
                             customer_number: call.customer_phone,
-                            phone: call.customer_phone
+                            phone: call.customer_phone,
+                            phoneNumber: call.assistant_phone || raw.phoneNumber || raw.number || (assistantId ? assistantIdToPhone[assistantId] : null) || "Unknown",
+                            assistantId: assistantId
                         });
                     }
                 }

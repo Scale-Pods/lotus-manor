@@ -104,26 +104,35 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     const getDurationData = (data: any) => {
         let seconds = 0;
         // Check various ElevenLabs/normalized locations
-        if (typeof data.call_duration_secs === 'number') seconds = data.call_duration_secs;
+        if (typeof data.durationSeconds === 'number' && data.durationSeconds > 0) seconds = data.durationSeconds;
+        else if (typeof data.call_duration_secs === 'number' && data.call_duration_secs > 0) seconds = data.call_duration_secs;
         else if (data.analysis?.call_duration_secs) seconds = data.analysis.call_duration_secs;
-        else if (typeof data.durationSeconds === 'number') seconds = data.durationSeconds;
         else if (typeof data.duration === 'number') seconds = data.duration;
+        else if (typeof data.duration_seconds === 'number') seconds = data.duration_seconds;
+
+        // Try parsing string durations
+        if (seconds === 0) {
+            const rawDur = data.durationSeconds || data.duration || data.duration_seconds || data.call_duration_secs;
+            if (rawDur && !isNaN(Number(rawDur))) seconds = Number(rawDur);
+        }
 
         if (seconds === 0 && data.endedAt && data.startedAt) {
             const start = new Date(data.startedAt).getTime();
             const end = new Date(data.endedAt).getTime();
-            seconds = (end - start) / 1000;
+            if (!isNaN(start) && !isNaN(end)) {
+                seconds = (end - start) / 1000;
+            }
         }
 
         // Active call fallback
-        if (seconds === 0 && (data.status === 'in-progress' || data.status === 'processing') && data.metadata?.start_time_unix_secs) {
+        if (seconds <= 0 && (data.status === 'in-progress' || data.status === 'processing') && data.metadata?.start_time_unix_secs) {
             const start = data.metadata.start_time_unix_secs * 1000;
             const now = Date.now();
             seconds = Math.max(0, (now - start) / 1000);
         }
 
         const min = Math.floor(seconds / 60);
-        const sec = Math.floor(seconds % 60);
+        const sec = Math.floor(Math.max(0, seconds % 60));
         return {
             formatted: `${min}m ${sec}s`,
             seconds: seconds
@@ -157,8 +166,24 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
     const callTypeDisplay = isInbound ? "Inbound" : "Outbound";
 
     const guestNumber = displayCall.customer_number || displayCall.phone || displayCall.caller_number || "Unknown";
-    const assistantNumber = displayCall.phoneNumber || "Unknown";
-    const assistantName = displayCall.agent_name || (displayCall.source === 'vapi' ? "Vapi AI Assistant" : "AI Agent");
+    const assistantNumber = displayCall.phoneNumber || displayCall.fromNumber || "Unknown";
+    const assistantId = displayCall.assistantId || displayCall.assistant_id || "N/A";
+
+    const assistantMapping: Record<string, string> = {
+        '70f05e16-18f3-4f6e-964a-f47b299c6c1d': 'Lotus Manor (UAE - 150)',
+        'd91ba874-2522-4d62-adf6-681f2a0bf4fe': 'Lotus Manor (UAE - 150)',
+        '4a7e7a31-0bbc-4fde-831e-2489119ee226': 'Lotus Manor (US - 439)',
+        'e66fe46b-9fe2-4628-a32b-08ced680bc04': 'Lotus Manor (UAE - 291)',
+        '4baf3613-ba3d-4860-9ea1-62156686b6f1': 'Lotus Manor (UK - 309)',
+        '66dff692-d2a5-47d4-bbe0-245509dc7404': 'Lotus Manor (US - 151)',
+        'b35e3032-7865-4913-ba22-a913b5d4117b': 'US AI Bot',
+        '918c25eb-9882-452e-86df-b4851d464852': 'UK AI Bot',
+        '9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd': 'UK AI Bot 2',
+        '560ca61b-8cd3-4b5f-996b-2966abfa37fd': 'Secondary Leads Bot',
+        '1ef6ea66-0a75-45f5-b025-1743e048dc90': 'Open House Bot'
+    };
+
+    const assistantName = displayCall.agent_name || assistantMapping[assistantId] || (assistantId !== "N/A" ? `Agent: ${assistantId.substring(0, 8)}...` : (displayCall.source === 'vapi' ? "Vapi AI Assistant" : "AI Agent"));
 
     // Reconstruct connection logic
     let fromName;
@@ -250,7 +275,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                         <div className="space-y-6">
                             <div>
                                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Status</p>
-                                <Badge className={`${displayCall.status === 'done' || displayCall.status === 'ended' || displayCall.status === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} border-none shadow-none uppercase text-[10px] px-2.5 py-0.5`}>
+                                <Badge className={`${displayCall.status === 'done' || displayCall.status === 'ended' || displayCall.status === 'success' || displayCall.status === 'answered' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} border-none shadow-none uppercase text-[10px] px-2.5 py-0.5`}>
                                     {displayCall.status || 'Unknown'}
                                 </Badge>
                             </div>
@@ -259,6 +284,17 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                                 <Badge variant="outline" className="border-slate-300 text-slate-600 uppercase text-[10px] px-2.5 py-0.5">
                                     {callTypeDisplay}
                                 </Badge>
+                            </div>
+                            <div>
+                                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-1">Agent / Bot</p>
+                                <div className="flex flex-col">
+                                    <span className="font-bold text-slate-900 text-sm truncate max-w-[180px]" title={assistantName}>{assistantName}</span>
+                                    {(assistantNumber !== "Unknown" && assistantNumber !== assistantId) ? (
+                                        <span className="text-[10px] text-slate-500 font-bold mt-0.5 tracking-wider">+{assistantNumber.replace(/\+/g, '')}</span>
+                                    ) : (assistantId !== "N/A" && (
+                                        <span className="text-[10px] text-slate-400 font-medium mt-0.5 truncate max-w-[180px]">ID: {assistantId}</span>
+                                    ))}
+                                </div>
                             </div>
                         </div>
 
@@ -508,7 +544,42 @@ function ModernAudioPlayer({ audioUrl, initialDuration = 0 }: { audioUrl: string
     const [isMuted, setIsMuted] = useState(false);
     const [isLoading, setIsLoading] = useState(false); // Start false for instant interaction
     const [isDragging, setIsDragging] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
     const [isStalled, setIsStalled] = useState(false); // New state for actual buffering transitions
+
+    const handleDownload = async (e: React.MouseEvent) => {
+        e.preventDefault();
+        if (isDownloading) return;
+        setIsDownloading(true);
+
+        try {
+            // Use the proxy URL to avoid CORS issues
+            const proxyUrl = audioUrl && audioUrl.startsWith('http') ? `/api/audio-proxy?url=${encodeURIComponent(audioUrl)}` : audioUrl;
+            const res = await fetch(proxyUrl);
+            if (!res.ok) throw new Error('Download failed');
+            
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = `call-recording-${Date.now()}.mp3`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Cleanup
+            setTimeout(() => {
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                setIsDownloading(false);
+            }, 100);
+        } catch (err) {
+            console.error("Download failed", err);
+            // Fallback to direct link in new tab if blob fails
+            window.open(audioUrl, '_blank');
+            setIsDownloading(false);
+        }
+    };
 
     const formatTime = (secs: number) => {
         if (!isFinite(secs) || isNaN(secs)) return '0:00';
@@ -672,19 +743,26 @@ function ModernAudioPlayer({ audioUrl, initialDuration = 0 }: { audioUrl: string
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-1">Play to review conversation</p>
                     </div>
                 </div>
-                <a
-                    href={audioUrl}
-                    download
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-bold uppercase tracking-wide transition-colors"
+                <button
+                    onClick={handleDownload}
+                    disabled={isDownloading}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-bold uppercase tracking-wide transition-colors ${isDownloading ? 'opacity-70 cursor-not-allowed' : ''}`}
                     title="Download Recording"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                    Download
-                </a>
+                    {isDownloading ? (
+                        <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                    )}
+                    {isDownloading ? 'Downloading...' : 'Download'}
+                </button>
             </div>
 
             {/* Seek Bar */}
