@@ -149,6 +149,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
             country: getRateInfo(ph)?.Country || 'Unknown',
             source: d.source === 'elevenlabs' ? 'elevenlabs' : 'vapi',
             vapiAccount: d.vapi_account,
+            vapiStatus: d.status,
             assistantId: aid,
             endedReason: null,
             breakdown: { agent: costVal, telephony: 0, total: costVal },

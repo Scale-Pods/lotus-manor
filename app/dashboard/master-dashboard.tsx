@@ -356,29 +356,23 @@ export default function MasterDashboard() {
                     }
                 });
 
-                // 4. Total Voice Calls (from Voice 1 and Voice 2 in loops)
+                // 4. Total Voice Calls (from Call Logs for accuracy)
                 let totalVoiceCallsCount = 0;
-                allLeads.forEach((lead: any) => {
-                    const stageData = lead.stage_data || {};
-                    const v1 = lead["Voice 1"] || stageData["Voice 1"];
-                    const v2 = lead["Voice 2"] || stageData["Voice 2"];
-                    
-                    [v1, v2].forEach(v => {
-                        if (v && v !== "" && String(v).toLowerCase() !== "no") {
-                            const parsed = parseMsg(v);
-                            if (parsed.date) {
-                                if (isWithinRange(parsed.date)) totalVoiceCallsCount++;
-                            } else if (String(v).toLowerCase() === "yes") {
-                                // Legacy "yes" - connect to lead creation date
-                                if (isWithinRange(new Date(lead.created_at))) totalVoiceCallsCount++;
+                let ownerVoiceCallsCount = 0;
+                let totalVoiceSeconds = 0;
+
+                if (!loadingCalls && Array.isArray(allCalls)) {
+                    allCalls.forEach(call => {
+                        // Only count Vapi calls for these metrics
+                        if (call.source === 'vapi') {
+                            if (call.vapiAccount === 'owners') {
+                                ownerVoiceCallsCount++;
+                            } else {
+                                totalVoiceCallsCount++;
                             }
                         }
+                        totalVoiceSeconds += calculateDuration(call);
                     });
-                });
-
-                let totalVoiceSeconds = 0;
-                if (!loadingCalls && Array.isArray(allCalls)) {
-                    totalVoiceSeconds = allCalls.reduce((acc, call) => acc + calculateDuration(call), 0);
                 }
 
                 // Outreach (Emails - keeping existing logic but simplified)
@@ -409,7 +403,6 @@ export default function MasterDashboard() {
                 // Calculate Owner Stats
                 let ownerLeadsCount = 0;
                 let ownerWhatsappReachoutsCount = 0;
-                let ownerVoiceCallsCount = 0;
                 let ownerTotalRepliesCount = 0;
                 
                 let minOwnerLeadDate: Date | null = null;
@@ -437,13 +430,6 @@ export default function MasterDashboard() {
                     if (wDate && isWithinRange(wDate)) {
                         ownerWhatsappReachoutsCount++;
                         if (!minOwnerWPDate || wDate < minOwnerWPDate) minOwnerWPDate = wDate;
-                    }
-
-                    // 3. Voice Calls (Uses Voice_1 timestamp)
-                    const vDate = o.Voice_1 ? parseMsg(o.Voice_1).date : null;
-                    if (vDate && isWithinRange(vDate)) {
-                        ownerVoiceCallsCount++;
-                        if (!minOwnerVoiceDate || vDate < minOwnerVoiceDate) minOwnerVoiceDate = vDate;
                     }
 
                     // 4. Replies (Uses WTS_Reply_Track timestamp)
@@ -555,7 +541,7 @@ export default function MasterDashboard() {
                     bg="bg-orange-50"
                     border="border-orange-100"
                     onClick={() => router.push('/dashboard/voice')}
-                    info="This count is derived from Voice 1 & Voice 2 logs. Disclaimer: This feature has been installed now. To check original voice call counts, please select the 'Last 3 Months' filter."
+                    info="This shows Normal calls containg US, UK, UAE, 1731 leads, openhouse leads."
                 />
                 
                 <MetricCard
@@ -621,6 +607,7 @@ export default function MasterDashboard() {
                         color="text-blue-600"
                         bg="bg-blue-50"
                         border="border-blue-100"
+                        info="This count is derived from real-time Vapi call logs for the 'owners' account."
                     />
                     <MetricCard
                         title="Total Replies (owner)"

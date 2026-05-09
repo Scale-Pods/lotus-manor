@@ -99,36 +99,10 @@ export default function VoiceDashboardPage() {
         let normalCallsCount = 0;
         let ownersCallsCount = 0;
 
-        // Strict agent ID allow-lists (must match .env.local)
-        const NORMAL_AGENT_IDS = new Set([
-            process.env.NEXT_PUBLIC_VAPI_US_BOT   || "b35e3032-7865-4913-ba22-a913b5d4117b",
-            process.env.NEXT_PUBLIC_VAPI_UK_BOT   || "918c25eb-9882-452e-86df-b4851d464852",
-            process.env.NEXT_PUBLIC_VAPI_UAE_BOT  || "70f05e16-18f3-4f6e-964a-f47b299c6c1d",
-        ]);
-        const OWNERS_AGENT_ID = "9ac979c3-a0b3-4af6-bb0d-07ddf9c0d1cd";
-
-        globalCalls.forEach((call: any) => {
-            let cost = 0;
-            if (typeof call.cost === 'string') cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
-            else if (typeof call.cost === 'number') cost = call.cost;
-
-            if (call.source === 'vapi') {
-                lifetimeCostVapiSum += (call.breakdown?.agent !== undefined) ? call.breakdown.agent : cost;
-
-                const aid = call.assistantId || call.raw?.assistantId || null;
-
-                // Strict: count only if assistantId matches known agents
-                if (aid && NORMAL_AGENT_IDS.has(aid)) normalCallsCount++;
-                else if (aid === OWNERS_AGENT_ID) ownersCallsCount++;
-                // Fallback: no assistantId stored → use vapiAccount tag (for legacy archived records)
-                else if (!aid && call.vapiAccount === 'normal') normalCallsCount++;
-                else if (!aid && call.vapiAccount === 'owners') ownersCallsCount++;
-            }
-            if (call.source === 'elevenlabs') lifetimeCostELSum += cost;
-        });
-
+        // Combined loop for efficiency
         filteredCalls.forEach((call: any) => {
-            const status = call.status;
+            const status = (call.status || "").toLowerCase();
+            const vStatus = (call.vapiStatus || "").toLowerCase();
             const startedAtDate = call.startedAt ? new Date(call.startedAt) : null;
             const duration = call.durationSeconds || 0;
 
@@ -136,9 +110,23 @@ export default function VoiceDashboardPage() {
             if (typeof call.cost === 'string') cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
             else if (typeof call.cost === 'number') cost = call.cost;
 
-            if (status === 'done' || status === 'ended' || status === 'completed' || status === 'success' || status === 'answered') {
-                completed++;
+            // Lifetime Cost Tracking (provider specific within filtered set)
+            if (call.source === 'vapi') {
+                lifetimeCostVapiSum += (call.breakdown?.agent !== undefined) ? call.breakdown.agent : cost;
+                if (call.vapiAccount === 'owners') ownersCallsCount++;
+                else normalCallsCount++;
+            } else if (call.source === 'elevenlabs') {
+                lifetimeCostELSum += cost;
+            }
+
+            // Completion Logic (Consistent with Analytics Page)
+            const isCompleted = 
+                vStatus.includes("assistant-ended-call") || vStatus.includes("customer-ended-call") ||
+                (call.source === 'elevenlabs' && (status === 'done' || status === 'completed' || status === 'success'));
+
+            if (isCompleted || status === 'answered') {
                 successCount++;
+                if (isCompleted) completed++;
             }
 
             totalDuration += duration;

@@ -138,22 +138,13 @@ export default function VoiceAnalyticsPage() {
         let connectedCount = 0;
         let qualifiedCount = 0;
         
-        // We will calculate these from leads tables as requested
         let normalCallsInRange = 0;
         let ownersCallsInRange = 0;
 
         const from = dateRange?.from ? new Date(dateRange.from).setHours(0,0,0,0) : 0;
         const to = dateRange?.to ? new Date(dateRange.to).setHours(23,59,59,999) : Date.now();
 
-        // Calculate Denominators from Lead Tables
-        globalLeads.forEach((l: any) => {
-            const v1 = parseLeadDate(l["Voice 1"] || l.stage_data?.["Voice 1"]);
-            const v2 = parseLeadDate(l["Voice 2"] || l.stage_data?.["Voice 2"]);
-            [v1, v2].forEach(d => {
-                if (d && d.getTime() >= from && d.getTime() <= to) normalCallsInRange++;
-            });
-        });
-
+        // Calculate Positive Counts from Owner Leads (as this data isn't in call logs)
         ownerLeads.forEach((o: any) => {
             const v1 = parseLeadDate(o.Voice_1);
             const v2 = parseLeadDate(o.Voice_2);
@@ -162,7 +153,6 @@ export default function VoiceAnalyticsPage() {
 
             [v1, v2].forEach(d => {
                 if (d && d.getTime() >= from && d.getTime() <= to) {
-                    ownersCallsInRange++;
                     if (isPositive) ownerPositiveCount++;
                 }
             });
@@ -183,9 +173,12 @@ export default function VoiceAnalyticsPage() {
         data.forEach(call => {
             const dateStr = call.startedAt || null;
             const time = dateStr ? format(new Date(dateStr), 'MMM dd') : 'N/A';
-            const dur = calculateDuration(call);
+            const dur = call.durationSeconds || 0;
             const isOwner = call.vapiAccount === 'owners';
             const isNormal = call.vapiAccount === 'normal' || !call.vapiAccount;
+
+            if (isOwner) ownersCallsInRange++;
+            else if (isNormal) normalCallsInRange++;
 
             let cost = 0;
             if (typeof call.cost === 'string') cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
@@ -218,18 +211,13 @@ export default function VoiceAnalyticsPage() {
             else if (dur < 300) durationBuckets['2m-5m']++;
             else durationBuckets['5m+']++;
 
-            const isConnected = dur > 18 && (
-                call.status === 'done' || call.status === 'ended' ||
-                call.status === 'completed' || call.status === 'answered' || call.status === 'success'
-            );
-
+            const isConnected = (call.status === 'answered' || call.status === 'done' || call.status === 'completed') && dur > 0;
 
             if (isConnected) {
-                const reason = (call.endedReason || "").toLowerCase();
+                const vStatus = (call.vapiStatus || "").toLowerCase();
                 const status = (call.status || "").toLowerCase();
                 const isCompleted =
-                    reason.includes("assistant-ended-call") || reason.includes("customer-ended-call") ||
-                    reason.includes("end_of_conversation") || reason.includes("user_interrupted") ||
+                    vStatus.includes("assistant-ended-call") || vStatus.includes("customer-ended-call") ||
                     (call.source === 'elevenlabs' && (status === 'done' || status === 'completed' || status === 'success'));
 
                 if (isOwner) {
