@@ -56,8 +56,39 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
             rawMessages = data.messages;
         } else if (data.analysis && Array.isArray(data.analysis.transcript)) {
             rawMessages = data.analysis.transcript;
-        } else if (typeof data.transcript === 'string') {
-            return [{ role: 'assistant', message: data.transcript }];
+        } else if (typeof data.transcript === 'string' && data.transcript.trim()) {
+            // Handle cases where transcript is a single string with AI/User markers
+            const text = data.transcript;
+            const turns: any[] = [];
+            
+            // Regex to find markers like "AI:", "User:", "Assistant:", "Agent:", "System:", "Caller:"
+            // We use a lookahead to split but keep the marker
+            const parts: string[] = text.split(/(?=(?:AI|User|Assistant|Agent|Bot|Guest|Customer|Caller|System):)/i);
+            
+            if (parts.length > 1) {
+                for (const part of parts) {
+                    const trimmed = part.trim();
+                    if (!trimmed) continue;
+                    
+                    const markerMatch = trimmed.match(/^(AI|User|Assistant|Agent|Bot|Guest|Customer|Caller|System):\s*([\s\S]*)/i);
+                    if (markerMatch) {
+                        const roleLabel = markerMatch[1].toLowerCase();
+                        const content = markerMatch[2].trim();
+                        
+                        const role = (roleLabel === 'ai' || roleLabel === 'assistant' || roleLabel === 'agent' || roleLabel === 'bot') 
+                            ? 'assistant' 
+                            : 'user';
+                            
+                        turns.push({ role, message: content });
+                    } else {
+                        // Fallback if no marker found in this segment
+                        turns.push({ role: 'assistant', message: trimmed });
+                    }
+                }
+                return turns;
+            }
+            
+            return [{ role: 'assistant', message: text }];
         }
 
         return rawMessages.map((msg: any) => ({
@@ -450,6 +481,7 @@ export function CallDetailsModal({ open, onOpenChange, call }: CallDetailsModalP
                                                 key={idx}
                                                 role={msg.role}
                                                 text={msg.message || msg.content || msg.text || ''}
+                                                startTime={msg.startTime}
                                             />
                                         ))}
                                     {(!messages || messages.length === 0) && (
@@ -759,33 +791,58 @@ function ModernAudioPlayer({ audioUrl, initialDuration = 0 }: { audioUrl: string
     );
 }
 
-function TranscriptMessage({ role, text }: { role: string; text: string }) {
+function TranscriptMessage({ role, text, startTime }: { role: string; text: string; startTime?: number }) {
     const isAssistant = role === 'assistant' || role === 'model' || role === 'system' || role === 'bot';
     const isUser = role === 'user';
     const isTool = role === 'tool' || role === 'function' || role === 'tool-calls' || role === 'tool-output';
 
+    // Clean up text recursively if it has multiple prefixes like "AI: AI: " (common in some raw data)
+    let cleanText = text;
+    while (/^(AI|User|Assistant|Agent|Bot|Guest|Customer|Caller|System):\s*/i.test(cleanText)) {
+        cleanText = cleanText.replace(/^(AI|User|Assistant|Agent|Bot|Guest|Customer|Caller|System):\s*/i, '').trim();
+    }
+
     if (isTool) {
-        // Optional: Render tools differently or skip
         return (
-            <div className="flex gap-3 justify-center">
-                <div className="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded border border-slate-200 font-mono max-w-[80%] whitespace-pre-wrap text-center">
-                    Tool Info: {text}
+            <div className="flex gap-3 justify-center my-2">
+                <div className="text-[10px] text-slate-400 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200 font-mono tracking-tight uppercase">
+                    System Event: {cleanText.substring(0, 50)}{cleanText.length > 50 ? '...' : ''}
                 </div>
             </div>
         );
     }
 
+    const formatTime = (secs?: number) => {
+        if (secs === undefined || secs === null || isNaN(secs)) return null;
+        const m = Math.floor(secs / 60);
+        const s = Math.floor(secs % 60);
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
+    const timeDisplay = formatTime(startTime);
+
     return (
-        <div className={`flex gap-3 ${isAssistant ? '' : 'flex-row-reverse'}`}>
-            <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${isAssistant ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
-                {isAssistant ? <span className="text-xs font-bold">AI</span> : <span className="text-xs font-bold">U</span>}
+        <div className={`flex gap-3 mb-4 ${isAssistant ? 'justify-start' : 'justify-end'}`}>
+            {isAssistant && (
+                <div className="h-8 w-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 border border-indigo-200 shadow-sm">
+                    <span className="text-[10px] font-black text-indigo-700">AI</span>
+                </div>
+            )}
+            
+            <div className={`flex flex-col ${isAssistant ? 'items-start' : 'items-end'} max-w-[85%]`}>
+                <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm transition-all hover:shadow-md ${isAssistant
+                    ? 'bg-white border border-slate-200 text-slate-700 rounded-tl-none'
+                    : 'bg-blue-600 text-white rounded-tr-none'
+                    }`}>
+                    {cleanText}
+                </div>
             </div>
-            <div className={`max-w-[80%] p-3 rounded-2xl text-sm leading-relaxed shadow-sm ${isAssistant
-                ? 'bg-white border border-slate-200 text-slate-700 rounded-tl-none'
-                : 'bg-blue-600 text-white rounded-tr-none'
-                }`}>
-                {text}
-            </div>
+
+            {isUser && (
+                <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0 border border-blue-200 shadow-sm">
+                    <User className="h-4 w-4 text-blue-600" />
+                </div>
+            )}
         </div>
     );
 }
