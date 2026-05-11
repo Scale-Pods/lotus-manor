@@ -284,7 +284,7 @@ export function consolidateLeads(data: RawLeadsResponse): ConsolidatedLead[] {
     if (Array.isArray((data as any).master_leads)) {
         (data as any).master_leads.forEach((l: any, idx: number) => {
             consolidatedLeads.push({
-                id: `master-${getVal(l, ["id"]) || idx}`,
+                id: `master-${getVal(l, ["Lead ID", "id"]) || idx}`,
                 name: String(getVal(l, ["Name", "name"]) || "Lead"),
                 phone: String(getVal(l, ["Phone", "phone", "phoneNumber", "customer_number"]) || ""),
                 email: String(getVal(l, ["Email", "email"]) || "No Email"),

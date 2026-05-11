@@ -28,7 +28,7 @@ export function OwnerChatDetail({ owner, onClose }: OwnerChatDetailProps) {
         // Use ID for stable routing, fallback to phone
         const phone = owner.contactNo || owner.Phone || owner.phone || "";
         const shareId = owner.id || phone;
-        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat/${encodeURIComponent(shareId)}`;
+        const shareUrl = `${baseUrl}/chat/${encodeURIComponent(shareId)}`;
         
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(shareUrl).then(() => {

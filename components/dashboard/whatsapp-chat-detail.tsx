@@ -19,11 +19,21 @@ import { useData } from "@/context/DataContext";
 interface WhatsAppChatDetailProps {
     customerId: string;
     onClose?: () => void;
+    initialLead?: ConsolidatedLead;
 }
 
-export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailProps) {
-    const { leads: allLeads, loadingLeads } = useData();
-    const [lead, setLead] = useState<ConsolidatedLead | null>(null);
+const EMPTY_LEADS: any[] = [];
+const EMPTY_MESSAGES: any[] = [];
+
+export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAppChatDetailProps) {
+    let dataContext: any = {};
+    try {
+        dataContext = useData();
+    } catch (e) {
+        // Fallback for public view without DataProvider
+    }
+    const { leads: allLeads = EMPTY_LEADS, loadingLeads = false } = dataContext;
+    const [lead, setLead] = useState<ConsolidatedLead | null>(initialLead || null);
     const [loading, setLoading] = useState(true);
     const [messages, setMessages] = useState<any[]>([]);
     const [copied, setCopied] = useState(false);
@@ -33,7 +43,7 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
         const baseUrl = window.location.origin;
         // Construct the URL using the ID as it's more stable for routing
         const shareId = lead.id || lead.phone;
-        const shareUrl = `${baseUrl}/dashboard/whatsapp/chat/${encodeURIComponent(shareId)}`;
+        const shareUrl = `${baseUrl}/chat/${encodeURIComponent(shareId)}`;
         
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(shareUrl).then(() => {
@@ -66,7 +76,7 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
         }
 
         const searchVal = String(customerId).toLowerCase().trim();
-        const found = allLeads.find(l => {
+        const found = initialLead || allLeads.find((l: { id: any; phone: any; }) => {
             if (String(l.id).toLowerCase() === searchVal) return true;
             if (l.phone) {
                 const lPhoneReplaced = String(l.phone).replace(/\D/g, '');
@@ -74,7 +84,7 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
                 if (searchReplaced && lPhoneReplaced === searchReplaced) return true;
             }
             return false;
-        });
+        }) || null;
 
         if (found) {
             setLead(found);
@@ -167,10 +177,10 @@ export function WhatsAppChatDetail({ customerId, onClose }: WhatsAppChatDetailPr
             setMessages(timeline);
         } else {
             setLead(null);
-            setMessages([]);
+            setMessages(EMPTY_MESSAGES);
         }
         setLoading(false);
-    }, [customerId, allLeads, loadingLeads]);
+    }, [customerId, allLeads, loadingLeads, initialLead]);
 
     if (loading) {
         return (
