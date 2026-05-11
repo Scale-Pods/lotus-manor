@@ -11,8 +11,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ customer
     const searchPhone = (searchPhoneRaw.length >= 7 && searchPhoneRaw.length <= 15) ? searchPhoneRaw : '';
 
     // Handle prefixed IDs (intro-xxx, followup-xxx, nurture-xxx, master-xxx)
-    const prefixes = ['intro-', 'followup-', 'nurture-', 'master-'];
+    const prefixes = ['intro-', 'followup-', 'nurture-', 'master-', 'owner-'];
     let rawId = searchVal;
+    let explicitOwner = false;
+    
+    if (searchVal.startsWith('owner-')) {
+        explicitOwner = true;
+    }
+
     for (const prefix of prefixes) {
         if (searchVal.startsWith(prefix)) {
             rawId = searchVal.slice(prefix.length);
@@ -44,7 +50,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ customer
         if (searchPhone) {
             phoneFields.forEach(field => {
                 const quotedField = field.includes(' ') ? `"${field}"` : field;
-                orParts.push(`${quotedField}.ilike.*${searchPhone}*`);
+                if (tableName === 'owner_data' && field === 'contactNo') {
+                    // contactNo is a bigint/number in owner_data, so ilike will fail.
+                    // We use eq for an exact match.
+                    orParts.push(`${quotedField}.eq.${searchPhone}`);
+                } else {
+                    orParts.push(`${quotedField}.ilike.*${searchPhone}*`);
+                }
             });
         }
         
@@ -66,15 +78,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ customer
     };
 
     try {
-        console.log(`Public API: Searching for ${searchVal} (rawId: ${rawId}, phone: ${searchPhone})`);
+        console.log(`Public API: Searching for ${searchVal} (rawId: ${rawId}, phone: ${searchPhone}, explicitOwner: ${explicitOwner})`);
         
         // Search across all possible tables
-        // Note: Lead tables use "Lead ID", Owner table uses "id"
+        // Note: Lead tables use "Lead ID", Owner table uses "id" or "Lead ID"
         const [nr_wf, followup, nurture, owner_data, master_leads] = await Promise.all([
             fetchSingle("nr_wf", ["Lead ID"], ["Phone"]),
             fetchSingle("followup", ["Lead ID"], ["Phone"]),
             fetchSingle("nurture", ["Lead ID"], ["Phone"]),
-            fetchSingle("owner_data", ["id"], ["contactNo", "Phone", "phone"]),
+            fetchSingle("owner_data", ["id"], ["contactNo"]),
             fetchSingle("master_leads", ["Lead ID"], ["Phone", "phone"])
         ]);
 
@@ -104,12 +116,17 @@ export async function GET(req: Request, { params }: { params: Promise<{ customer
             results.lead = match;
         }
 
+        // If explicit owner was requested, and we found an owner, we can optionally clear the lead 
+        // to force the owner tab in the frontend, OR just let the frontend handle it.
+        // The frontend currently prefers lead if both exist.
+
         if (results.lead || results.owner) {
             return NextResponse.json(results);
         }
 
         console.log("Public API: No match found");
         return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+
 
     } catch (error: any) {
         console.error('Public API: Global error:', error);

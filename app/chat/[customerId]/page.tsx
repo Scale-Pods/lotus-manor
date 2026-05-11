@@ -29,8 +29,13 @@ export default function PublicChatPage({ params }: { params: Promise<{ customerI
                 }
                 const json = await res.json();
                 setResults(json);
-                if (!json.lead && json.owner) setActiveTab("owner");
-                else setActiveTab("lead");
+                if (decodedId.startsWith('owner-') && json.owner) {
+                    setActiveTab("owner");
+                } else if (!json.lead && json.owner) {
+                    setActiveTab("owner");
+                } else {
+                    setActiveTab("lead");
+                }
             } catch (err) {
                 setError("An error occurred");
             } finally {
