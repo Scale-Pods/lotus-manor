@@ -105,9 +105,6 @@ export default function PublicChatPage({ params }: { params: Promise<{ customerI
                     </div>
                 </div>
                 
-                <div className="mt-6 text-center text-slate-400 text-[10px] uppercase tracking-widest font-bold">
-                    Powered by ASquared • Lotus Manor Systems
-                </div>
             </div>
         </div>
     );
