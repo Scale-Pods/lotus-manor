@@ -11,7 +11,8 @@ import {
     Mail,
     MessageCircle,
     Mic,
-    ChevronDown
+    ChevronDown,
+    Activity
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,11 @@ const voiceSidebarItems = [
         title: "Analytics",
         href: "/dashboard/voice/analytics",
         icon: BarChart3,
+    },
+    {
+        title: "Cost Calculator",
+        href: "/dashboard/voice/calculator",
+        icon: Activity,
     },
 ];
 

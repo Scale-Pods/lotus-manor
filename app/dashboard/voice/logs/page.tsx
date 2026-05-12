@@ -54,7 +54,7 @@ const DynamicRowCells = ({ call, leads, telephonyCost }: { call: any, leads: any
                     </Badge>
                     {call.vapiAccount === 'owners' && (
                         <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 text-[8px] px-1.5 py-0 h-3.5 font-bold uppercase tracking-wider w-fit flex items-center gap-1">
-                            <Crown className="h-2 w-2" /> owner leads
+                             owner leads
                         </Badge>
                     )}
                     {call.assistantId === '560ca61b-8cd3-4b5f-996b-2966abfa37fd' && (
@@ -64,7 +64,7 @@ const DynamicRowCells = ({ call, leads, telephonyCost }: { call: any, leads: any
                     )}
                     {call.assistantId === '1ef6ea66-0a75-45f5-b025-1743e048dc90' && (
                         <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 border-orange-200 text-[8px] px-1.5 py-0 h-3.5 font-bold uppercase tracking-wider w-fit flex items-center gap-1">
-                            🏠 open house event
+                            open house event
                         </Badge>
                     )}
                 </div>
@@ -134,6 +134,7 @@ export default function VoiceLogsPage() {
     const [regionFilter, setRegionFilter] = useState("all");
     const [costModalOpen, setCostModalOpen] = useState(false);
     const [telephonyCosts, setTelephonyCosts] = useState<Record<string, number>>({});
+    const [exporting, setExporting] = useState(false);
 
     useEffect(() => {
         setDateRange({
@@ -290,6 +291,81 @@ export default function VoiceLogsPage() {
         });
     };
 
+    const handleExport = async () => {
+        if (calls.length === 0) return;
+        setExporting(true);
+
+        try {
+            // Find calls that don't have telephony costs yet
+            const missingCostCalls = calls.filter(c => telephonyCosts[c.id] === undefined && c.source !== 'elevenlabs');
+            
+            let allCosts = { ...telephonyCosts };
+            
+            if (missingCostCalls.length > 0) {
+                // Fetch costs in batches of 100 to avoid long request issues, though our backend is fast now
+                const res = await fetch('/api/calls/telephony-cost', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        calls: missingCostCalls.map(c => ({
+                            id: c.id,
+                            phoneNumber: c.phoneNumber,
+                            phone: c.phone,
+                            durationSeconds: c.durationSeconds,
+                            isInbound: c.isInbound
+                        }))
+                    })
+                });
+                const data = await res.json();
+                if (data && data.costs) {
+                    allCosts = { ...allCosts, ...data.costs };
+                    setTelephonyCosts(prev => ({ ...prev, ...data.costs }));
+                }
+            }
+
+            const headers = ["Name", "Phone", "Type", "Duration (sec)", "Duration (min)", "Country", "Telephony Cost", "Total Cost", "Status", "Date"];
+            
+            const csvData = calls.map(call => {
+                const tCost = allCosts[call.id];
+                const agentCost = call.breakdown?.agent || 0;
+                let totalCostStr = call.cost;
+                let telephonyCostStr = "N/A";
+
+                if (tCost !== undefined && tCost !== -1) {
+                    telephonyCostStr = `$${tCost.toFixed(3)}`;
+                    totalCostStr = `$${(agentCost + tCost).toFixed(3)}`;
+                }
+
+                return [
+                    call.name || "Guest",
+                    call.phone || "Unknown",
+                    call.type,
+                    call.durationSeconds || 0,
+                    ((call.durationSeconds || 0) / 60).toFixed(2),
+                    call.country || "Unknown",
+                    telephonyCostStr,
+                    totalCostStr,
+                    call.status,
+                    call.displayDate
+                ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+            });
+            
+            const csvContent = "\uFEFF" + [headers.join(","), ...csvData].join("\n");
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", `voice_logs_export_${format(new Date(), 'yyyy-MM-dd')}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err) {
+            console.error("Export error:", err);
+        } finally {
+            setExporting(false);
+        }
+    };
+
     const paginatedCalls = calls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     useEffect(() => {
@@ -356,6 +432,15 @@ export default function VoiceLogsPage() {
                         <Button variant="outline" className="text-slate-600 border-slate-200" onClick={() => setCostModalOpen(true)}>
                             <Info className="h-4 w-4 mr-2" />
                             Cost Info
+                        </Button>
+                        <Button 
+                            variant="outline" 
+                            className="bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100" 
+                            onClick={handleExport}
+                            disabled={exporting || calls.length === 0}
+                        >
+                            <Download className={`h-4 w-4 mr-2 ${exporting ? 'animate-pulse' : ''}`} />
+                            {exporting ? 'Exporting...' : 'Download Excel'}
                         </Button>
                         <DateRangePicker onUpdate={(values) => setDateRange(values.range)} />
                         <Button variant="outline" onClick={handleRefresh} disabled={loading}>
@@ -511,7 +596,8 @@ export default function VoiceLogsPage() {
                             {[
                                 { n: 1, title: "Normalization", desc: "System cleans phone numbers by removing all symbols and spaces, ensuring consistent lookup against our global rate database." },
                                 { n: 2, title: "Longest-Prefix Matching", desc: "We use high-precision matching. If a number matches multiple regions (e.g. UAE General vs Dubai Fixed), we prioritize the most specific prefix for maximum accuracy." },
-                                { n: 3, title: "Per-Minute Computation", desc: "Duration is tracked in seconds and converted to minutes. For outbound calls, the matched rate is applied. Inbound calls are always computed at $0.02." },
+                                { n: 3, title: "Per-Minute Computation", desc: "Duration is tracked in seconds and rounded up to the nearest minute. For outbound calls, the matched rate is applied. Inbound calls are always computed at $0.02." },
+                                { n: 4, title: "Special Backup Rates", desc: "For outbound calls from US or UK numbers to UAE destinations, a fixed backup rate of $0.2995/min is applied to ensure connectivity." },
                             ].map(({ n, title, desc }) => (
                                 <div key={n} className="flex gap-4">
                                     <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-sm">{n}</div>
