@@ -217,6 +217,58 @@ export default function WhatsappChatPage() {
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");
+    const [templates, setTemplates] = useState<any[]>([]);
+
+    const getStandardTemplates = (loops: string[]) => {
+        const result: any[] = [];
+        if (loops.includes("Intro")) {
+            for (let i = 1; i <= 4; i++) {
+                const day = (i - 1) * 2;
+                result.push({ 
+                    id: `intro-${i}`, 
+                    name: `Cold Message #${i} (Day ${day})`, 
+                    column: `W.P_${i}`,
+                    category: 'Intro Loop'
+                });
+            }
+        }
+        if (loops.includes("Follow Up")) {
+            for (let i = 1; i <= 10; i++) {
+                result.push({ 
+                    id: `followup-${i}`, 
+                    name: `Follow-Up Message #${i}`, 
+                    column: `W.P_FollowUp_${i}`,
+                    category: 'Follow-Up Loop'
+                });
+            }
+        }
+        if (loops.includes("Nurture")) {
+            for (let i = 1; i <= 6; i++) {
+                result.push({ 
+                    id: `nurture-wp-${i}`, 
+                    name: `Nurture Message #${i}`, 
+                    column: `W.P_${i}`,
+                    category: 'Nurture Loop'
+                });
+            }
+            for (let i = 1; i <= 10; i++) {
+                result.push({ 
+                    id: `nurture-fu-${i}`, 
+                    name: `Nurture Message #${i + 6}`, 
+                    column: `W.P_FollowUp_${i}`,
+                    category: 'Nurture Loop'
+                });
+            }
+        }
+        return result;
+    };
+
+    useEffect(() => {
+        fetch('/api/templates')
+            .then(res => res.json())
+            .then(data => setTemplates(data.filter((t: any) => t.type !== 'email')))
+            .catch(err => console.error("Error fetching templates", err));
+    }, []);
 
     const [dateRange, setDateRange] = useState<any>({
         from: subDays(new Date(), 7),
@@ -289,21 +341,25 @@ export default function WhatsappChatPage() {
     const [pendingFilters, setPendingFilters] = useState<{
         replyStatus: string[],
         loops: string[],
-        messageStatus: string[]
+        messageStatus: string[],
+        templates: string[]
     }>({
         replyStatus: [],
         loops: [],
-        messageStatus: []
+        messageStatus: [],
+        templates: []
     });
 
     const [activeFilters, setActiveFilters] = useState<{
         replyStatus: string[],
         loops: string[],
-        messageStatus: string[]
+        messageStatus: string[],
+        templates: string[]
     }>({
         replyStatus: [],
         loops: [],
-        messageStatus: []
+        messageStatus: [],
+        templates: []
     });
 
     useEffect(() => {
@@ -362,6 +418,30 @@ export default function WhatsappChatPage() {
                     return false;
                 });
 
+            const matchesTemplate = activeFilters.templates.length === 0 ||
+                activeFilters.templates.some(tName => {
+                    const match = tName.match(/Message\s*#?\s*(\d+)/i);
+                    const index = match ? parseInt(match[1]) : null;
+                    if (!index) return false;
+                    
+                    const isIntro = tName.toLowerCase().includes("cold") || tName.toLowerCase().includes("intro");
+                    const isFollowUp = tName.toLowerCase().includes("follow-up") || tName.toLowerCase().includes("followup");
+                    const isNurture = tName.toLowerCase().includes("nurture");
+
+                    if (isIntro) {
+                        return !!lead[`W.P_${index}`] || !!lead.stage_data?.[`WhatsApp ${index}`];
+                    }
+                    if (isFollowUp) {
+                        return !!lead[`W.P_FollowUp_${index}`] || (index === 1 && !!lead[`W.P_FollowUp`]);
+                    }
+                    if (isNurture) {
+                        const inWP = index <= 6 && (!!lead[`W.P_${index}`] || !!lead.stage_data?.[`WhatsApp ${index}`]);
+                        const inFollowUp = index <= 10 && (!!lead[`W.P_FollowUp_${index}`] || (index === 1 && !!lead[`W.P_FollowUp`]));
+                        return inWP || inFollowUp;
+                    }
+                    return false;
+                });
+
             let matchesDate = true;
             if (dateRange?.from) {
                 const from = startOfDay(new Date(dateRange.from));
@@ -410,7 +490,7 @@ export default function WhatsappChatPage() {
                 matchesDate = hasActivityInRange;
             }
 
-            return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus && matchesDate;
+            return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus && matchesTemplate && matchesDate;
         }).sort((a, b) => {
             const dateA = getLeadLatestActivity(a);
             const dateB = getLeadLatestActivity(b);
@@ -455,6 +535,33 @@ export default function WhatsappChatPage() {
                 const status = (o["Whatsapp_1_status"] || "").toLowerCase();
                 const matchesStatus = activeFilters.messageStatus.some(s => status.includes(s.toLowerCase()));
                 if (!matchesStatus) return false;
+            }
+
+            // Template Filter
+            if (activeFilters.templates.length > 0) {
+                const matchesTemplate = activeFilters.templates.some(tName => {
+                    const match = tName.match(/Message\s*#?\s*(\d+)/i);
+                    const index = match ? parseInt(match[1]) : null;
+                    if (!index) return false;
+
+                    const isIntro = tName.toLowerCase().includes("cold") || tName.toLowerCase().includes("intro") || tName.toLowerCase().includes("owner");
+                    const isFollowUp = tName.toLowerCase().includes("follow-up") || tName.toLowerCase().includes("followup");
+                    const isNurture = tName.toLowerCase().includes("nurture");
+
+                    if (isIntro) {
+                        return !!o[`Whatsapp_${index}`];
+                    }
+                    if (isFollowUp) {
+                        return !!o[`Bot_Replied_${index}`];
+                    }
+                    if (isNurture) {
+                        const inW = index <= 6 && !!o[`Whatsapp_${index}`];
+                        const inB = index <= 10 && !!o[`Bot_Replied_${index}`];
+                        return inW || inB;
+                    }
+                    return false;
+                });
+                if (!matchesTemplate) return false;
             }
 
             return true;
@@ -562,12 +669,12 @@ export default function WhatsappChatPage() {
 
     const handleApplyFilters = () => { setActiveFilters(pendingFilters); };
     const handleResetFilters = () => {
-        const reset = { replyStatus: [], loops: [], messageStatus: [] };
+        const reset = { replyStatus: [], loops: [], messageStatus: [], templates: [] };
         setPendingFilters(reset);
         setActiveFilters(reset);
     };
 
-    const toggleFilter = (type: 'replyStatus' | 'loops' | 'messageStatus', value: string) => {
+    const toggleFilter = (type: 'replyStatus' | 'loops' | 'messageStatus' | 'templates', value: string) => {
         setPendingFilters(prev => {
             const current = prev[type];
             if (current.includes(value)) {
@@ -679,7 +786,7 @@ export default function WhatsappChatPage() {
                                 <div className="flex items-center gap-2 text-slate-900 font-bold">
                                     <Filter className="h-4 w-4" /> Filters
                                 </div>
-                                {(activeFilters.replyStatus.length > 0 || activeFilters.loops.length > 0 || activeFilters.messageStatus.length > 0) && (
+                                {(activeFilters.replyStatus.length > 0 || activeFilters.loops.length > 0 || activeFilters.messageStatus.length > 0 || activeFilters.templates.length > 0) && (
                                     <button onClick={handleResetFilters} className="text-[10px] text-emerald-600 font-bold hover:underline">RESET</button>
                                 )}
                             </div>
@@ -694,6 +801,43 @@ export default function WhatsappChatPage() {
                                     <FilterOption label="Intro" checked={pendingFilters.loops.includes("Intro")} onCheckedChange={() => toggleFilter('loops', "Intro")} />
                                     <FilterOption label="Follow Up" checked={pendingFilters.loops.includes("Follow Up")} onCheckedChange={() => toggleFilter('loops', "Follow Up")} />
                                     <FilterOption label="Nurture" checked={pendingFilters.loops.includes("Nurture")} onCheckedChange={() => toggleFilter('loops', "Nurture")} />
+                                </FilterSection>
+                            )}
+
+                            {pendingFilters.loops.length > 0 && (
+                                <FilterSection title="Templates">
+                                    <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                        {getStandardTemplates(pendingFilters.loops).map(t => (
+                                            <FilterOption 
+                                                key={t.id} 
+                                                id={t.id}
+                                                label={
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[11px] font-bold">{t.name}</span>
+                                                        <span className="text-[9px] text-slate-400 font-mono uppercase">[{t.column}]</span>
+                                                    </div>
+                                                } 
+                                                checked={pendingFilters.templates.includes(t.name)} 
+                                                onCheckedChange={() => toggleFilter('templates', t.name)} 
+                                            />
+                                        ))}
+                                    </div>
+                                </FilterSection>
+                            )}
+
+                            {activeTab === "owners" && (
+                                <FilterSection title="Templates">
+                                    <FilterOption 
+                                        id="owner-whatsapp-1"
+                                        label={
+                                            <div className="flex flex-col">
+                                                <span className="text-[11px] font-bold">Owner Message #1</span>
+                                                <span className="text-[9px] text-slate-400 font-mono uppercase">[Whatsapp_1]</span>
+                                            </div>
+                                        } 
+                                        checked={pendingFilters.templates.includes("Owner Message #1")} 
+                                        onCheckedChange={() => toggleFilter('templates', "Owner Message #1")} 
+                                    />
                                 </FilterSection>
                             )}
 
@@ -925,11 +1069,12 @@ function FilterSection({ title, children }: any) {
     );
 }
 
-function FilterOption({ label, checked, onCheckedChange }: any) {
+function FilterOption({ id, label, checked, onCheckedChange }: any) {
+    const finalId = id || (typeof label === 'string' ? label : Math.random().toString());
     return (
         <div className="flex items-center gap-2">
-            <Checkbox id={label} className="h-3.5 w-3.5 border-slate-300" checked={checked} onCheckedChange={onCheckedChange} />
-            <label htmlFor={label} className="text-sm font-medium text-slate-600 cursor-pointer">{label}</label>
+            <Checkbox id={finalId} className="h-3.5 w-3.5 border-slate-300" checked={checked} onCheckedChange={onCheckedChange} />
+            <label htmlFor={finalId} className="text-sm font-medium text-slate-600 cursor-pointer flex-1">{label}</label>
         </div>
     );
 }
