@@ -11,7 +11,8 @@ import {
     User,
     Bot,
     Link as LinkIcon,
-    Check
+    Check,
+    Languages
 } from "lucide-react";
 import { ConsolidatedLead } from "@/lib/leads-utils";
 import { useData } from "@/context/DataContext";
@@ -37,6 +38,46 @@ export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAp
     const [loading, setLoading] = useState(true);
     const [messages, setMessages] = useState<any[]>([]);
     const [copied, setCopied] = useState(false);
+    const [isTranslated, setIsTranslated] = useState(false);
+    const [isTranslating, setIsTranslating] = useState(false);
+    const [translatedMessages, setTranslatedMessages] = useState<Record<number, string>>({});
+
+    const handleTranslate = async () => {
+        if (isTranslated) {
+            setIsTranslated(false);
+            return;
+        }
+
+        if (Object.keys(translatedMessages).length > 0) {
+            setIsTranslated(true);
+            return;
+        }
+
+        setIsTranslating(true);
+        try {
+            const textsToTranslate = messages.map(m => m.content);
+            const response = await fetch('/api/translate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ texts: textsToTranslate })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const translations = data.translatedTexts || [];
+                const newTranslations: Record<number, string> = {};
+                messages.forEach((m, i) => {
+                    if (translations[i]) newTranslations[i] = translations[i];
+                });
+                setTranslatedMessages(newTranslations);
+                setIsTranslated(true);
+            }
+        } catch (error) {
+            console.error("Translation failed:", error);
+        } finally {
+            setIsTranslating(false);
+        }
+    };
 
     const handleCopyLink = () => {
         if (!lead) return;
@@ -217,7 +258,17 @@ export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAp
                     <Button
                         variant="ghost"
                         size="sm"
-                        className={`gap-2 text-[10px] font-bold uppercase transition-all ${copied ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-900'}`}
+                        disabled={isTranslating}
+                        className={`gap-2 text-[10px] font-bold uppercase transition-all ${isTranslated ? 'text-blue-600 bg-blue-50' : 'text-slate-400 hover:text-slate-900'}`}
+                        onClick={handleTranslate}
+                    >
+                        {isTranslating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Languages className="h-3.5 w-3.5" />}
+                        {isTranslated ? 'Original' : 'Translate'}
+                    </Button>
+                    <Button
+                        variant="default"
+                        size="sm"
+                        className={`gap-2 text-[10px] font-bold uppercase transition-all shadow-md ${copied ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700 text-white'}`}
                         onClick={handleCopyLink}
                     >
                         {copied ? <Check className="h-3.5 w-3.5" /> : <LinkIcon className="h-3.5 w-3.5" />}
@@ -273,7 +324,12 @@ export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAp
                                                 {tsPill}
                                             </div>
                                             <p className="text-sm leading-relaxed whitespace-pre-wrap font-sans">
-                                                {msg.content}
+                                                {isTranslated && translatedMessages[idx] ? (
+                                                    <span className="relative">
+                                                        <span className="block mb-1 text-[10px] uppercase font-bold opacity-50">English Translation:</span>
+                                                        {translatedMessages[idx]}
+                                                    </span>
+                                                ) : msg.content}
                                             </p>
                                         </div>
                                         {msg.date && (
