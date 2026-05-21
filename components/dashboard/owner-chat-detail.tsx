@@ -122,16 +122,13 @@ export function OwnerChatDetail({ owner, onClose }: OwnerChatDetailProps) {
             const lastLine = lines[lines.length - 1].trim();
             const spaceDateRegex = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
             if (lines.length > 1 && spaceDateRegex.test(lastLine)) {
-                const d = new Date(lastLine.replace(' ', 'T'));
-                if (!isNaN(d.getTime())) {
-                    return {
-                        type,
-                        content: lines.slice(0, -1).join('\n').trim() || 'Message Received',
-                        label,
-                        date: d.toISOString(),
-                        sequence
-                    };
-                }
+                return {
+                    type,
+                    content: lines.slice(0, -1).join('\n').trim() || 'Message Received',
+                    label,
+                    date: lastLine,
+                    sequence
+                };
             }
 
             return { type, content, label, date: null, sequence };
@@ -147,8 +144,7 @@ export function OwnerChatDetail({ owner, onClose }: OwnerChatDetailProps) {
             (wp1Msg as any).tsStatus = owner["Whatsapp_1_status"] || null;
             // If no date in content, use the Whatsapp_1_Date column
             if (!wp1Msg.date && owner["Whatsapp_1_Date"]) {
-                const d = new Date(owner["Whatsapp_1_Date"]);
-                if (!isNaN(d.getTime())) wp1Msg.date = d.toISOString();
+                wp1Msg.date = owner["Whatsapp_1_Date"];
             }
             timeline.push(wp1Msg);
         }
@@ -278,7 +274,7 @@ export function OwnerChatDetail({ owner, onClose }: OwnerChatDetailProps) {
                                         </div>
                                         {msg.date && (
                                             <span className="text-[10px] text-slate-400 mt-1 px-1">
-                                                {new Date(msg.date).toLocaleString([], { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                                                {formatOriginalDate(msg.date)}
                                             </span>
                                         )}
                                     </div>
@@ -336,4 +332,25 @@ function StatBox({ label, value, icon: Icon }: any) {
             <span className="text-sm font-bold text-slate-900">{value}</span>
         </div>
     );
+}
+
+function formatOriginalDate(dateString: string) {
+    if (!dateString) return "";
+    
+    const match = String(dateString).match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+    if (!match) return String(dateString);
+
+    const [, , month, day, hourStr, minute] = match;
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthName = monthNames[parseInt(month, 10) - 1];
+
+    let hour = parseInt(hourStr, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+    hour = hour ? hour : 12;
+    
+    const paddedHour = hour < 10 ? '0' + hour : hour.toString();
+    const dayNumber = parseInt(day, 10);
+
+    return `${monthName} ${dayNumber}, ${paddedHour}:${minute} ${ampm}`;
 }
