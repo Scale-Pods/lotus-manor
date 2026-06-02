@@ -123,7 +123,7 @@ export default function LandingPage() {
                 isOpen={isAuthModalOpen}
                 onClose={() => setIsAuthModalOpen(false)}
                 defaultMode="login"
-            /
+            />
         </div>
     );
 }
