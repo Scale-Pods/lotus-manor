@@ -6,6 +6,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, CheckCircle2, Mail, MessageCircle, Mic } from "lucide-react";
 import { AuthModal } from "@/components/auth/auth-modal";
+import { TwilioDialer } from "@/components/dialer/TwilioDialer";
 
 export default function LandingPage() {
     const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -124,6 +125,9 @@ export default function LandingPage() {
                 onClose={() => setIsAuthModalOpen(false)}
                 defaultMode="login"
             />
+
+            {/* Twilio Voice Dialer */}
+            <TwilioDialer />
         </div>
     );
 }
