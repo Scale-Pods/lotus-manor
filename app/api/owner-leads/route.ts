@@ -1,76 +1,93 @@
 import { NextResponse } from 'next/server';
-import { subDays, startOfDay } from "date-fns";
 
 export const dynamic = 'force-dynamic';
+
+// Only the columns actually consumed by the UI — never fetch *
+const SELECT_COLUMNS = [
+    'id',
+    'createdOn',
+    'name',
+    'contactNo',
+    'Whatsapp_1',
+    'Whatsapp_1_Date',
+    'Whatsapp_1_status',
+    'WTS_Reply_Track',
+    'retry_1',
+    'User_Replied_1', 'User_Replied_2', 'User_Replied_3', 'User_Replied_4', 'User_Replied_5',
+    'User_Replied_6', 'User_Replied_7', 'User_Replied_8', 'User_Replied_9', 'User_Replied_10',
+    'Bot_Replied_1', 'Bot_Replied_2', 'Bot_Replied_3', 'Bot_Replied_4', 'Bot_Replied_5',
+    'Bot_Replied_6', 'Bot_Replied_7', 'Bot_Replied_8', 'Bot_Replied_9', 'Bot_Replied_10',
+    'Bot_Replied_Status_1', 'Bot_Replied_Status_2', 'Bot_Replied_Status_3', 'Bot_Replied_Status_4', 'Bot_Replied_Status_5',
+    'Bot_Replied_Status_6', 'Bot_Replied_Status_7', 'Bot_Replied_Status_8', 'Bot_Replied_Status_9', 'Bot_Replied_Status_10',
+    'call Lead Status',
+    'Lead_Status',
+    'whatsapp_note',
+].join(',');
 
 export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const from = searchParams.get('from');
     const to = searchParams.get('to');
 
-    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-    const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim().replace(/\/$/, '');
+    const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 
     if (!supabaseUrl || !secretKey) {
-        return NextResponse.json({ error: "Config missing" }, { status: 500 });
+        return NextResponse.json({ error: 'Config missing' }, { status: 500 });
     }
 
-    const baseUrl = `${supabaseUrl.replace(/\/$/, "")}/rest/v1`;
+    const baseUrl = `${supabaseUrl}/rest/v1`;
     const commonHeaders = {
-        "apikey": secretKey,
-        "Authorization": `Bearer ${secretKey}`,
-        "Content-Type": "application/json"
+        apikey: secretKey,
+        Authorization: `Bearer ${secretKey}`,
+        'Content-Type': 'application/json',
+        // Ask PostgREST to return row count so we can paginate correctly
+        Prefer: 'count=planned',
     };
 
-    const fetchTableData = async (tableName: string, filterRange = true, select = "*") => {
-        let allData: any[] = [];
-        let offset = 0;
-        const limit = 1000;
-        let hasMore = true;
+    // Date filter: use createdOn (timestamptz). If no dates provided, default to last 90 days
+    // so we never fetch the entire table.
+    const toISO = to || new Date().toISOString();
+    const fromISO = from || new Date(Date.now() - 90 * 86400000).toISOString();
 
-        while (hasMore) {
-            let url = `${baseUrl}/${tableName}?select=${select}&offset=${offset}&limit=${limit}`;
-            
-            // Match the logic of the main leads API
-            if (filterRange && from) url += `&createdOn=gte.${from}`;
-            if (filterRange && to) url += `&createdOn=lte.${to}`;
+    let allData: any[] = [];
+    let offset = 0;
+    const limit = 1000;
+    let hasMore = true;
 
-            try {
-                const response = await fetch(url, { headers: commonHeaders, cache: 'no-store' });
-                if (!response.ok) {
-                    const errMsg = await response.text();
-                    console.error(`Fetch error for ${tableName}:`, errMsg);
-                    break;
-                }
-                const data = await response.json();
-                if (Array.isArray(data)) {
-                    allData = allData.concat(data);
-                    if (data.length < limit) hasMore = false;
-                    else offset += limit;
-                } else { hasMore = false; }
-            } catch (err) { break; }
-            
-            if (offset > 20000) break; // Safety cap matching leads API
-        }
-        return allData;
-    };
+    while (hasMore) {
+        const url =
+            `${baseUrl}/owner_data` +
+            `?select=${encodeURIComponent(SELECT_COLUMNS)}` +
+            `&createdOn=gte.${encodeURIComponent(fromISO)}` +
+            `&createdOn=lte.${encodeURIComponent(toISO)}` +
+            `&offset=${offset}&limit=${limit}`;
 
-    try {
-        // Fetch owner data with filterRange=false to get "complete data" as requested
-        // similar to nr_wf and followup in the main leads API
-        const ownerData = await fetchTableData("owner_data", false);
-
-        return new NextResponse(JSON.stringify({ owner_data: ownerData }), {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0',
+        try {
+            const res = await fetch(url, { headers: commonHeaders, cache: 'no-store' });
+            if (!res.ok) {
+                const errMsg = await res.text();
+                console.error('[owner-leads] Supabase error:', errMsg);
+                break;
             }
-        });
+            const data = await res.json();
+            if (!Array.isArray(data)) { hasMore = false; break; }
+            allData = allData.concat(data);
+            if (data.length < limit) hasMore = false;
+            else offset += limit;
+        } catch (err) {
+            console.error('[owner-leads] fetch error:', err);
+            break;
+        }
 
-    } catch (error: any) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        if (offset > 50000) break; // hard safety cap
     }
+
+    return new NextResponse(JSON.stringify({ owner_data: allData }), {
+        status: 200,
+        headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+    });
 }

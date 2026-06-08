@@ -156,8 +156,8 @@ export function OwnerChatDetail({ owner, onClose }: OwnerChatDetailProps) {
             timeline.push(retry1Msg);
         }
 
-        // 2. Paired rounds: User_Replied_i then Bot_Replied_i (up to 5)
-        for (let i = 1; i <= 5; i++) {
+        // 2. Paired rounds: User_Replied_i then Bot_Replied_i (up to 10)
+        for (let i = 1; i <= 10; i++) {
             const userReply = owner[`User_Replied_${i}`];
             const userMsg = parseOwnerMsg(userReply, `User_Replied_${i}`, "user", seq++);
             if (userMsg) timeline.push(userMsg);

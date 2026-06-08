@@ -6,6 +6,57 @@ import { subDays, startOfDay, endOfDay } from "date-fns";
 import { useRouter } from 'next/navigation';
 import { logout } from '@/app/actions/auth';
 
+export interface MasterMetrics {
+    totalLeads: number;
+    oldestLeadDate: string | null;
+    totalWaReachouts: number;
+    totalWaReplies: number;
+    leadsDaily: { date: string; leads: number }[];
+    totalOwnerLeads: number;
+    ownerWaReachouts: number;
+    ownerWaReplies: number;
+}
+
+export interface WhatsappMetrics {
+    totalReachouts: number;
+    totalReplies: number;
+    replyRate: number;
+    dailyTrend: { date: string; reachouts: number; replies: number }[];
+    ownerReachouts: number;
+    ownerReplies: number;
+}
+
+export interface VoiceMetrics {
+    totalCalls: number;
+    totalDuration: number;
+    avgDuration: number;
+    totalCost: number;
+    avgCost: number;
+    completedCalls: number;
+    answeredCalls: number;
+    successRate: number;
+    normalCalls: number;
+    ownerCalls: number;
+    normalConnected: number;
+    normalQualified: number;
+    normalPickupRate: number;
+    normalCompletionRate: number;
+    normalPositiveCount: number;
+    normalPositiveRate: number;
+    ownerConnected: number;
+    ownerQualified: number;
+    ownerPickupRate: number;
+    ownerCompletionRate: number;
+    ownerPositiveCount: number;
+    ownerPositiveRate: number;
+    allTimeNormalCalls: number;
+    allTimeOwnerCalls: number;
+    dailyVolume: { date: string; calls: number; cost: number }[];
+    hourlyDistribution: { hour: number; calls: number }[];
+    durationBuckets: { label: string; calls: number }[];
+    costByDay: { date: string; calls: number; cost: number }[];
+}
+
 interface DataContextType {
     leads: ConsolidatedLead[];
     calls: any[];
@@ -16,6 +67,12 @@ interface DataContextType {
     loadingCalls: boolean;
     loadingOwners: boolean;
     loadingBalances: boolean;
+    loadingVoiceMetrics: boolean;
+    loadingMasterMetrics: boolean;
+    loadingWhatsappMetrics: boolean;
+    voiceMetrics: VoiceMetrics | null;
+    masterMetrics: MasterMetrics | null;
+    whatsappMetrics: WhatsappMetrics | null;
     voiceBalance: any;
     maqsamBalance: any;
     twilioBalance: any;
@@ -24,6 +81,9 @@ interface DataContextType {
     refreshCalls: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; provider?: string; force?: boolean }) => Promise<void>;
     refreshOwners: (params?: { from?: Date; to?: Date; force?: boolean }) => Promise<void>;
     refreshBalances: () => Promise<void>;
+    refreshVoiceMetrics: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; force?: boolean }) => Promise<void>;
+    refreshMasterMetrics: (params?: { from?: Date; to?: Date; force?: boolean }) => Promise<void>;
+    refreshWhatsappMetrics: (params?: { from?: Date; to?: Date; force?: boolean }) => Promise<void>;
     refreshAll: (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => Promise<void>;
     computeWPReplies: (dateRange?: { from?: Date; to?: Date } | null) => number;
 }
@@ -40,13 +100,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const [loadingCalls, setLoadingCalls] = useState(true);
     const [loadingOwners, setLoadingOwners] = useState(true);
     const [loadingBalances, setLoadingBalances] = useState(true);
+    const [loadingVoiceMetrics, setLoadingVoiceMetrics] = useState(true);
+    const [loadingMasterMetrics, setLoadingMasterMetrics] = useState(true);
+    const [loadingWhatsappMetrics, setLoadingWhatsappMetrics] = useState(true);
+    const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetrics | null>(null);
+    const [masterMetrics, setMasterMetrics] = useState<MasterMetrics | null>(null);
+    const [whatsappMetrics, setWhatsappMetrics] = useState<WhatsappMetrics | null>(null);
     const [voiceBalance, setVoiceBalance] = useState<any>(null);
     const [maqsamBalance, setMaqsamBalance] = useState<any>(null);
     const [twilioBalance, setTwilioBalance] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
 
-    // Gatekeeper to prevent redundant identical calls
+    // Gatekeepers to prevent redundant identical calls
     const lastCallParams = useRef<string | null>(null);
+    const lastVoiceMetricsParams = useRef<string | null>(null);
 
     const fetchLeads = useCallback(async (params?: { from?: Date; to?: Date; force?: boolean }) => {
         setLoadingLeads(true);
@@ -65,12 +132,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             const data = await response.json();
             const consolidated = consolidateLeads(data);
             setLeads(consolidated);
-            if (typeof data.allTimeVoiceCount === 'number') {
-                setAllTimeVoiceCount(data.allTimeVoiceCount);
-            }
-            if (typeof data.allTimeOwnerVoiceCount === 'number') {
-                setAllTimeOwnerVoiceCount(data.allTimeOwnerVoiceCount);
-            }
         } catch (err: any) {
             console.error('DataProvider leads fetch error:', err);
             setError(err.message);
@@ -152,6 +213,124 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
+    const hasVoiceMetrics = useRef(false);
+
+    const fetchVoiceMetrics = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean; force?: boolean }) => {
+        try {
+            const now = new Date();
+            const fromDate = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
+            const toDate = params?.to ? endOfDay(params.to) : endOfDay(now);
+            const includeElevenLabs = params?.includeElevenLabs || false;
+
+            const query = new URLSearchParams({
+                from: fromDate.toISOString(),
+                to: toDate.toISOString(),
+                includeElevenLabs: String(includeElevenLabs),
+            });
+
+            const currentQuery = query.toString();
+            if (!params?.force && lastVoiceMetricsParams.current === currentQuery && hasVoiceMetrics.current) {
+                return;
+            }
+
+            setLoadingVoiceMetrics(true);
+            lastVoiceMetricsParams.current = currentQuery;
+
+            const response = await fetch(`/api/metrics/voice?${currentQuery}`);
+            if (response.ok) {
+                const data: VoiceMetrics = await response.json();
+                setVoiceMetrics(data);
+                hasVoiceMetrics.current = true;
+                // Keep legacy allTime counters in sync for any components still using them
+                setAllTimeVoiceCount(data.allTimeNormalCalls);
+                setAllTimeOwnerVoiceCount(data.allTimeOwnerCalls);
+            } else {
+                lastVoiceMetricsParams.current = null;
+            }
+        } catch (err: any) {
+            console.error('DataProvider voice metrics fetch error:', err);
+            lastVoiceMetricsParams.current = null;
+        } finally {
+            setLoadingVoiceMetrics(false);
+        }
+    }, []);
+
+    const lastMasterMetricsParams = useRef<string | null>(null);
+    const hasMasterMetrics = useRef(false);
+
+    const fetchMasterMetrics = useCallback(async (params?: { from?: Date; to?: Date; force?: boolean }) => {
+        try {
+            const now = new Date();
+            const fromDate = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
+            const toDate = params?.to ? endOfDay(params.to) : endOfDay(now);
+
+            const query = new URLSearchParams({
+                from: fromDate.toISOString(),
+                to: toDate.toISOString(),
+            });
+
+            const currentQuery = query.toString();
+            if (!params?.force && lastMasterMetricsParams.current === currentQuery && hasMasterMetrics.current) {
+                return;
+            }
+
+            setLoadingMasterMetrics(true);
+            lastMasterMetricsParams.current = currentQuery;
+
+            const response = await fetch(`/api/metrics/master?${currentQuery}`);
+            if (response.ok) {
+                const data: MasterMetrics = await response.json();
+                setMasterMetrics(data);
+                hasMasterMetrics.current = true;
+            } else {
+                lastMasterMetricsParams.current = null;
+            }
+        } catch (err: any) {
+            console.error('DataProvider master metrics fetch error:', err);
+            lastMasterMetricsParams.current = null;
+        } finally {
+            setLoadingMasterMetrics(false);
+        }
+    }, []);
+
+    const lastWhatsappMetricsParams = useRef<string | null>(null);
+    const hasWhatsappMetrics = useRef(false);
+
+    const fetchWhatsappMetrics = useCallback(async (params?: { from?: Date; to?: Date; force?: boolean }) => {
+        try {
+            const now = new Date();
+            const fromDate = params?.from ? startOfDay(params.from) : subDays(startOfDay(now), 7);
+            const toDate = params?.to ? endOfDay(params.to) : endOfDay(now);
+
+            const query = new URLSearchParams({
+                from: fromDate.toISOString(),
+                to: toDate.toISOString(),
+            });
+
+            const currentQuery = query.toString();
+            if (!params?.force && lastWhatsappMetricsParams.current === currentQuery && hasWhatsappMetrics.current) {
+                return;
+            }
+
+            setLoadingWhatsappMetrics(true);
+            lastWhatsappMetricsParams.current = currentQuery;
+
+            const response = await fetch(`/api/metrics/whatsapp?${currentQuery}`);
+            if (response.ok) {
+                const data: WhatsappMetrics = await response.json();
+                setWhatsappMetrics(data);
+                hasWhatsappMetrics.current = true;
+            } else {
+                lastWhatsappMetricsParams.current = null;
+            }
+        } catch (err: any) {
+            console.error('DataProvider whatsapp metrics fetch error:', err);
+            lastWhatsappMetricsParams.current = null;
+        } finally {
+            setLoadingWhatsappMetrics(false);
+        }
+    }, []);
+
     const fetchBalances = useCallback(async () => {
         try {
             const [vapiRes, maqsamRes, twilioRes] = await Promise.all([
@@ -167,8 +346,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const refreshAll = useCallback(async (params?: { from?: Date; to?: Date; includeElevenLabs?: boolean }) => {
-        await Promise.all([fetchLeads(params), fetchCalls(params), fetchOwners(params), fetchBalances()]);
-    }, [fetchLeads, fetchCalls, fetchOwners, fetchBalances]);
+        await Promise.all([
+            fetchLeads(params),
+            fetchCalls(params),
+            fetchOwners(params),
+            fetchBalances(),
+            fetchVoiceMetrics(params),
+            fetchMasterMetrics(params),
+            fetchWhatsappMetrics(params),
+        ]);
+    }, [fetchLeads, fetchCalls, fetchOwners, fetchBalances, fetchVoiceMetrics, fetchMasterMetrics, fetchWhatsappMetrics]);
 
     const router = useRouter();
 
@@ -264,6 +451,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             loadingCalls,
             loadingOwners,
             loadingBalances,
+            loadingVoiceMetrics,
+            loadingMasterMetrics,
+            loadingWhatsappMetrics,
+            voiceMetrics,
+            masterMetrics,
+            whatsappMetrics,
             voiceBalance,
             maqsamBalance,
             twilioBalance,
@@ -272,6 +465,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             refreshCalls: fetchCalls,
             refreshOwners: fetchOwners,
             refreshBalances: fetchBalances,
+            refreshVoiceMetrics: fetchVoiceMetrics,
+            refreshMasterMetrics: fetchMasterMetrics,
+            refreshWhatsappMetrics: fetchWhatsappMetrics,
             refreshAll,
             computeWPReplies
         }}>

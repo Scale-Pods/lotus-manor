@@ -26,7 +26,6 @@ import {
     Filter,
     Users,
     Send,
-    MessageCircle,
     MessageSquare,
     RefreshCw,
     Building2
@@ -213,12 +212,10 @@ const getOwnerLatestActivity = (o: any) => {
 };
 
 export default function WhatsappChatPage() {
-    const { leads: allLeads, loadingLeads, ownerLeads, loadingOwners } = useData();
+    const { leads: allLeads, loadingLeads, ownerLeads, loadingOwners, refreshLeads, refreshOwners } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");
-    const [templates, setTemplates] = useState<any[]>([]);
-
     const getStandardTemplates = (loops: string[]) => {
         const result: any[] = [];
         if (loops.includes("Intro")) {
@@ -263,17 +260,33 @@ export default function WhatsappChatPage() {
         return result;
     };
 
-    useEffect(() => {
-        fetch('/api/templates')
-            .then(res => res.json())
-            .then(data => setTemplates(data.filter((t: any) => t.type !== 'email')))
-            .catch(err => console.error("Error fetching templates", err));
-    }, []);
-
     const [dateRange, setDateRange] = useState<any>({
         from: subDays(new Date(), 7),
         to: new Date(),
     });
+
+    // Track whether we've already done the fallback expansion
+    const didAutoExpand = useRef(false);
+
+    // Re-fetch server data when date range changes
+    useEffect(() => {
+        if (!dateRange?.from) return;
+        refreshLeads({ from: dateRange.from, to: dateRange.to || dateRange.from });
+        refreshOwners({ from: dateRange.from, to: dateRange.to || dateRange.from });
+    }, [dateRange, refreshLeads, refreshOwners]);
+
+    // Auto-expand to 90 days on first load if the 7-day window returns no leads/owners
+    useEffect(() => {
+        if (loadingLeads || loadingOwners) return;
+        if (didAutoExpand.current) return;
+        if (allLeads.length === 0 && ownerLeads.length === 0) {
+            didAutoExpand.current = true;
+            setDateRange({ from: subDays(new Date(), 90), to: new Date() });
+        } else {
+            didAutoExpand.current = true;
+        }
+    }, [loadingLeads, loadingOwners, allLeads, ownerLeads]);
+
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
 
@@ -364,22 +377,21 @@ export default function WhatsappChatPage() {
 
     useEffect(() => {
         if (loadingLeads) return;
-
+        // Filter to leads that have any WA activity. The server RPC already filters by date,
+        // so we only need to exclude leads that have absolutely no WA columns filled.
         const wpLeads = allLeads.filter(l => {
             const lead = l as any;
-            if (lead.stages_passed.some((s: string) => s.toLowerCase().includes("whatsapp"))) return true;
+            // Exclude master_leads entries (they have no WA message columns)
+            if (lead.source_loop === "Master Leads") return false;
+            // Keep any lead with a W.P_1 value or WP_Replied_track
+            if (lead["W.P_1"] && lead["W.P_1"] !== "No") return true;
+            if (lead["WP_Replied_track"] && String(lead["WP_Replied_track"]).toLowerCase() !== "no") return true;
             if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") return true;
-            for (let i = 1; i <= 10; i++) {
-                const r = lead[`W.P_Replied_${i}`];
-                if (r && String(r).toLowerCase() !== "no" && String(r).toLowerCase() !== "none") return true;
-                if (lead[`W.P_FollowUp_${i}`]) return true;
-            }
             for (let i = 1; i <= 12; i++) {
                 if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
             }
             return false;
         });
-
         setLeads(wpLeads);
     }, [allLeads, loadingLeads]);
 
@@ -442,55 +454,10 @@ export default function WhatsappChatPage() {
                     return false;
                 });
 
-            let matchesDate = true;
-            if (dateRange?.from) {
-                const from = startOfDay(new Date(dateRange.from));
-                const to = endOfDay(new Date(dateRange.to || dateRange.from));
-
-                let hasActivityInRange = false;
-
-                // 1. Check if any bot message was sent in range
-                for (let i = 1; i <= 12; i++) {
-                    const d = getMsgDateWithFallback(lead, `W.P_${i}`);
-                    if (d && d >= from && d <= to) {
-                        hasActivityInRange = true;
-                        break;
-                    }
-                }
-
-                if (!hasActivityInRange) {
-                    const fd = getMsgDateWithFallback(lead, "W.P_FollowUp", "W.P_FollowUp TS");
-                    if (fd && fd >= from && fd <= to) hasActivityInRange = true;
-                }
-
-                if (!hasActivityInRange) {
-                    for (let i = 1; i <= 10; i++) {
-                        const d = getMsgDateWithFallback(lead, `W.P_FollowUp_${i}`);
-                        if (d && d >= from && d <= to) {
-                            hasActivityInRange = true;
-                            break;
-                        }
-                    }
-                }
-
-                // 2. Check if any reply was received in range
-                if (!hasActivityInRange) {
-                    const rt = lead.WP_Replied_track;
-                    if (rt) {
-                        const parsed = parseMsg(rt);
-                        if (parsed.date && parsed.date >= from && parsed.date <= to) {
-                            hasActivityInRange = true;
-                        } else if ((String(rt).toLowerCase() === "yes" || String(rt).toLowerCase() === "replied") && (new Date(lead.created_at) >= from && new Date(lead.created_at) <= to)) {
-                            // Legacy fallback
-                            hasActivityInRange = true;
-                        }
-                    }
-                }
-
-                matchesDate = hasActivityInRange;
-            }
-
-            return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus && matchesTemplate && matchesDate;
+            // Date scoping is handled server-side via the RPC (filters by Created At).
+            // No client-side date filter here — it causes mismatches when message
+            // timestamps differ from Created At.
+            return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus && matchesTemplate;
         }).sort((a, b) => {
             const dateA = getLeadLatestActivity(a);
             const dateB = getLeadLatestActivity(b);
@@ -498,28 +465,14 @@ export default function WhatsappChatPage() {
         });
     }, [leads, searchQuery, activeFilters, dateRange]);
 
-    // Owner filtering
+    // Owner filtering — server already filters by createdOn range, so we only apply
+    // search and reply/status/template filters client-side
     const filteredOwners = useMemo(() => {
         return ownerLeads.filter(o => {
             const name = String(o.Name || o.name || "").toLowerCase();
             const phone = String(o.contactNo || o.Phone || o.phone || "");
             const matchesSearch = name.includes(searchQuery.toLowerCase()) || phone.includes(searchQuery);
             if (!matchesSearch) return false;
-
-            // Date Range Filter
-            if (dateRange?.from) {
-                const wpDate = o["Whatsapp_1_Date"];
-                if (wpDate) {
-                    const d = new Date(wpDate);
-                    if (!isNaN(d.getTime())) {
-                        const from = startOfDay(new Date(dateRange.from));
-                        const to = endOfDay(new Date(dateRange.to || dateRange.from));
-                        if (d < from || d > to) return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
 
             // Reply Status Filter
             if (activeFilters.replyStatus.length > 0) {
@@ -570,7 +523,7 @@ export default function WhatsappChatPage() {
             const dateB = getOwnerLatestActivity(b);
             return dateB.getTime() - dateA.getTime();
         });
-    }, [ownerLeads, searchQuery, dateRange, activeFilters]);
+    }, [ownerLeads, searchQuery, activeFilters]);
 
     // --- Stats derived directly from filteredLeads/filteredOwners so metric card = sum of table rows ---
     const stats = useMemo(() => {
@@ -744,7 +697,6 @@ export default function WhatsappChatPage() {
 
 
 
-    const ownerPages = Math.ceil(filteredOwners.length / leadsPerPage);
     const paginatedOwners = filteredOwners.slice((currentPage - 1) * leadsPerPage, currentPage * leadsPerPage);
 
     return (
@@ -952,7 +904,7 @@ export default function WhatsappChatPage() {
                                                     }
                                                     const wpDate = owner["Whatsapp_1_Date"];
                                                     return (
-                                                        <tr key={owner.id || idx} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => {
+                                                        <tr key={`${owner.id || ''}-${owner.contactNo || owner.Phone || owner.phone || ''}-${idx}`} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => {
                                                             setSelectedLeadId(null);
                                                             setSelectedOwner(owner);
                                                         }}>

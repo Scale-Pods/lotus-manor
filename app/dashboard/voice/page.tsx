@@ -1,10 +1,10 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { Phone, Clock, DollarSign, TrendingUp, Timer, Users, Crown } from "lucide-react";
+import { Phone, Clock, TrendingUp, Timer, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LMLoader } from "@/components/lm-loader";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import {
     BarChart,
@@ -15,171 +15,51 @@ import {
     Tooltip,
     ResponsiveContainer,
     AreaChart,
-    Area
+    Area,
 } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { format, getHours, subDays } from "date-fns";
-import { calculateDuration, formatDuration } from "@/lib/utils";
+import { format } from "date-fns";
+import { formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
 export default function VoiceDashboardPage() {
-    // providerFilter: 'vapi' | 'elevenlabs'
     const [providerFilter, setProviderFilter] = useState("vapi");
-    const [stats, setStats] = useState({
-        totalCalls: 0,
-        totalDuration: 0,
-        avgDuration: 0,
-        totalCost: 0,
-        avgCost: 0,
-        successRate: 0,
-        completedCalls: 0,
-        characterCount: 0,
-        characterLimit: 0,
-        vapiBalance: 0,
-        lifetimeCostVapi: 0,
-        lifetimeCostEL: 0,
-        normalCalls: 0,
-        ownersCalls: 0,
-    });
-    const [dailyVolume, setDailyVolume] = useState<any[]>([]);
-    const [hourlyDistribution, setHourlyDistribution] = useState<any[]>([]);
-    const [loadingLocal, setLoadingLocal] = useState(false);
     const [dateRange, setDateRange] = useState<any>(undefined);
 
+    const { voiceMetrics, loadingVoiceMetrics, voiceBalance, refreshVoiceMetrics } = useData();
 
-    const { calls: globalCalls, loadingCalls, voiceBalance, refreshCalls } = useData();
+    const loading = loadingVoiceMetrics;
 
-    // Refresh on filter/date change
+    // Re-fetch server metrics whenever date range or provider filter changes
     useEffect(() => {
-        if (!refreshCalls) return;
-        refreshCalls({
+        refreshVoiceMetrics({
             from: dateRange?.from,
             to: dateRange?.to,
-            provider: providerFilter,
-            includeElevenLabs: providerFilter === 'elevenlabs'
+            includeElevenLabs: providerFilter === 'elevenlabs',
         });
-    }, [dateRange, providerFilter, refreshCalls]);
+    }, [dateRange, providerFilter, refreshVoiceMetrics]);
 
-    useEffect(() => {
-        if (voiceBalance) {
-            setStats(prev => ({
-                ...prev,
-                characterCount: voiceBalance.elevenlabs?.character_count || voiceBalance.character_count || 0,
-                characterLimit: voiceBalance.elevenlabs?.character_limit || voiceBalance.character_limit || 0,
-                vapiBalance: voiceBalance.vapi?.balance || 0
-            }));
-        }
-    }, [voiceBalance]);
+    const m = voiceMetrics;
 
-    const loading = loadingCalls;
+    // Format daily volume for the bar chart — convert YYYY-MM-DD to "MMM dd"
+    const dailyVolume = (m?.dailyVolume ?? []).map(d => ({
+        name: format(new Date(d.date + 'T00:00:00'), 'MMM dd'),
+        calls: d.calls,
+    }));
 
-    useEffect(() => {
-        // Calculate stats whenever globalCalls changes, even if still technically "loading"
-        // so that pre-fetched data from Master Dashboard shows up instantly.
-        if (globalCalls.length === 0 && loading) return;
-
-        let totalDuration = 0;
-        let totalCost = 0;
-        let completed = 0;
-        let successCount = 0;
-
-        const dayMap = new Map();
-        const hourMap = new Array(24).fill(0);
-
-        // Apply provider filter
-        const filteredCalls = globalCalls.filter((call: any) => {
-            if (providerFilter === 'vapi') return call.source === 'vapi';
-            if (providerFilter === 'elevenlabs') return call.source === 'elevenlabs';
-            return true;
-        });
-
-        let lifetimeCostVapiSum = 0;
-        let lifetimeCostELSum = 0;
-        let normalCallsCount = 0;
-        let ownersCallsCount = 0;
-
-        // Combined loop for efficiency
-        filteredCalls.forEach((call: any) => {
-            const status = (call.status || "").toLowerCase();
-            const vStatus = (call.vapiStatus || "").toLowerCase();
-            const startedAtDate = call.startedAt ? new Date(call.startedAt) : null;
-            const duration = call.durationSeconds || 0;
-
-            let cost = 0;
-            if (typeof call.cost === 'string') cost = parseFloat(call.cost.replace(/[^\d.]/g, '')) || 0;
-            else if (typeof call.cost === 'number') cost = call.cost;
-
-            // Lifetime Cost Tracking (provider specific within filtered set)
-            if (call.source === 'vapi') {
-                lifetimeCostVapiSum += (call.breakdown?.agent !== undefined) ? call.breakdown.agent : cost;
-                if (call.vapiAccount === 'owners') ownersCallsCount++;
-                else normalCallsCount++;
-            } else if (call.source === 'elevenlabs') {
-                lifetimeCostELSum += cost;
-            }
-
-            // Completion Logic (Consistent with Analytics Page)
-            const isCompleted = 
-                vStatus.includes("assistant-ended-call") || vStatus.includes("customer-ended-call") ||
-                (call.source === 'elevenlabs' && (status === 'done' || status === 'completed' || status === 'success'));
-
-            if (isCompleted || status === 'answered') {
-                successCount++;
-                if (isCompleted) completed++;
-            }
-
-            totalDuration += duration;
-            totalCost += cost;
-
-            if (startedAtDate) {
-                const dayKey = format(startedAtDate, 'yyyy-MM-dd');
-                const displayKey = format(startedAtDate, 'MMM dd');
-                if (!dayMap.has(dayKey)) dayMap.set(dayKey, { count: 0, display: displayKey });
-                dayMap.get(dayKey).count++;
-
-                const hour = getHours(startedAtDate);
-                hourMap[hour]++;
-            }
-        });
-
-        const totalCalls = filteredCalls.length;
-        const avgDuration = totalCalls > 0 ? totalDuration / totalCalls : 0;
-        const avgCost = totalCalls > 0 ? totalCost / totalCalls : 0;
-        const successRate = totalCalls > 0 ? (successCount / totalCalls) * 100 : 0;
-
-        setStats(prev => ({
-            ...prev,
-            totalCalls,
-            totalDuration,
-            avgDuration,
-            totalCost,
-            avgCost,
-            successRate,
-            completedCalls: completed,
-            lifetimeCostVapi: (voiceBalance?.vapi?.used !== undefined && voiceBalance?.vapi?.used !== 0) ? voiceBalance.vapi.used : lifetimeCostVapiSum,
-            lifetimeCostEL: lifetimeCostELSum,
-            normalCalls: normalCallsCount,
-            ownersCalls: ownersCallsCount,
+    // Hourly distribution — show every 3rd hour
+    const hourlyDistribution = (m?.hourlyDistribution ?? [])
+        .filter(h => h.hour % 3 === 0)
+        .map(h => ({
+            name: `${String(h.hour).padStart(2, '0')}:00`,
+            calls: h.calls,
         }));
 
-        const dailyData = Array.from(dayMap.entries())
-            .map(([dayKey, data]) => ({ dayKey, name: data.display, calls: data.count }))
-            .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
-
-        setDailyVolume(dailyData);
-
-        const hourlyData = hourMap.map((calls, hour) => ({
-            name: `${hour.toString().padStart(2, '0')}:00`,
-            calls
-        })).filter((_, i) => i % 3 === 0);
-
-        setHourlyDistribution(hourlyData);
-    }, [globalCalls, dateRange, providerFilter, loading]);
+    const normalCalls = providerFilter === 'vapi' ? (m?.normalCalls ?? 0) : 0;
+    const ownerCalls  = providerFilter === 'vapi' ? (m?.ownerCalls  ?? 0) : 0;
 
     return (
         <div className="flex flex-col gap-4 p-6 bg-slate-50/30 min-h-screen relative">
-            {/* Background refresh loader for consistency */}
             {loading && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/20 backdrop-blur-[1px] pointer-events-none">
                     <div className="bg-white/80 p-6 rounded-2xl shadow-xl border border-slate-100 flex flex-col items-center gap-3">
@@ -208,12 +88,11 @@ export default function VoiceDashboardPage() {
                     <Button
                         variant="outline"
                         className="flex items-center gap-2 border-slate-200 text-slate-600 hover:bg-slate-50 h-10"
-                        onClick={() => refreshCalls({
+                        onClick={() => refreshVoiceMetrics({
                             from: dateRange?.from,
                             to: dateRange?.to,
-                            provider: providerFilter,
                             includeElevenLabs: providerFilter === 'elevenlabs',
-                            force: true
+                            force: true,
                         })}
                         disabled={loading}
                     >
@@ -233,7 +112,7 @@ export default function VoiceDashboardPage() {
                         </div>
                         <div>
                             <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider">Normal Calls</p>
-                            <p className="text-xl font-bold text-blue-700">{stats.normalCalls.toLocaleString()}</p>
+                            <p className="text-xl font-bold text-blue-700">{normalCalls.toLocaleString()}</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-xl px-4 py-2">
@@ -242,7 +121,7 @@ export default function VoiceDashboardPage() {
                         </div>
                         <div>
                             <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Owner Leads</p>
-                            <p className="text-xl font-bold text-amber-700">{stats.ownersCalls.toLocaleString()}</p>
+                            <p className="text-xl font-bold text-amber-700">{ownerCalls.toLocaleString()}</p>
                         </div>
                     </div>
                 </div>
@@ -252,20 +131,19 @@ export default function VoiceDashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <MetricCard
                     title="Total Calls"
-                    value={`${stats.totalCalls} calls`}
+                    value={`${(m?.totalCalls ?? 0).toLocaleString()} calls`}
                     icon={<Phone className="h-5 w-5 text-slate-600" />}
                 />
                 <MetricCard
                     title="Total Duration"
-                    value={formatDuration(stats.totalDuration)}
+                    value={formatDuration(m?.totalDuration ?? 0)}
                     icon={<Clock className="h-5 w-5 text-slate-600" />}
                 />
                 <MetricCard
                     title="Average Duration"
-                    value={`${Math.round(stats.avgDuration)}s`}
+                    value={`${Math.round(m?.avgDuration ?? 0)}s`}
                     icon={<Timer className="h-5 w-5 text-slate-600" />}
                 />
-                
             </div>
 
             {/* Charts */}

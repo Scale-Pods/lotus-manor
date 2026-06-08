@@ -21,8 +21,8 @@ import {
     Building2,
     Users
 } from "lucide-react";
-import React, { useState, useEffect, useMemo } from "react";
-import { subDays, startOfDay, endOfDay } from "date-fns";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { subDays } from "date-fns";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -83,7 +83,7 @@ const parseMsg = (raw: any): { date: Date | null, content: string } => {
 };
 
 export default function WhatsappLeadsPage() {
-    const { leads: allLeads, loadingLeads } = useData();
+    const { leads: allLeads, loadingLeads, ownerLeads, loadingOwners, refreshOwners, refreshLeads } = useData();
     const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
     const loading = loadingLeads;
     const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
@@ -92,8 +92,6 @@ export default function WhatsappLeadsPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
     const [activeTab, setActiveTab] = useState<"leads" | "owners">("leads");
-    const [ownerLeads, setOwnerLeads] = useState<any[]>([]);
-    const [loadingOwners, setLoadingOwners] = useState(false);
 
     // Filter State
     const [dateRange, setDateRange] = useState<any>({
@@ -111,25 +109,46 @@ export default function WhatsappLeadsPage() {
 
     useEffect(() => {
         if (!loadingLeads) {
+            // Exclude master_leads (no WA data) and keep any lead with WA activity
             const whatsappLeads = allLeads.filter(l => {
                 const lead = l as any;
-                const wp1 = lead["W.P_1"];
-                return (wp1 && wp1 !== "" && wp1 !== "No");
+                if (lead.source_loop === "Master Leads") return false;
+                if (lead["W.P_1"] && lead["W.P_1"] !== "" && lead["W.P_1"] !== "No") return true;
+                if (lead["WP_Replied_track"] && String(lead["WP_Replied_track"]).toLowerCase() !== "no") return true;
+                for (let i = 1; i <= 12; i++) {
+                    if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
+                }
+                return false;
             });
             setLeads(whatsappLeads);
         }
     }, [allLeads, loadingLeads]);
 
+    // Refresh server data when date range changes
     useEffect(() => {
-        if (activeTab === "owners" && ownerLeads.length === 0) {
-            setLoadingOwners(true);
-            fetch("/api/owner-leads")
-                .then(res => res.json())
-                .then(data => setOwnerLeads(data.owner_data || []))
-                .catch(err => console.error("Owner fetch error:", err))
-                .finally(() => setLoadingOwners(false));
+        if (!dateRange?.from) return;
+        refreshLeads({ from: dateRange.from, to: dateRange.to || dateRange.from });
+        refreshOwners({ from: dateRange.from, to: dateRange.to || dateRange.from });
+    }, [dateRange, refreshLeads, refreshOwners]);
+
+    // Auto-expand to 90 days if the default 7-day window returns nothing
+    const didAutoExpand = useRef(false);
+    useEffect(() => {
+        if (loadingLeads || loadingOwners) return;
+        if (didAutoExpand.current) return;
+        if (allLeads.length === 0 && ownerLeads.length === 0) {
+            didAutoExpand.current = true;
+            setDateRange({ from: subDays(new Date(), 90), to: new Date() });
+        } else {
+            didAutoExpand.current = true;
         }
-    }, [activeTab, ownerLeads.length]);
+    }, [loadingLeads, loadingOwners, allLeads, ownerLeads]);
+
+    useEffect(() => {
+        if (activeTab === "owners" && ownerLeads.length === 0 && !loadingOwners) {
+            refreshOwners({ from: dateRange?.from, to: dateRange?.to });
+        }
+    }, [activeTab]);
 
     const filteredLeads = useMemo(() => {
         setCurrentPage(1); // Reset to first page on filter change
@@ -141,40 +160,7 @@ export default function WhatsappLeadsPage() {
 
             if (!matchesSearch) return false;
 
-            // Date range filter using W.P_1 TS specifically
-            const parseWPStamp = (tsRaw: any): Date | null => {
-                if (!tsRaw || !tsRaw.includes(' - ')) return null;
-                const parts = tsRaw.split(' - ');
-                const datePart = parts[parts.length - 1].trim(); 
-                const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                if (!match) return null;
-                // DD/MM/YYYY
-                const d = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
-                return isNaN(d.getTime()) ? null : d;
-            };
-
-            if (dateRange.from) {
-                const wp1 = (l as any)["W.P_1"];
-                const wp1Ts = (l as any)["W.P_1 TS"];
-                
-                // Priority: parse date from content, fallback to W.P_1 TS
-                let reachoutDate = parseMsg(wp1).date;
-                if (!reachoutDate && wp1Ts && wp1Ts.includes(' - ')) {
-                    const parts = wp1Ts.split(' - ');
-                    const datePart = parts[parts.length - 1].trim();
-                    const match = datePart.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-                    if (match) {
-                        reachoutDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
-                    }
-                }
-                
-                if (!reachoutDate) return false; 
-
-                const fromDate = startOfDay(new Date(dateRange.from));
-                const toDate = dateRange.to ? endOfDay(new Date(dateRange.to)) : endOfDay(new Date(fromDate));
-
-                if (reachoutDate < fromDate || reachoutDate > toDate) return false;
-            }
+            // Date scoping is handled server-side. No client date filter here.
 
             // Reply status filter
             const wtR = (l as any).WP_Replied_track;
@@ -244,17 +230,7 @@ export default function WhatsappLeadsPage() {
                                 phone.includes(searchQuery);
             if (!matchesSearch) return false;
 
-            if (dateRange.from) {
-                const wpDateStr = o["Whatsapp_1_Date"];
-                if (wpDateStr) {
-                    const wpDate = new Date(wpDateStr);
-                    const fromDate = startOfDay(new Date(dateRange.from));
-                    const toDate = dateRange.to ? endOfDay(new Date(dateRange.to)) : endOfDay(new Date(fromDate));
-                    if (wpDate < fromDate || wpDate > toDate) return false;
-                } else {
-                    return false;
-                }
-            }
+            // Date scoping is handled server-side. No client date filter here.
 
             const wtR = o["WTS_Reply_Track"];
             let hasReplied = false;
