@@ -225,7 +225,7 @@ const getOwnerLatestActivity = (o: any) => {
 };
 
 // Fetch WA-specific data from the dedicated endpoint (filters by WA TS columns, not Created At)
-async function fetchWALeadsData(from: Date, to: Date): Promise<{ nr_wf: any[]; followup: any[]; owners: any[] }> {
+async function fetchWALeadsData(from: Date, to: Date): Promise<{ nr_wf: any[]; followup: any[]; nurture: any[]; owners: any[] }> {
     const { startOfDay, endOfDay } = await import("date-fns");
     const fromISO = startOfDay(from).toISOString();
     const toISO = endOfDay(to).toISOString();
