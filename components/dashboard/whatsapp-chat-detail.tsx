@@ -189,26 +189,28 @@ export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAp
                 const msg = parseMsg(raw, `W.P_${i}`, 'bot', seq++);
                 if (msg) {
                     (msg as any).tsStatus = tsRaw;
-                    // If content had no embedded timestamp, fall back to the TS field date
                     if (!msg.date) msg.date = parseTsDate(tsRaw);
                     timeline.push(msg);
                 }
             }
 
-            // Bot follow-up after initial reply
-            const initialFollowUpRaw = f["W.P_FollowUp"] || f.stage_data?.["WhatsApp FollowUp"];
-            const initialFollowUpMsg = parseMsg(initialFollowUpRaw, "W.P_FollowUp", "bot", seq++);
-            if (initialFollowUpMsg) timeline.push(initialFollowUpMsg);
-
             // Paired reply / follow-up rounds (up to 10)
+            // DB columns use spaces: "W.P_Replied 1", "W.P_FollowUp 1"
+            // RPC aliases them with underscores: "W.P_Replied_1", "W.P_FollowUp_1"
+            // Try both forms so this works before and after migration 007.
             for (let i = 1; i <= 10; i++) {
-                const rRaw = f[`W.P_Replied_${i}`];
-                const rMsg = parseMsg(rRaw, `W.P_Replied_${i}`, 'user', seq++);
+                const rRaw = f[`W.P_Replied_${i}`] || f[`W.P_Replied ${i}`];
+                const rMsg = parseMsg(rRaw, `W.P_Replied ${i}`, 'user', seq++);
                 if (rMsg) timeline.push(rMsg);
 
-                const fRaw = f[`W.P_FollowUp_${i}`];
-                const fMsg = parseMsg(fRaw, `W.P_FollowUp_${i}`, 'bot', seq++);
-                if (fMsg) timeline.push(fMsg);
+                const fRaw = f[`W.P_FollowUp_${i}`] || f[`W.P_FollowUp ${i}`];
+                const fTsRaw: string | null = f[`W.P_FollowUp_TS${i}`] || null;
+                const fMsg = parseMsg(fRaw, `W.P_FollowUp ${i}`, 'bot', seq++);
+                if (fMsg) {
+                    (fMsg as any).tsStatus = fTsRaw;
+                    if (!fMsg.date) fMsg.date = parseTsDate(fTsRaw);
+                    timeline.push(fMsg);
+                }
             }
 
             // No date sorting — insertion sequence IS the correct conversation order:

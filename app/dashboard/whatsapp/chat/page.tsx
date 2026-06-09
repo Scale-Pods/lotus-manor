@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/tooltip";
 import { WhatsAppChatDetail } from "@/components/dashboard/whatsapp-chat-detail";
 import { OwnerChatDetail } from "@/components/dashboard/owner-chat-detail";
-import { ConsolidatedLead } from "@/lib/leads-utils";
 import {
     Dialog,
     DialogContent,
@@ -31,7 +30,6 @@ import {
     Building2
 } from "lucide-react";
 import { LMLoader } from "@/components/lm-loader";
-import { useData } from "@/context/DataContext";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { subDays, startOfDay, endOfDay } from "date-fns";
 import { ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
@@ -149,7 +147,14 @@ const getMsgDateWithFallback = (lead: any, msgKey: string, tsKey?: string) => {
 };
 
 const getLeadLatestActivity = (lead: any) => {
-    let latestDate = new Date(lead.created_at);
+    // WA endpoint uses "Created At" (DB column name); consolidated leads use created_at
+    const createdRaw = lead["Created At"] || lead.created_at;
+    let latestDate = createdRaw ? new Date(createdRaw) : new Date(0);
+    // wp1_parsed_date is the most reliable WA send date — use it as the floor
+    if (lead.wp1_parsed_date) {
+        const d = new Date(lead.wp1_parsed_date);
+        if (!isNaN(d.getTime()) && d > latestDate) latestDate = d;
+    }
 
     // Check all bot messages (W.P_1 - W.P_12)
     for (let i = 1; i <= 12; i++) {
@@ -179,14 +184,22 @@ const getLeadLatestActivity = (lead: any) => {
     return latestDate;
 };
 
-const getOwnerLatestActivity = (o: any) => {
-    let latest = o.createdOn ? new Date(o.createdOn) : (o.created_at ? new Date(o.created_at) : new Date(0));
-    
-    // Check Whatsapp_1_Date
-    if (o.Whatsapp_1_Date) {
-        const d = new Date(o.Whatsapp_1_Date);
-        if (!isNaN(d.getTime()) && d > latest) latest = d;
+// Extract ISO timestamp embedded in Whatsapp_1 message text, fall back to Whatsapp_1_Date
+const extractOwnerWADate = (o: any): Date | null => {
+    const text = o["Whatsapp_1"];
+    if (text) {
+        const m = String(text).match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s\n]*)/);
+        if (m) { const d = new Date(m[1]); if (!isNaN(d.getTime())) return d; }
     }
+    const dateField = o["Whatsapp_1_Date"];
+    if (dateField) { const d = new Date(dateField); if (!isNaN(d.getTime())) return d; }
+    return null;
+};
+
+const getOwnerLatestActivity = (o: any) => {
+    // Start from the WA send date (extracted from message text) or createdOn
+    const waDate = extractOwnerWADate(o);
+    let latest = waDate || (o.createdOn ? new Date(o.createdOn) : new Date(0));
     
     // Check WTS_Reply_Track for timestamp
     if (o.WTS_Reply_Track) {
@@ -211,11 +224,25 @@ const getOwnerLatestActivity = (o: any) => {
     return latest;
 };
 
+// Fetch WA-specific data from the dedicated endpoint (filters by WA TS columns, not Created At)
+async function fetchWALeadsData(from: Date, to: Date): Promise<{ nr_wf: any[]; followup: any[]; owners: any[] }> {
+    const { startOfDay, endOfDay } = await import("date-fns");
+    const fromISO = startOfDay(from).toISOString();
+    const toISO = endOfDay(to).toISOString();
+    const res = await fetch(`/api/whatsapp-leads?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
 export default function WhatsappChatPage() {
-    const { leads: allLeads, loadingLeads, ownerLeads, loadingOwners, refreshLeads, refreshOwners } = useData();
-    const [leads, setLeads] = useState<ConsolidatedLead[]>([]);
-    const loading = loadingLeads;
+    const [leads, setLeads] = useState<any[]>([]);
+    const [waOwners, setWaOwners] = useState<any[]>([]);
+    const [loadingWA, setLoadingWA] = useState(true);
+    const loading = loadingWA;
     const [searchQuery, setSearchQuery] = useState("");
+    // Store the full lead object so WhatsAppChatDetail gets it via initialLead
+    // (it would otherwise search DataContext.allLeads which doesn't contain WA-page leads)
+    const [selectedLeadObj, setSelectedLeadObj] = useState<any | null>(null);
     const getStandardTemplates = (loops: string[]) => {
         const result: any[] = [];
         if (loops.includes("Intro")) {
@@ -265,27 +292,23 @@ export default function WhatsappChatPage() {
         to: new Date(),
     });
 
-    // Track whether we've already done the fallback expansion
-    const didAutoExpand = useRef(false);
-
-    // Re-fetch server data when date range changes
+    // Re-fetch from the WA-specific endpoint when date range changes.
+    // This filters by "W.P_1 TS" (nr_wf), "W.P_1  TS" (followup), and "Whatsapp_1_Date" (owners)
+    // so the list is correct regardless of "Created At".
     useEffect(() => {
         if (!dateRange?.from) return;
-        refreshLeads({ from: dateRange.from, to: dateRange.to || dateRange.from });
-        refreshOwners({ from: dateRange.from, to: dateRange.to || dateRange.from });
-    }, [dateRange, refreshLeads, refreshOwners]);
-
-    // Auto-expand to 90 days on first load if the 7-day window returns no leads/owners
-    useEffect(() => {
-        if (loadingLeads || loadingOwners) return;
-        if (didAutoExpand.current) return;
-        if (allLeads.length === 0 && ownerLeads.length === 0) {
-            didAutoExpand.current = true;
-            setDateRange({ from: subDays(new Date(), 90), to: new Date() });
-        } else {
-            didAutoExpand.current = true;
-        }
-    }, [loadingLeads, loadingOwners, allLeads, ownerLeads]);
+        setLoadingWA(true);
+        fetchWALeadsData(dateRange.from, dateRange.to || dateRange.from)
+            .then(data => {
+                const nr_wf = (data.nr_wf || []).map((l: any) => ({ ...l, source_loop: "Intro" }));
+                const followup = (data.followup || []).map((l: any) => ({ ...l, source_loop: "Follow Up" }));
+                const nurture = (data.nurture || []).map((l: any) => ({ ...l, source_loop: "Nurture" }));
+                setLeads([...nr_wf, ...followup, ...nurture]);
+                setWaOwners(data.owners || []);
+            })
+            .catch(err => console.error("[WA chat]", err))
+            .finally(() => setLoadingWA(false));
+    }, [dateRange]);
 
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
@@ -328,12 +351,12 @@ export default function WhatsappChatPage() {
         
         if (initialSelectedId) {
             if (initialTab === 'owners') {
-                // Find in global ownerLeads
-                if (ownerLeads.length > 0) {
-                    const found = ownerLeads.find(o => 
-                        String(o.id) === initialSelectedId || 
-                        String(o.contactNo) === initialSelectedId || 
-                        String(o.Phone) === initialSelectedId || 
+                // Find in waOwners (already fetched)
+                if (waOwners.length > 0) {
+                    const found = waOwners.find(o =>
+                        String(o.id) === initialSelectedId ||
+                        String(o.contactNo) === initialSelectedId ||
+                        String(o.Phone) === initialSelectedId ||
                         String(o.phone) === initialSelectedId
                     );
                     if (found) {
@@ -348,7 +371,7 @@ export default function WhatsappChatPage() {
         } else {
             initialProcessed.current = true;
         }
-    }, [initialSelectedId, initialTab, ownerLeads]);
+    }, [initialSelectedId, initialTab, waOwners]);
 
     // Filter State
     const [pendingFilters, setPendingFilters] = useState<{
@@ -375,33 +398,16 @@ export default function WhatsappChatPage() {
         templates: []
     });
 
-    useEffect(() => {
-        if (loadingLeads) return;
-        // Filter to leads that have any WA activity. The server RPC already filters by date,
-        // so we only need to exclude leads that have absolutely no WA columns filled.
-        const wpLeads = allLeads.filter(l => {
-            const lead = l as any;
-            // Exclude master_leads entries (they have no WA message columns)
-            if (lead.source_loop === "Master Leads") return false;
-            // Keep any lead with a W.P_1 value or WP_Replied_track
-            if (lead["W.P_1"] && lead["W.P_1"] !== "No") return true;
-            if (lead["WP_Replied_track"] && String(lead["WP_Replied_track"]).toLowerCase() !== "no") return true;
-            if (lead.whatsapp_replied && lead.whatsapp_replied !== "No" && lead.whatsapp_replied !== "none") return true;
-            for (let i = 1; i <= 12; i++) {
-                if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) return true;
-            }
-            return false;
-        });
-        setLeads(wpLeads);
-    }, [allLeads, loadingLeads]);
 
     const filteredLeads = useMemo(() => {
         return leads.filter(l => {
             const lead = l as any;
-            const matchesSearch = String(lead.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-                String(lead.phone || "").includes(searchQuery);
+            // WA endpoint returns "Name" / "Phone" (uppercase keys from DB columns)
+            const name = String(lead["Name"] || lead.name || "").toLowerCase();
+            const phone = String(lead["Phone"] || lead.phone || "");
+            const matchesSearch = name.includes(searchQuery.toLowerCase()) || phone.includes(searchQuery);
 
-            const wtReplied = lead.WP_Replied_track;
+            const wtReplied = lead["WP_Replied_track"] || lead.WP_Replied_track;
             let hasReplied = false;
             if (wtReplied && String(wtReplied).trim() !== "") {
                 const s = String(wtReplied).trim().toLowerCase();
@@ -435,16 +441,16 @@ export default function WhatsappChatPage() {
                     const match = tName.match(/Message\s*#?\s*(\d+)/i);
                     const index = match ? parseInt(match[1]) : null;
                     if (!index) return false;
-                    
+
                     const isIntro = tName.toLowerCase().includes("cold") || tName.toLowerCase().includes("intro");
                     const isFollowUp = tName.toLowerCase().includes("follow-up") || tName.toLowerCase().includes("followup");
                     const isNurture = tName.toLowerCase().includes("nurture");
 
                     if (isIntro) {
-                        return !!lead[`W.P_${index}`] || !!lead.stage_data?.[`WhatsApp ${index}`];
+                        return !!lead[`W.P_${index}`];
                     }
                     if (isFollowUp) {
-                        return !!lead[`W.P_FollowUp_${index}`] || (index === 1 && !!lead[`W.P_FollowUp`]);
+                        return !!lead[`W.P_FollowUp ${index}`] || !!lead[`W.P_FollowUp_${index}`];
                     }
                     if (isNurture) {
                         const inWP = index <= 6 && (!!lead[`W.P_${index}`] || !!lead.stage_data?.[`WhatsApp ${index}`]);
@@ -454,21 +460,21 @@ export default function WhatsappChatPage() {
                     return false;
                 });
 
-            // Date scoping is handled server-side via the RPC (filters by Created At).
-            // No client-side date filter here — it causes mismatches when message
-            // timestamps differ from Created At.
             return matchesSearch && matchesReplyStatus && matchesLoop && matchesMessageStatus && matchesTemplate;
         }).sort((a, b) => {
-            const dateA = getLeadLatestActivity(a);
-            const dateB = getLeadLatestActivity(b);
-            return dateB.getTime() - dateA.getTime();
+            // Sort by latest_wp_date from server (most recent in-range message date).
+            // Falls back to wp1_parsed_date then Created At.
+            const getDate = (l: any) => {
+                const raw = l.latest_wp_date || l.wp1_parsed_date || l["Created At"] || l.created_at;
+                return raw ? new Date(raw).getTime() : 0;
+            };
+            return getDate(b) - getDate(a);
         });
     }, [leads, searchQuery, activeFilters, dateRange]);
 
-    // Owner filtering — server already filters by createdOn range, so we only apply
-    // search and reply/status/template filters client-side
+    // Owner filtering — waOwners already pre-filtered by Whatsapp_1_Date on the server
     const filteredOwners = useMemo(() => {
-        return ownerLeads.filter(o => {
+        return waOwners.filter(o => {
             const name = String(o.Name || o.name || "").toLowerCase();
             const phone = String(o.contactNo || o.Phone || o.phone || "");
             const matchesSearch = name.includes(searchQuery.toLowerCase()) || phone.includes(searchQuery);
@@ -501,16 +507,10 @@ export default function WhatsappChatPage() {
                     const isFollowUp = tName.toLowerCase().includes("follow-up") || tName.toLowerCase().includes("followup");
                     const isNurture = tName.toLowerCase().includes("nurture");
 
-                    if (isIntro) {
-                        return !!o[`Whatsapp_${index}`];
-                    }
-                    if (isFollowUp) {
-                        return !!o[`Bot_Replied_${index}`];
-                    }
+                    if (isIntro) return !!o[`Whatsapp_${index}`];
+                    if (isFollowUp) return !!o[`Bot_Replied_${index}`];
                     if (isNurture) {
-                        const inW = index <= 6 && !!o[`Whatsapp_${index}`];
-                        const inB = index <= 10 && !!o[`Bot_Replied_${index}`];
-                        return inW || inB;
+                        return (index <= 6 && !!o[`Whatsapp_${index}`]) || (index <= 10 && !!o[`Bot_Replied_${index}`]);
                     }
                     return false;
                 });
@@ -523,7 +523,7 @@ export default function WhatsappChatPage() {
             const dateB = getOwnerLatestActivity(b);
             return dateB.getTime() - dateA.getTime();
         });
-    }, [ownerLeads, searchQuery, activeFilters]);
+    }, [waOwners, searchQuery, activeFilters]);
 
     // --- Stats derived directly from filteredLeads/filteredOwners so metric card = sum of table rows ---
     const stats = useMemo(() => {
@@ -587,7 +587,7 @@ export default function WhatsappChatPage() {
         } else {
             // Owner Stats
             filteredOwners.forEach(o => {
-                const wpDate = o["Whatsapp_1_Date"] ? new Date(o["Whatsapp_1_Date"]) : null;
+                const wpDate = extractOwnerWADate(o);
                 if (!isWithin(wpDate)) return;
 
                 if (o["Whatsapp_1"]) {
@@ -701,7 +701,7 @@ export default function WhatsappChatPage() {
 
     return (
         <div className="space-y-6 pb-10 relative min-h-[500px]">
-            {(activeTab === "leads" ? loading : loadingOwners) && <LMLoader />}
+            {(activeTab === "leads" ? loading : loadingWA) && <LMLoader />}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900">WhatsApp Chats</h1>
@@ -809,9 +809,9 @@ export default function WhatsappChatPage() {
                 <div className="lg:col-span-3 space-y-4">
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                            <MetricCard title="Messages Sent" value={(activeTab === "leads" ? loading : loadingOwners) ? "..." : stats.sentCount.toLocaleString()} desc="Total outgoing pulses" icon={Send} />
-                            <MetricCard title="Unique Msg Sent" value={(activeTab === "leads" ? loading : loadingOwners) ? "..." : stats.uniqueSentCount.toLocaleString()} desc="Unique entities contacted" icon={Users} />
-                            <MetricCard title="Total Replies" value={(activeTab === "leads" ? loading : loadingOwners) ? "..." : stats.repliedCount.toLocaleString()} desc={`${stats.responseRate}% Response Rate`} icon={MessageSquare} />
+                            <MetricCard title="Messages Sent" value={(activeTab === "leads" ? loading : loadingWA) ? "..." : stats.sentCount.toLocaleString()} desc="Total outgoing pulses" icon={Send} />
+                            <MetricCard title="Unique Msg Sent" value={(activeTab === "leads" ? loading : loadingWA) ? "..." : stats.uniqueSentCount.toLocaleString()} desc="Unique entities contacted" icon={Users} />
+                            <MetricCard title="Total Replies" value={(activeTab === "leads" ? loading : loadingWA) ? "..." : stats.repliedCount.toLocaleString()} desc={`${stats.responseRate}% Response Rate`} icon={MessageSquare} />
                         </div>
                         <Card className="border-slate-200 shadow-sm bg-white">
                             <CardContent className="p-4 space-y-4">
@@ -859,12 +859,24 @@ export default function WhatsappChatPage() {
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {paginatedLeads.map((lead) => (
-                                                    <CustomerRow key={lead.id} lead={lead} onClick={() => {
-                                                        setSelectedOwner(null);
-                                                        setSelectedLeadId(lead.id);
-                                                    }} />
-                                                ))}
+                                                {paginatedLeads.map((lead, idx) => {
+                                                    const leadId = lead["Lead ID"] || lead.id || String(idx);
+                                                    return (
+                                                        <CustomerRow key={`${leadId}-${idx}`} lead={lead} onClick={() => {
+                                                            setSelectedOwner(null);
+                                                            // Normalize DB-column-cased keys to the shape WhatsAppChatDetail expects
+                                                            setSelectedLeadObj({
+                                                                ...lead,
+                                                                id: leadId,
+                                                                name: lead["Name"] || lead.name || "",
+                                                                phone: lead["Phone"] || lead.phone || "",
+                                                                email: lead["Email"] || lead.email || "",
+                                                                source_loop: lead.source_loop,
+                                                            });
+                                                            setSelectedLeadId(leadId);
+                                                        }} />
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </TooltipProvider>
@@ -872,7 +884,7 @@ export default function WhatsappChatPage() {
                             </>
                         ) : (
                             <>
-                                {loadingOwners ? (
+                                {loadingWA ? (
                                     <div className="p-10 text-center text-slate-500 flex flex-col items-center gap-2">
                                         <RefreshCw className="h-6 w-6 animate-spin text-amber-500" />
                                         Loading owner chats...
@@ -902,7 +914,7 @@ export default function WhatsappChatPage() {
                                                         if (owner[`User_Replied_${i}`]) msgCount++;
                                                         if (owner[`Bot_Replied_${i}`]) msgCount++;
                                                     }
-                                                    const wpDate = owner["Whatsapp_1_Date"];
+                                                    const wpDate = extractOwnerWADate(owner);
                                                     return (
                                                         <tr key={`${owner.id || ''}-${owner.contactNo || owner.Phone || owner.phone || ''}-${idx}`} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => {
                                                             setSelectedLeadId(null);
@@ -928,7 +940,7 @@ export default function WhatsappChatPage() {
                                                             </td>
                                                             <td className="px-4 py-3 text-center font-bold text-slate-700">{msgCount}</td>
                                                             <td className="px-4 py-3 text-right text-slate-500 text-xs text-nowrap">
-                                                                {wpDate ? new Date(wpDate).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : "—"}
+                                                                {wpDate ? wpDate.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : "—"}
                                                             </td>
                                                         </tr>
                                                     );
@@ -963,10 +975,16 @@ export default function WhatsappChatPage() {
             </div>
 
             {/* Lead Chat Dialog */}
-            <Dialog open={!!selectedLeadId} onOpenChange={(open) => !open && setSelectedLeadId(null)}>
+            <Dialog open={!!selectedLeadId} onOpenChange={(open) => { if (!open) { setSelectedLeadId(null); setSelectedLeadObj(null); } }}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden p-6 gap-0">
                     <DialogHeader className="sr-only"><DialogTitle>WhatsApp Chat Detail</DialogTitle></DialogHeader>
-                    {selectedLeadId && <WhatsAppChatDetail customerId={selectedLeadId} onClose={() => setSelectedLeadId(null)} />}
+                    {selectedLeadId && (
+                        <WhatsAppChatDetail
+                            customerId={selectedLeadId}
+                            initialLead={selectedLeadObj}
+                            onClose={() => { setSelectedLeadId(null); setSelectedLeadObj(null); }}
+                        />
+                    )}
                 </DialogContent>
             </Dialog>
 
@@ -1031,14 +1049,22 @@ function FilterOption({ id, label, checked, onCheckedChange }: any) {
     );
 }
 
-function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onClick: () => void }) {
+function CustomerRow({ lead: leadRaw, onClick }: { lead: any; onClick: () => void }) {
     const lead = leadRaw as any;
-    const latestDate = getLeadLatestActivity(lead);
+    // latest_wp_date = most recent WP message date that falls within the selected range
+    // (computed by the RPC in migration 006). Falls back to wp1_parsed_date then Created At.
+    const latestWpRaw = lead.latest_wp_date || lead.wp1_parsed_date;
+    const createdRaw = lead["Created At"] || lead.created_at;
+    const latestDate = latestWpRaw ? new Date(latestWpRaw) : (createdRaw ? new Date(createdRaw) : new Date(0));
+    // WA endpoint returns "Name"/"Phone" (DB column case); fallback to lowercase for consolidated leads
+    const displayName = lead["Name"] || lead.name || "—";
+    const displayPhone = lead["Phone"] || lead.phone || "—";
 
     let sentCount = 0;
-    for (let i = 1; i <= 12; i++) { if (lead[`W.P_${i}`] || lead.stage_data?.[`WhatsApp ${i}`]) sentCount++; }
-    if (lead["W.P_FollowUp"] || lead.stage_data?.["WhatsApp FollowUp"]) sentCount++;
-    for (let i = 1; i <= 10; i++) { if (lead[`W.P_FollowUp_${i}`]) sentCount++; }
+    for (let i = 1; i <= 12; i++) { if (lead[`W.P_${i}`]) sentCount++; }
+    // "W.P_FollowUp" aliased from "W.P_FollowUp 1" by the RPC
+    if (lead["W.P_FollowUp"]) sentCount++;
+    for (let i = 1; i <= 10; i++) { if (lead[`W.P_FollowUp ${i}`] || lead[`W.P_FollowUp_${i}`]) sentCount++; }
 
     // Collect all available statuses
     const allStatuses = [];
@@ -1050,8 +1076,7 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
     // Just show the last 2 to keep UI clean, in chronological order
     const displayStatuses = allStatuses.slice(-2);
 
-    // Status now reads from WP_Replied_track (sourced from nr_wf / followup / nurture based on loop)
-    const wtRepliedTrack = lead.WP_Replied_track;
+    const wtRepliedTrack = lead["WP_Replied_track"] || lead.WP_Replied_track;
     let hasReplied = false;
     if (wtRepliedTrack && String(wtRepliedTrack).trim() !== "") {
         const s = String(wtRepliedTrack).trim().toLowerCase();
@@ -1071,8 +1096,8 @@ function CustomerRow({ lead: leadRaw, onClick }: { lead: ConsolidatedLead; onCli
         <tr className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={onClick}>
             <td className="px-4 py-3">
                 <div className="block">
-                    <div className="font-bold text-slate-900 group-hover:text-emerald-700">{lead.name}</div>
-                    <div className="text-xs text-slate-500">{lead.phone}</div>
+                    <div className="font-bold text-slate-900 group-hover:text-emerald-700">{displayName}</div>
+                    <div className="text-xs text-slate-500">{displayPhone}</div>
                 </div>
             </td>
             <td className="px-4 py-3 text-center">

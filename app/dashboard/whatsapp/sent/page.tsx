@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import React, { useState, useEffect } from "react";
+import { subDays } from "date-fns";
 import { consolidateLeads } from "@/lib/leads-utils";
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
 
 export default function WhatsappSentPage() {
     const { leads: allLeads, loadingLeads } = useData();
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({ from: subDays(new Date(), 7), to: new Date() });
     const [messages, setMessages] = useState<any[]>([]);
     const loading = loadingLeads;
     const [searchQuery, setSearchQuery] = useState("");

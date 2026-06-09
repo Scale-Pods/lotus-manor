@@ -18,13 +18,13 @@ import {
     Area,
 } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { formatDuration } from "@/lib/utils";
 import { useData } from "@/context/DataContext";
 
 export default function VoiceDashboardPage() {
     const [providerFilter, setProviderFilter] = useState("vapi");
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({ from: subDays(new Date(), 7), to: new Date() });
 
     const { voiceMetrics, loadingVoiceMetrics, voiceBalance, refreshVoiceMetrics } = useData();
 

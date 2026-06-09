@@ -41,7 +41,6 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { subDays } from "date-fns";
-import { calculateDuration, formatDuration } from "@/lib/utils";
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
 import { format } from "date-fns";
@@ -56,8 +55,6 @@ export default function MasterDashboard() {
 
     const {
         leads: allLeads,
-        calls,
-        loadingCalls,
         masterMetrics,
         loadingMasterMetrics,
         refreshMasterMetrics,
@@ -73,20 +70,6 @@ export default function MasterDashboard() {
     }, [dateRange, refreshMasterMetrics]);
 
     const loading = loadingMasterMetrics;
-
-    // Voice stats still from raw call logs (need duration arithmetic)
-    const voiceStats = useMemo(() => {
-        if (loadingCalls || !Array.isArray(calls)) return { normalCalls: 0, ownerCalls: 0, totalSeconds: 0 };
-        let normalCalls = 0, ownerCalls = 0, totalSeconds = 0;
-        calls.forEach(call => {
-            if (call.source === 'vapi') {
-                if (call.vapiAccount === 'owners') ownerCalls++;
-                else normalCalls++;
-            }
-            totalSeconds += calculateDuration(call);
-        });
-        return { normalCalls, ownerCalls, totalSeconds };
-    }, [calls, loadingCalls]);
 
     // Replies modal — still needs raw leads for the detail view
     const replyLeads = useMemo(() => {
@@ -114,7 +97,7 @@ export default function MasterDashboard() {
     const realServiceDistribution = [
         { name: 'Email', value: 0, color: '#3b82f6' },
         { name: 'WhatsApp', value: totalWaReachouts, color: '#10b981' },
-        { name: 'Voice', value: voiceStats.normalCalls, color: '#8b5cf6' },
+        { name: 'Voice', value: m?.totalVoiceCalls ?? 0, color: '#8b5cf6' },
     ];
 
     const router = useRouter();
@@ -169,8 +152,8 @@ export default function MasterDashboard() {
                 />
                 <MetricCard
                     title="Total Voice Calls"
-                    value={loadingCalls ? "..." : voiceStats.normalCalls.toLocaleString()}
-                    change={formatDuration(voiceStats.totalSeconds)}
+                    value={loading ? "..." : (m?.totalVoiceCalls ?? 0).toLocaleString()}
+                    change="Real-time"
                     isUp={true}
                     icon={<Activity className="h-6 w-6" />}
                     color="text-orange-600"
@@ -235,7 +218,7 @@ export default function MasterDashboard() {
                     />
                     <MetricCard
                         title="Total Voice Calls (owner)"
-                        value={loadingCalls ? "..." : voiceStats.ownerCalls.toLocaleString()}
+                        value={loading ? "..." : (m?.ownerVoiceCalls ?? 0).toLocaleString()}
                         change="Real-time"
                         isUp={true}
                         icon={<Phone className="h-6 w-6" />}

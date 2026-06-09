@@ -2,21 +2,6 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
-export interface MasterMetrics {
-    totalLeads: number;
-    oldestLeadDate: string | null;
-    totalWaReachouts: number;
-    totalWaReplies: number;
-    totalVoiceCalls: number;
-    ownerVoiceCalls: number;
-    normalVapiCost: number;
-    ownerVapiCost: number;
-    leadsDaily: { date: string; leads: number }[];
-    totalOwnerLeads: number;
-    ownerWaReachouts: number;
-    ownerWaReplies: number;
-}
-
 function endOfDay(iso: string): string {
     const d = new Date(iso);
     if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0) {
@@ -26,6 +11,10 @@ function endOfDay(iso: string): string {
 }
 
 export async function GET(req: Request) {
+    const { searchParams } = new URL(req.url);
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
+
     const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim().replace(/\/$/, '');
     const secretKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 
@@ -33,15 +22,11 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: 'Config missing' }, { status: 500 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const fromParam = searchParams.get('from');
-    const toParam = searchParams.get('to');
-
-    const fromISO = fromParam || new Date(Date.now() - 7 * 86400000).toISOString();
-    const toISO = toParam ? endOfDay(toParam) : endOfDay(new Date().toISOString());
+    const fromISO = from || new Date(Date.now() - 7 * 86400000).toISOString();
+    const toISO = to ? endOfDay(to) : endOfDay(new Date().toISOString());
 
     try {
-        const res = await fetch(`${supabaseUrl}/rest/v1/rpc/get_master_metrics`, {
+        const res = await fetch(`${supabaseUrl}/rest/v1/rpc/get_wa_leads_list`, {
             method: 'POST',
             headers: {
                 apikey: secretKey,
@@ -55,20 +40,29 @@ export async function GET(req: Request) {
 
         if (!res.ok) {
             const err = await res.text();
-            console.error('[master-metrics] RPC error:', err);
+            console.error('[whatsapp-leads] RPC error:', err);
             return NextResponse.json({ error: 'RPC failed', detail: err }, { status: 502 });
         }
 
-        const metrics: MasterMetrics = await res.json();
-        return new NextResponse(JSON.stringify(metrics), {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'no-store, no-cache, must-revalidate',
-            },
-        });
+        const data = await res.json();
+
+        const nr_wf = Array.isArray(data.nr_wf) ? data.nr_wf : [];
+        const followup = Array.isArray(data.followup) ? data.followup : [];
+        const nurture = Array.isArray(data.nurture) ? data.nurture : [];
+        const owners = Array.isArray(data.owners) ? data.owners : [];
+
+        return new NextResponse(
+            JSON.stringify({ nr_wf, followup, nurture, owners }),
+            {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-store, no-cache, must-revalidate',
+                },
+            }
+        );
     } catch (err: any) {
-        console.error('[master-metrics] fetch error:', err);
+        console.error('[whatsapp-leads] fetch error:', err);
         return NextResponse.json({ error: 'Fetch failed' }, { status: 500 });
     }
 }

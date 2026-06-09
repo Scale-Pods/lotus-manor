@@ -11,6 +11,10 @@ export interface MasterMetrics {
     oldestLeadDate: string | null;
     totalWaReachouts: number;
     totalWaReplies: number;
+    totalVoiceCalls: number;
+    ownerVoiceCalls: number;
+    normalVapiCost: number;
+    ownerVapiCost: number;
     leadsDaily: { date: string; leads: number }[];
     totalOwnerLeads: number;
     ownerWaReachouts: number;
@@ -358,6 +362,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }, [fetchLeads, fetchCalls, fetchOwners, fetchBalances, fetchVoiceMetrics, fetchMasterMetrics, fetchWhatsappMetrics]);
 
     const router = useRouter();
+
+    // Track whether we've already done the one-time 90-day fallback
+    const didAutoExpand = useRef(false);
+
+    // After the initial 7-day fetch completes, if we got no leads AND no owners,
+    // re-fetch everything with a 90-day window so pages always have data to show.
+    useEffect(() => {
+        if (loadingLeads || loadingOwners || loadingMasterMetrics || loadingWhatsappMetrics) return;
+        if (didAutoExpand.current) return;
+        didAutoExpand.current = true;
+
+        if (leads.length === 0 && ownerLeads.length === 0) {
+            const from = subDays(startOfDay(new Date()), 90);
+            const to = endOfDay(new Date());
+            // Only expand raw leads/owners data — metrics are controlled per-page
+            fetchLeads({ from, to });
+            fetchOwners({ from, to });
+        }
+    }, [loadingLeads, loadingOwners, loadingMasterMetrics, loadingWhatsappMetrics,
+        leads, ownerLeads, fetchLeads, fetchOwners]);
 
     useEffect(() => {
         // Master Dashboard strategy: Fetch everything on mount

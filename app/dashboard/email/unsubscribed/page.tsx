@@ -17,7 +17,7 @@ export default function UnsubscribedPage() {
 
     // Filters
     const [searchTerm, setSearchTerm] = useState("");
-    const [dateRange, setDateRange] = useState<any>(undefined);
+    const [dateRange, setDateRange] = useState<any>({ from: subDays(new Date(), 7), to: new Date() });
     const [sourceLoopFilter, setSourceLoopFilter] = useState("all");
     const [repliedFilter, setRepliedFilter] = useState("all");
 
