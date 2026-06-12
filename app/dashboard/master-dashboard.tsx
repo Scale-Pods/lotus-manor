@@ -253,7 +253,7 @@ export default function MasterDashboard() {
                             Close
                         </Button>
                     </div>
-                    <TotalRepliesView leads={replyLeads} />
+                    <TotalRepliesView leads={replyLeads} dateRange={dateRange} />
                 </div>
             )}
 
@@ -264,7 +264,7 @@ export default function MasterDashboard() {
                         <DialogTitle>Total Replies - Detailed View</DialogTitle>
                     </DialogHeader>
                     <div className="py-4">
-                        <TotalRepliesView leads={replyLeads} />
+                        <TotalRepliesView leads={replyLeads} dateRange={dateRange} />
                     </div>
                 </DialogContent>
             </Dialog>

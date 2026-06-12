@@ -111,7 +111,7 @@ export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAp
     };
 
     useEffect(() => {
-        if (loadingLeads) {
+        if (!initialLead && loadingLeads) {
             setLoading(true);
             return;
         }
@@ -128,7 +128,17 @@ export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAp
         }) || null;
 
         if (found) {
-            setLead(found);
+            // Normalize raw API leads (have "Name", "Phone", "source_loop") into ConsolidatedLead shape
+            const rawName = (found as any).name || (found as any)["Name"] || "";
+            const isPhoneNumber = /^\+?\d[\d\s\-().]{4,}$/.test(rawName.trim());
+            const normalized = {
+                ...found,
+                name: rawName && !isPhoneNumber ? rawName : "Unknown",
+                phone: (found as any).phone || (found as any)["Phone"] || "",
+                email: (found as any).email || (found as any)["Email"] || "",
+                source_loop: (found as any).source_loop || "—",
+            } as any;
+            setLead(normalized);
             const timeline: any[] = [];
 
             const parseMsg = (raw: any, label: string, type: 'bot' | 'user', sequence: number) => {
@@ -168,13 +178,14 @@ export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAp
                 return { type, content, label, date: null, sequence };
             };
 
-            // Helper: extract date from a TS field like "Delivered - 2026-03-12 10:00:00"
+            // Helper: extract date from a TS field — date is always after the LAST " - "
+            // Handles "read - 12/3/2026, 9:53 am" and "failed - error text - 24/4/2026, 1:30 pm"
             const parseTsDate = (tsRaw: string | null): string | null => {
                 if (!tsRaw) return null;
-                const parts = tsRaw.split(' - ');
-                if (parts.length < 2) return null;
-                const datePart = parts[1].trim();
-                const d = new Date(datePart.replace(/(^\d{1,2})\/(\d{1,2})\/(\d{4})/, '$3-$2-$1').replace(' ', 'T'));
+                const lastDash = tsRaw.lastIndexOf(' - ');
+                if (lastDash === -1) return null;
+                const datePart = tsRaw.slice(lastDash + 3).trim();
+                const d = new Date(datePart.replace(/(^\d{1,2})\/(\d{1,2})\/(\d{4}),?\s*/, '$3-$2-$1 ').trim());
                 return isNaN(d.getTime()) ? null : d.toISOString();
             };
 
@@ -368,7 +379,7 @@ export function WhatsAppChatDetail({ customerId, onClose, initialLead }: WhatsAp
                                 <div>
                                     <span className="text-[10px] font-bold text-slate-400 uppercase">Source Table</span>
                                     <p className="font-bold text-blue-600 mt-1 text-xs">
-                                        {lead.id.startsWith('intro-') ? 'nr_wf' : (lead.id.startsWith('followup-') ? 'followup' : 'nurture')}
+                                        {String(lead.id || lead.source_loop || '').startsWith('intro') || String(lead.source_loop || '').toLowerCase() === 'intro' ? 'nr_wf' : (String(lead.id || lead.source_loop || '').startsWith('followup') || String(lead.source_loop || '').toLowerCase().includes('follow') ? 'followup' : 'nurture')}
                                     </p>
                                 </div>
                             </div>

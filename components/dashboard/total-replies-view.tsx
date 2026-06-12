@@ -35,7 +35,7 @@ interface ReplyData {
 
 
 
-export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
+export function TotalRepliesView({ leads = [], dateRange }: { leads?: any[], dateRange?: { from?: Date, to?: Date } | null }) {
     const [search, setSearch] = useState("");
     const [modeFilter, setModeFilter] = useState("all");
     const [currentPage, setCurrentPage] = useState(1);
@@ -72,13 +72,18 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
         let wpReplyObj = { content: "Lead replied via WhatsApp", date: new Date(lead.updated_at || lead.created_at || 0) };
         let hasWP = false;
 
-        const wtR = String(lead.WP_Replied_track || "").toLowerCase();
-        if (wtR === "yes" || wtR === "replied") {
+        // WP_Replied_track: any non-empty, non-"no" value counts as replied
+        const wtR = String(lead.WP_Replied_track || "").trim().toLowerCase();
+        if (wtR && wtR !== "no" && wtR !== "none") {
             hasWP = true;
+            const parsed = parseMsg(lead.WP_Replied_track);
+            if (parsed.date) wpReplyObj = { content: parsed.content || wpReplyObj.content, date: parsed.date };
         }
 
         const addWpReply = (raw: any) => {
-            if (!raw || String(raw).toLowerCase() === "no" || String(raw).toLowerCase() === "none" || String(raw).trim() === "") return;
+            if (!raw) return;
+            const s = String(raw).trim().toLowerCase();
+            if (!s || s === "no" || s === "none") return;
             hasWP = true;
             const parsed = parseMsg(raw);
             const msgDate = parsed.date || new Date(lead.updated_at || lead.created_at || 0);
@@ -132,11 +137,16 @@ export function TotalRepliesView({ leads = [] }: { leads?: any[] }) {
     realData.sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime());
 
     // Filter logic
+    const rangeFrom = dateRange?.from ? new Date(dateRange.from).setHours(0, 0, 0, 0) : null;
+    const rangeTo = dateRange?.to ? new Date(dateRange.to).setHours(23, 59, 59, 999) : (dateRange?.from ? new Date(dateRange.from).setHours(23, 59, 59, 999) : null);
+
     const filteredData = realData.filter(item => {
         const matchesSearch = item.contactName.toLowerCase().includes(search.toLowerCase()) ||
             item.contactInfo.toLowerCase().includes(search.toLowerCase());
         const matchesMode = modeFilter === "all" || item.mode.toLowerCase() === modeFilter;
-        return matchesSearch && matchesMode;
+        const t = item.sortDate.getTime();
+        const matchesDate = !rangeFrom || (t >= rangeFrom && (!rangeTo || t <= rangeTo));
+        return matchesSearch && matchesMode && matchesDate;
     });
 
     const totalPages = Math.ceil(filteredData.length / itemsPerPage);

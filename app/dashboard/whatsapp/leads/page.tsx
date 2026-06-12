@@ -84,6 +84,7 @@ export default function WhatsappLeadsPage() {
     const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedLeadIdForChat, setSelectedLeadIdForChat] = useState<string | null>(null);
+    const [selectedLeadObj, setSelectedLeadObj] = useState<WALead | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const leadsPerPage = 10;
     const [activeTab, setActiveTab] = useState<"leads" | "owners">("leads");
@@ -368,7 +369,7 @@ export default function WhatsappLeadsPage() {
                                                 <tr
                                                     key={`${id}-${index}`}
                                                     className="hover:bg-slate-50 transition-colors group cursor-pointer"
-                                                    onClick={() => setSelectedLeadIdForChat(id)}
+                                                    onClick={() => { setSelectedLeadIdForChat(id); setSelectedLeadObj(lead); }}
                                                 >
                                                     <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                                                         <Checkbox
@@ -517,7 +518,7 @@ export default function WhatsappLeadsPage() {
             </Card>
 
             {/* Chat Detail Modal */}
-            <Dialog open={!!selectedLeadIdForChat} onOpenChange={(open) => !open && setSelectedLeadIdForChat(null)}>
+            <Dialog open={!!selectedLeadIdForChat} onOpenChange={(open) => { if (!open) { setSelectedLeadIdForChat(null); setSelectedLeadObj(null); } }}>
                 <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden p-6 gap-0">
                     <DialogHeader className="sr-only">
                         <DialogTitle>WhatsApp Chat Detail</DialogTitle>
@@ -525,7 +526,8 @@ export default function WhatsappLeadsPage() {
                     {selectedLeadIdForChat && (
                         <WhatsAppChatDetail
                             customerId={selectedLeadIdForChat}
-                            onClose={() => setSelectedLeadIdForChat(null)}
+                            initialLead={selectedLeadObj as any}
+                            onClose={() => { setSelectedLeadIdForChat(null); setSelectedLeadObj(null); }}
                         />
                     )}
                 </DialogContent>

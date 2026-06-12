@@ -92,7 +92,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
 
     // Lean column selection for list view
     // Fetch specific columns based on schema. User added assistantId and type columns.
-    const columns = 'id,started_at,customer_phone,customer_name,duration_seconds,status,cost_usd,source,transcript,summary,recording_url,vapi_account,assistantId,type';
+    const columns = 'id,started_at,customer_phone,customer_name,fallback_name,duration_seconds,status,cost_usd,source,transcript,summary,recording_url,vapi_account,assistantId,type';
     const BATCH_SIZE = 1000;
 
     // Build date filter
@@ -135,7 +135,7 @@ async function fetchArchivedCallLogs(fromDate: Date | null, toDate: Date | null)
             costValue: costVal,
             cost: `$${Number(costVal).toFixed(3)}`,
             phone: ph,
-            name: d.customer_name || 'Guest',
+            name: d.customer_name && !/^\+?\d[\d\s\-().]{4,}$/.test(d.customer_name.trim()) ? d.customer_name : (d.fallback_name || d.customer_name || 'Guest'),
             phoneNumber: assistantPhone,
             callSummary: d.summary || '',
             transcript: d.transcript || '',
