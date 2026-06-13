@@ -31,11 +31,12 @@ interface ReplyData {
     time: string;
     status: 'Replied' | 'Pending' | 'Follow-up';
     preview: string;
+    rawLead?: any;
 }
 
 
 
-export function TotalRepliesView({ leads = [], dateRange }: { leads?: any[], dateRange?: { from?: Date, to?: Date } | null }) {
+export function TotalRepliesView({ leads = [], dateRange, onViewLead }: { leads?: any[], dateRange?: { from?: Date, to?: Date } | null, onViewLead?: (lead: any) => void }) {
     const [search, setSearch] = useState("");
     const [modeFilter, setModeFilter] = useState("all");
     const [currentPage, setCurrentPage] = useState(1);
@@ -96,16 +97,18 @@ export function TotalRepliesView({ leads = [], dateRange }: { leads?: any[], dat
         for (let i = 1; i <= 10; i++) addWpReply(lead[`W.P_Replied_${i}`]);
 
         if (hasWP) {
+            const leadId = lead["Lead ID"] || lead.id || `lead-${idx}`;
             realData.push({
-                id: `${lead.id || `lead-${idx}`}-wp`,
-                contactName: lead.name || "Unknown",
-                contactInfo: lead.phone || "No info",
+                id: `${leadId}-wp`,
+                contactName: lead.name || lead["Name"] || "Unknown",
+                contactInfo: lead.phone || lead["Phone"] || "No info",
                 mode: 'WhatsApp',
                 date: wpReplyObj.date.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }),
                 time: wpReplyObj.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 status: 'Replied',
                 preview: wpReplyObj.content.substring(0, 70) + (wpReplyObj.content.length > 70 ? "..." : ""),
-                link: `/dashboard/whatsapp/chat?chat=${lead.id}`,
+                link: `/dashboard/whatsapp/chat?chat=${leadId}`,
+                rawLead: lead,
                 sortDate: wpReplyObj.date
             });
         }
@@ -223,7 +226,13 @@ export function TotalRepliesView({ leads = [], dateRange }: { leads?: any[], dat
                                         </Badge>
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        <Button size="sm" variant="ghost" className="text-blue-600 hover:text-blue-700" onClick={() => window.location.href = item.link}>
+                                        <Button size="sm" variant="ghost" className="text-blue-600 hover:text-blue-700" onClick={() => {
+                                            if (onViewLead && item.rawLead) {
+                                                onViewLead(item.rawLead);
+                                            } else {
+                                                window.location.href = item.link;
+                                            }
+                                        }}>
                                             View
                                         </Button>
                                     </TableCell>

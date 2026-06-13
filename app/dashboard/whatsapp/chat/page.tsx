@@ -400,7 +400,6 @@ export default function WhatsappChatPage() {
 
 
     // leadsInRange = only leads where W.P_1 was sent within the selected date range.
-    // This is what the chat table shows and what Unique Msg Sent counts.
     const leadsInRange = useMemo(() => {
         const from = dateRange?.from ? startOfDay(new Date(dateRange.from)).getTime() : null;
         const to = endOfDay(new Date(dateRange?.to || dateRange?.from || new Date())).getTime();

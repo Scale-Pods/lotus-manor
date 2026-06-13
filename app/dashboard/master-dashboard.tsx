@@ -36,6 +36,7 @@ import {
 } from 'recharts';
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
+import { WhatsAppChatDetail } from "@/components/dashboard/whatsapp-chat-detail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo, useCallback } from "react";
@@ -47,6 +48,7 @@ import { useData } from "@/context/DataContext";
 export default function MasterDashboard() {
     const [isRepliesModalOpen, setIsRepliesModalOpen] = useState(false);
     const [isRepliesExpanded, setIsRepliesExpanded] = useState(false);
+    const [chatLead, setChatLead] = useState<any | null>(null);
     const [dateRange, setDateRange] = useState<any>({
         from: subDays(new Date(), 7),
         to: new Date()
@@ -90,14 +92,16 @@ export default function MasterDashboard() {
 
         allLeadsWA.forEach((lead: any) => {
             if (!lead["W.P_1"]) return;
+            // Match chat page leadsInRange logic: wp1_parsed_date in range, or no date info
             const t = lead.wp1_parsed_date ? new Date(lead.wp1_parsed_date).getTime() : null;
             const inRange = !t || (t >= rangeFrom && t <= rangeTo);
-            if (inRange) unique++;
+            if (!inRange) return;
+
+            unique++;
 
             const wp = lead.WP_Replied_track || lead["WP_Replied_track"];
             const hasReply = wp && String(wp).trim() && String(wp).trim().toLowerCase() !== "no" && String(wp).trim().toLowerCase() !== "none";
             if (hasReply) {
-                // Normalize to lowercase keys for TotalRepliesView
                 replied.push({
                     ...lead,
                     id: lead["Lead ID"] || lead.id,
@@ -294,7 +298,7 @@ export default function MasterDashboard() {
                             Close
                         </Button>
                     </div>
-                    <TotalRepliesView leads={waReplyLeads} dateRange={dateRange} />
+                    <TotalRepliesView leads={waReplyLeads} dateRange={dateRange} onViewLead={(lead) => { setIsRepliesExpanded(false); setChatLead(lead); }} />
                 </div>
             )}
 
@@ -305,8 +309,22 @@ export default function MasterDashboard() {
                         <DialogTitle>Total Replies - Detailed View</DialogTitle>
                     </DialogHeader>
                     <div className="py-4">
-                        <TotalRepliesView leads={waReplyLeads} dateRange={dateRange} />
+                        <TotalRepliesView leads={waReplyLeads} dateRange={dateRange} onViewLead={(lead) => { setIsRepliesModalOpen(false); setChatLead(lead); }} />
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* WhatsApp Chat Detail — opened from Total Replies view */}
+            <Dialog open={!!chatLead} onOpenChange={(open) => { if (!open) setChatLead(null); }}>
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden p-6 gap-0">
+                    <DialogHeader className="sr-only"><DialogTitle>WhatsApp Chat Detail</DialogTitle></DialogHeader>
+                    {chatLead && (
+                        <WhatsAppChatDetail
+                            customerId={String(chatLead["Lead ID"] || chatLead.id || "")}
+                            initialLead={chatLead}
+                            onClose={() => setChatLead(null)}
+                        />
+                    )}
                 </DialogContent>
             </Dialog>
 
