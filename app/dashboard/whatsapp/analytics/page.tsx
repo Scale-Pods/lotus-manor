@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
     XAxis,
@@ -26,85 +26,154 @@ import {
 import { subDays, startOfDay, endOfDay, format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { LMLoader } from "@/components/lm-loader";
-import { useData } from "@/context/DataContext";
+
+// Parse TS string like "read - 12/3/2026, 9:53 am" → Date
+function parseTsStr(ts: string): Date | null {
+    if (!ts) return null;
+    const lastDash = ts.lastIndexOf(' - ');
+    const datePart = lastDash !== -1 ? ts.slice(lastDash + 3).trim() : ts.trim();
+    const d = new Date(datePart.replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s*/, '$3-$2-$1 ').trim());
+    return isNaN(d.getTime()) ? null : d;
+}
 
 export default function WhatsappAnalyticsPage() {
-    const {
-        whatsappMetrics,
-        loadingWhatsappMetrics,
-        refreshWhatsappMetrics,
-    } = useData();
-
     const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
         from: subDays(new Date(), 7),
         to: new Date()
     });
 
-    // Per-loop breakdown fetched from /api/whatsapp-leads
     const [loopData, setLoopData] = useState<{ nr_wf: any[]; followup: any[]; nurture: any[]; owners: any[] } | null>(null);
-    const [loadingLoops, setLoadingLoops] = useState(true);
+    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        if (!dateRange?.from) return;
-        refreshWhatsappMetrics({
-            from: dateRange.from,
-            to: dateRange.to || dateRange.from,
-        });
-    }, [dateRange, refreshWhatsappMetrics]);
-
-    useEffect(() => {
-        if (!dateRange?.from) return;
-        setLoadingLoops(true);
-        const fromISO = startOfDay(dateRange.from).toISOString();
-        const toISO = endOfDay(dateRange.to || dateRange.from).toISOString();
+    const fetchData = useCallback(async (from: Date, to: Date) => {
+        setLoading(true);
+        const fromISO = startOfDay(from).toISOString();
+        const toISO = endOfDay(to).toISOString();
         fetch(`/api/whatsapp-leads?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`)
             .then(r => r.ok ? r.json() : null)
             .then(d => { if (d) setLoopData(d); })
             .catch(() => {})
-            .finally(() => setLoadingLoops(false));
-    }, [dateRange]);
+            .finally(() => setLoading(false));
+    }, []);
 
-    const loading = loadingWhatsappMetrics;
-    const m = whatsappMetrics;
+    useEffect(() => {
+        if (!dateRange?.from) return;
+        fetchData(dateRange.from, dateRange.to || dateRange.from);
+    }, [dateRange, fetchData]);
 
-    const trendData = useMemo(() => {
-        if (!m?.dailyTrend?.length) return [];
-        return m.dailyTrend.map(d => ({
-            date: format(new Date(d.date + 'T00:00:00'), 'MMM dd'),
-            sent: d.reachouts,
-            replied: d.replies,
-        }));
-    }, [m]);
+    // Compute all metrics client-side — same logic as dashboard and chat pages
+    const stats = useMemo(() => {
+        if (!loopData) return { uniqueSentCount: 0, sentCount: 0, totalReplies: 0, ownerReachouts: 0, ownerReplies: 0, trendData: [] as any[] };
 
-    const replyRate = m?.replyRate ?? 0;
-    const ownerReplyRate = m?.ownerReachouts
-        ? ((m.ownerReplies / m.ownerReachouts) * 100).toFixed(1)
+        const allLeads = [
+            ...(loopData.nr_wf || []),
+            ...(loopData.followup || []),
+            ...(loopData.nurture || []),
+        ];
+
+        const from = dateRange?.from ? startOfDay(dateRange.from).getTime() : null;
+        const to = endOfDay(dateRange?.to || dateRange?.from || new Date()).getTime();
+        const inRange = (t: number) => !from || (t >= from && t <= to);
+
+        let uniqueSentCount = 0;
+        let sentCount = 0;
+        let totalReplies = 0;
+        const dailyMap: Record<string, { reachouts: number; replies: number }> = {};
+
+        allLeads.forEach(lead => {
+            if (lead["W.P_1"] && lead.wp1_parsed_date) {
+                if (inRange(new Date(lead.wp1_parsed_date).getTime())) uniqueSentCount++;
+            } else if (lead["W.P_1"] && !lead.wp1_parsed_date) {
+                uniqueSentCount++;
+            }
+
+            for (let i = 1; i <= 12; i++) {
+                if (!lead[`W.P_${i}`]) continue;
+                const ts = lead[`W.P_${i} TS`];
+                if (ts) {
+                    const d = parseTsStr(String(ts));
+                    if (d && inRange(d.getTime())) sentCount++;
+                } else if (i === 1 && lead.wp1_parsed_date && inRange(new Date(lead.wp1_parsed_date).getTime())) {
+                    sentCount++;
+                } else if (i === 1 && !lead.wp1_parsed_date) {
+                    sentCount++;
+                }
+            }
+            if (lead["W.P_FollowUp"]) {
+                const fts = lead["W.P_FollowUp TS"];
+                if (!fts || (parseTsStr(String(fts)) && inRange(parseTsStr(String(fts))!.getTime()))) sentCount++;
+            }
+            for (let i = 1; i <= 10; i++) {
+                const fSlot = lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`];
+                if (fSlot) {
+                    const fts = lead[`W.P_FollowUp_TS${i}`];
+                    if (!fts || (parseTsStr(String(fts)) && inRange(parseTsStr(String(fts))!.getTime()))) sentCount++;
+                }
+            }
+
+            const wp = lead.WP_Replied_track || lead["WP_Replied_track"];
+            const hasReplied = !!(wp && String(wp).trim() && String(wp).trim().toLowerCase() !== "no" && String(wp).trim().toLowerCase() !== "none");
+            if (hasReplied) totalReplies++;
+
+            if (lead["W.P_1"] && lead.wp1_parsed_date && inRange(new Date(lead.wp1_parsed_date).getTime())) {
+                const dayKey = new Date(lead.wp1_parsed_date).toISOString().slice(0, 10);
+                if (!dailyMap[dayKey]) dailyMap[dayKey] = { reachouts: 0, replies: 0 };
+                dailyMap[dayKey].reachouts++;
+                if (hasReplied) dailyMap[dayKey].replies++;
+            }
+        });
+
+        const owners = loopData.owners ?? [];
+        const ownerReachouts = owners.filter(o => o["Whatsapp_1"]).length;
+        const ownerReplies = owners.filter(o => {
+            const v = o["WTS_Reply_Track"];
+            return v && String(v).trim() && String(v).trim().toLowerCase() !== "no";
+        }).length;
+
+        const trendData = Object.entries(dailyMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([date, { reachouts, replies }]) => ({
+                date: format(new Date(date + 'T00:00:00'), 'MMM dd'),
+                sent: reachouts,
+                replied: replies,
+            }));
+
+        return { uniqueSentCount, sentCount, totalReplies, ownerReachouts, ownerReplies, trendData };
+    }, [loopData, dateRange]);
+
+    const replyRate = stats.uniqueSentCount > 0
+        ? ((stats.totalReplies / stats.uniqueSentCount) * 100).toFixed(1)
+        : "0.0";
+    const ownerReplyRate = stats.ownerReachouts > 0
+        ? ((stats.ownerReplies / stats.ownerReachouts) * 100).toFixed(1)
         : "0.0";
 
-    // Per-loop breakdown
+    // Per-loop breakdown — unique reachouts (W.P_1 in range) per loop
     const loopBreakdown = useMemo(() => {
         if (!loopData) return [];
-        const intro = loopData.nr_wf ?? [];
-        const followup = loopData.followup ?? [];
-        const nurture = loopData.nurture ?? [];
+        const from = dateRange?.from ? startOfDay(dateRange.from).getTime() : null;
+        const to = endOfDay(dateRange?.to || dateRange?.from || new Date()).getTime();
+        const inRange = (t: number) => !from || (t >= from && t <= to);
 
-        const countReplied = (arr: any[]) =>
-            arr.filter(l => {
+        const summarise = (arr: any[], color: string, name: string) => {
+            const reachouts = arr.filter(l =>
+                l["W.P_1"] && (l.wp1_parsed_date ? inRange(new Date(l.wp1_parsed_date).getTime()) : true)
+            ).length;
+            const replied = arr.filter(l => {
                 const v = l["WP_Replied_track"];
                 return v && String(v).trim() !== "" && String(v).trim().toLowerCase() !== "no";
             }).length;
+            return { name, reachouts, replied, color };
+        };
 
         return [
-            { name: "Intro (nr_wf)", reachouts: intro.length, replied: countReplied(intro), color: "#3b82f6" },
-            { name: "Follow Up", reachouts: followup.length, replied: countReplied(followup), color: "#8b5cf6" },
-            { name: "Nurture", reachouts: nurture.length, replied: countReplied(nurture), color: "#f59e0b" },
+            summarise(loopData.nr_wf ?? [], "#3b82f6", "Intro (nr_wf)"),
+            summarise(loopData.followup ?? [], "#8b5cf6", "Follow Up"),
+            summarise(loopData.nurture ?? [], "#f59e0b", "Nurture"),
         ];
-    }, [loopData]);
+    }, [loopData, dateRange]);
 
-    const totalUniqueLeads = useMemo(() => {
-        if (!loopData) return null;
-        return (loopData.nr_wf?.length ?? 0) + (loopData.followup?.length ?? 0) + (loopData.nurture?.length ?? 0);
-    }, [loopData]);
+    const totalUniqueLeads = stats.uniqueSentCount;
 
     return (
         <div className="space-y-4 pb-4 relative min-h-[500px]">
@@ -119,17 +188,7 @@ export default function WhatsappAnalyticsPage() {
                 <div className="flex items-center gap-2">
                     <DateRangePicker onUpdate={({ range }) => setDateRange({ from: range?.from, to: range?.to })} />
                     <Button variant="outline" size="sm" onClick={() => {
-                        refreshWhatsappMetrics({ from: dateRange.from, to: dateRange.to, force: true });
-                        if (dateRange?.from) {
-                            setLoadingLoops(true);
-                            const fromISO = startOfDay(dateRange.from).toISOString();
-                            const toISO = endOfDay(dateRange.to || dateRange.from).toISOString();
-                            fetch(`/api/whatsapp-leads?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`)
-                                .then(r => r.ok ? r.json() : null)
-                                .then(d => { if (d) setLoopData(d); })
-                                .catch(() => {})
-                                .finally(() => setLoadingLoops(false));
-                        }
+                        if (dateRange?.from) fetchData(dateRange.from, dateRange.to || dateRange.from);
                     }} className="h-10">
                         <RefreshCw className="h-4 w-4" />
                     </Button>
@@ -141,23 +200,23 @@ export default function WhatsappAnalyticsPage() {
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Lead Campaigns (nr_wf · followup · nurture)</p>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <StatCard
-                        title="Total Reachouts"
-                        value={loading ? "..." : (m?.totalReachouts ?? 0).toLocaleString()}
+                        title="Messages Sent"
+                        value={loading ? "..." : stats.sentCount.toLocaleString()}
                         icon={Send}
                         color="text-blue-600"
                         bg="bg-blue-50"
                     />
                     <StatCard
-                        title="Unique Leads Reached"
-                        value={loadingLoops ? "..." : (totalUniqueLeads ?? 0).toLocaleString()}
+                        title="Unique Msg Sent"
+                        value={loading ? "..." : totalUniqueLeads.toLocaleString()}
                         icon={Users}
                         color="text-slate-600"
                         bg="bg-slate-50"
-                        info="Count of unique leads with a WhatsApp message in the selected date range, across all three loops."
+                        info="Count of unique leads where W.P_1 was sent within the selected date range."
                     />
                     <StatCard
                         title="Total Replies"
-                        value={loading ? "..." : (m?.totalReplies ?? 0).toLocaleString()}
+                        value={loading ? "..." : stats.totalReplies.toLocaleString()}
                         icon={MessageSquare}
                         color="text-emerald-600"
                         bg="bg-emerald-50"
@@ -165,7 +224,7 @@ export default function WhatsappAnalyticsPage() {
                     />
                     <StatCard
                         title="Response Rate"
-                        value={loading ? "..." : `${Number(replyRate).toFixed(1)}%`}
+                        value={loading ? "..." : `${replyRate}%`}
                         icon={TrendingUp}
                         color="text-purple-600"
                         bg="bg-purple-50"
@@ -181,14 +240,14 @@ export default function WhatsappAnalyticsPage() {
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                     <StatCard
                         title="Owner Reachouts"
-                        value={loading ? "..." : (m?.ownerReachouts ?? 0).toLocaleString()}
+                        value={loading ? "..." : stats.ownerReachouts.toLocaleString()}
                         icon={Building2}
                         color="text-amber-600"
                         bg="bg-amber-50"
                     />
                     <StatCard
                         title="Owner Replies"
-                        value={loading ? "..." : (m?.ownerReplies ?? 0).toLocaleString()}
+                        value={loading ? "..." : stats.ownerReplies.toLocaleString()}
                         icon={Reply}
                         color="text-emerald-600"
                         bg="bg-emerald-50"
@@ -214,7 +273,7 @@ export default function WhatsappAnalyticsPage() {
                     <CardContent className="p-3">
                         <div className="h-[240px] w-full">
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={trendData}>
+                                <AreaChart data={stats.trendData}>
                                     <defs>
                                         <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} />
@@ -244,7 +303,7 @@ export default function WhatsappAnalyticsPage() {
                         <CardDescription className="text-xs">Reachouts and replies by campaign loop</CardDescription>
                     </CardHeader>
                     <CardContent className="p-3">
-                        {loadingLoops ? (
+                        {loading ? (
                             <div className="h-[240px] flex items-center justify-center text-slate-400 text-sm">
                                 <RefreshCw className="h-4 w-4 animate-spin mr-2" /> Loading...
                             </div>
@@ -272,7 +331,7 @@ export default function WhatsappAnalyticsPage() {
             </div>
 
             {/* Loop Detail Table */}
-            {!loadingLoops && loopBreakdown.some(l => l.reachouts > 0) && (
+            {!loading && loopBreakdown.some(l => l.reachouts > 0) && (
                 <Card className="border-slate-200 shadow-sm bg-white">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-bold text-slate-900">Loop Performance</CardTitle>

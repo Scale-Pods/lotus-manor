@@ -25,18 +25,9 @@ import {
     Line
 } from "recharts";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { subDays } from "date-fns";
-import { useData } from "@/context/DataContext";
-import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetHeader,
-    SheetTitle,
-} from "@/components/ui/sheet";
-import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
+import { subDays, startOfDay, endOfDay, format } from "date-fns";
 import {
     Tooltip as UITooltip,
     TooltipContent,
@@ -44,61 +35,145 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { LMLoader } from "@/components/lm-loader";
-import { format } from "date-fns";
 
 export default function WhatsappDashboardPage() {
     const router = useRouter();
-    const {
-        leads: allLeads,
-        loadingLeads,
-        whatsappMetrics,
-        loadingWhatsappMetrics,
-        refreshWhatsappMetrics,
-    } = useData();
 
-    const [isRepliesOpen, setIsRepliesOpen] = useState(false);
     const [dateRange, setDateRange] = useState<any>({
         from: subDays(new Date(), 7),
         to: new Date()
     });
+    const [waData, setWaData] = useState<{ nr_wf: any[], followup: any[], nurture: any[], owners: any[] } | null>(null);
+    const [loading, setLoading] = useState(true);
 
-    // Re-fetch server metrics when date changes
+    const fetchData = useCallback(async (from: Date, to: Date) => {
+        setLoading(true);
+        try {
+            const fromISO = startOfDay(from).toISOString();
+            const toISO = endOfDay(to).toISOString();
+            const res = await fetch(`/api/whatsapp-leads?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`);
+            if (res.ok) setWaData(await res.json());
+        } catch (e) {
+            console.error('[WA dashboard]', e);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
     useEffect(() => {
         if (!dateRange?.from) return;
-        refreshWhatsappMetrics({
-            from: dateRange.from,
-            to: dateRange.to || dateRange.from,
+        fetchData(dateRange.from, dateRange.to || dateRange.from);
+    }, [dateRange, fetchData]);
+
+    // Compute metrics:
+    // Chat list = all leads with any WA activity in range (RPC handles this).
+    // Unique Msg Sent = leads whose W.P_1 was sent in range (wp1_parsed_date).
+    // Messages Sent  = WP slots whose TS date falls in range.
+    // Total Replies  = all leads with a reply tracked (regardless of when W.P_1 was sent).
+    const stats = useMemo(() => {
+        if (!waData) return { totalLeads: 0, sentCount: 0, uniqueSentCount: 0, totalReplies: 0, ownerReachouts: 0, ownerReplies: 0, ownerSent: 0, dailyTrend: [] as any[] };
+
+        const allLeads = [
+            ...(waData.nr_wf || []),
+            ...(waData.followup || []),
+            ...(waData.nurture || []),
+        ];
+
+        const from = dateRange?.from ? startOfDay(new Date(dateRange.from)).getTime() : null;
+        const to = endOfDay(new Date(dateRange?.to || dateRange?.from || new Date())).getTime();
+        const inRange = (t: number) => !from || (t >= from && t <= to);
+
+        // Parse TS string like "read - 12/3/2026, 9:53 am" → Date
+        const parseTsStr = (ts: string): Date | null => {
+            if (!ts) return null;
+            const lastDash = ts.lastIndexOf(' - ');
+            const datePart = lastDash !== -1 ? ts.slice(lastDash + 3).trim() : ts.trim();
+            const d = new Date(datePart.replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s*/, '$3-$2-$1 ').trim());
+            return isNaN(d.getTime()) ? null : d;
+        };
+
+        let sentCount = 0;
+        let uniqueSentCount = 0;
+        let totalReplies = 0;
+        const dailyMap: Record<string, { reachouts: number; replies: number }> = {};
+
+        allLeads.forEach(lead => {
+            // Unique Msg Sent: W.P_1 sent within the selected date range
+            if (lead["W.P_1"] && lead.wp1_parsed_date) {
+                if (inRange(new Date(lead.wp1_parsed_date).getTime())) uniqueSentCount++;
+            } else if (lead["W.P_1"] && !lead.wp1_parsed_date) {
+                uniqueSentCount++;
+            }
+
+            // Messages Sent: WP slots whose TS date is in range
+            for (let i = 1; i <= 12; i++) {
+                if (!lead[`W.P_${i}`]) continue;
+                const ts = lead[`W.P_${i} TS`];
+                if (ts) {
+                    const d = parseTsStr(String(ts));
+                    if (d && inRange(d.getTime())) sentCount++;
+                } else if (i === 1 && lead.wp1_parsed_date && inRange(new Date(lead.wp1_parsed_date).getTime())) {
+                    sentCount++;
+                } else if (i === 1 && !lead.wp1_parsed_date) {
+                    sentCount++;
+                }
+            }
+            if (lead["W.P_FollowUp"]) {
+                const fts = lead["W.P_FollowUp TS"];
+                if (!fts || (parseTsStr(String(fts)) && inRange(parseTsStr(String(fts))!.getTime()))) sentCount++;
+            }
+            for (let i = 1; i <= 10; i++) {
+                const fSlot = lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`];
+                if (fSlot) {
+                    const fts = lead[`W.P_FollowUp_TS${i}`];
+                    if (!fts || (parseTsStr(String(fts)) && inRange(parseTsStr(String(fts))!.getTime()))) sentCount++;
+                }
+            }
+
+            const wp = lead.WP_Replied_track || lead["WP_Replied_track"];
+            const hasReplied = !!(wp && String(wp).trim() && String(wp).trim().toLowerCase() !== "no" && String(wp).trim().toLowerCase() !== "none");
+            if (hasReplied) totalReplies++;
+
+            // Daily trend bucketed by wp1_parsed_date (only leads with W.P_1 in range)
+            if (lead["W.P_1"] && lead.wp1_parsed_date && inRange(new Date(lead.wp1_parsed_date).getTime())) {
+                const dayKey = new Date(lead.wp1_parsed_date).toISOString().slice(0, 10);
+                if (!dailyMap[dayKey]) dailyMap[dayKey] = { reachouts: 0, replies: 0 };
+                dailyMap[dayKey].reachouts++;
+                if (hasReplied) dailyMap[dayKey].replies++;
+            }
         });
-    }, [dateRange, refreshWhatsappMetrics]);
 
-    const loading = loadingWhatsappMetrics;
-    const m = whatsappMetrics;
+        const dailyTrend = Object.entries(dailyMap)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([date, vals]) => ({ date, ...vals }));
 
-    // Daily trend chart from server-computed data
-    const trendData = useMemo(() => {
-        if (!m?.dailyTrend?.length) return [];
-        return m.dailyTrend.map(d => ({
-            date: format(new Date(d.date + 'T00:00:00'), 'MMM dd'),
-            sent: d.reachouts,
-            replied: d.replies,
-        }));
-    }, [m]);
+        // Owner stats
+        const owners = waData.owners || [];
+        const ownerReachouts = owners.filter(o => o["Whatsapp_1"] || o.Whatsapp_1).length;
+        let ownerSent = 0;
+        let ownerReplies = 0;
+        owners.forEach(o => {
+            if (o["Whatsapp_1"]) ownerSent++;
+            if (o["retry_1"]) ownerSent++;
+            for (let i = 1; i <= 5; i++) { if (o[`Bot_Replied_${i}`]) ownerSent++; }
+            const wts = o["WTS_Reply_Track"];
+            if (wts && wts !== "" && String(wts).toLowerCase() !== "no") ownerReplies++;
+        });
 
-    // Donut chart — 3 segments matching original UI
+        return { totalLeads: allLeads.length, sentCount, uniqueSentCount, totalReplies, ownerReachouts, ownerReplies, ownerSent, dailyTrend };
+    }, [waData]);
+
+    const trendData = useMemo(() => stats.dailyTrend.map(d => ({
+        date: format(new Date(d.date + 'T00:00:00'), 'MMM dd'),
+        sent: d.reachouts,
+        replied: d.replies,
+    })), [stats.dailyTrend]);
+
     const donutData = [
-        { name: 'Total Leads', value: m?.totalReachouts ?? 0, color: '#8b5cf6' },
-        { name: 'Messages Sent', value: m?.totalReachouts ?? 0, color: '#3b82f6' },
-        { name: 'Total Replies', value: m?.totalReplies ?? 0, color: '#10b981' },
+        { name: 'Unique Msg Sent', value: stats.uniqueSentCount, color: '#8b5cf6' },
+        { name: 'Messages Sent', value: stats.sentCount, color: '#3b82f6' },
+        { name: 'Total Replies', value: stats.totalReplies, color: '#10b981' },
     ];
-
-    // Replies modal still uses raw leads for detail view
-    const repliedLeads = useMemo(() => {
-        if (!allLeads?.length) return [];
-        return allLeads.filter((lead: any) => {
-            const v = lead["WP_Replied_track"];
-            return v && v !== "" && String(v).toLowerCase() !== "no";
-        });
-    }, [allLeads]);
 
     return (
         <div className="space-y-3 pb-3 relative min-h-[500px]">
@@ -116,23 +191,22 @@ export default function WhatsappDashboardPage() {
             {/* Normal Lead Metrics — 3 cards */}
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 <MetricCard
-                    title="Total Whatsapp Reachouts"
-                    value={loading ? "..." : (m?.totalReachouts ?? 0).toLocaleString()}
+                    title="Unique Msg Sent"
+                    value={loading ? "..." : stats.uniqueSentCount.toLocaleString()}
                     icon={Users}
                     theme="purple"
                     onClick={() => router.push('/dashboard/whatsapp/leads')}
                 />
                 <MetricCard
                     title="Total Replies"
-                    value={loading ? "..." : (m?.totalReplies ?? 0).toLocaleString()}
+                    value={loading ? "..." : stats.totalReplies.toLocaleString()}
                     icon={MessageCircle}
                     theme="emerald"
-                    onClick={() => setIsRepliesOpen(true)}
                     info="This count is derived from the 'WP_Replied_track' column. Disclaimer: This feature has been installed now. To check original reply counts, please select the 'Last 3 Months' filter."
                 />
                 <MetricCard
                     title="Messages Sent"
-                    value={loading ? "..." : (m?.totalReachouts ?? 0).toLocaleString()}
+                    value={loading ? "..." : stats.sentCount.toLocaleString()}
                     icon={Send}
                     theme="blue"
                 />
@@ -146,21 +220,20 @@ export default function WhatsappDashboardPage() {
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                     <MetricCard
                         title="Owner Reachouts"
-                        value={loading ? "..." : (m?.ownerReachouts ?? 0).toLocaleString()}
+                        value={loading ? "..." : stats.ownerReachouts.toLocaleString()}
                         icon={Building2}
                         theme="amber"
                         onClick={() => router.push('/dashboard/whatsapp/chat?tab=owners')}
                     />
                     <MetricCard
                         title="Owner Replies"
-                        value={loading ? "..." : (m?.ownerReplies ?? 0).toLocaleString()}
+                        value={loading ? "..." : stats.ownerReplies.toLocaleString()}
                         icon={MessageSquare}
                         theme="emerald"
-                        onClick={() => router.push('/dashboard/whatsapp/chat?tab=owners')}
                     />
                     <MetricCard
                         title="Owner Messages Sent"
-                        value={loading ? "..." : (m?.ownerReachouts ?? 0).toLocaleString()}
+                        value={loading ? "..." : stats.ownerSent.toLocaleString()}
                         icon={Send}
                         theme="amber"
                     />
@@ -198,9 +271,9 @@ export default function WhatsappDashboardPage() {
                             </ResponsiveContainer>
                         </div>
                         <div className="grid grid-cols-3 gap-4 mt-4">
-                            <SummaryPill label="Total Leads" value={m?.totalReachouts ?? 0} color="bg-purple-600" />
-                            <SummaryPill label="Messages Sent" value={m?.totalReachouts ?? 0} color="bg-blue-600" />
-                            <SummaryPill label="Total Replies" value={m?.totalReplies ?? 0} color="bg-emerald-600" />
+                            <SummaryPill label="Unique Msg Sent" value={stats.uniqueSentCount} color="bg-purple-600" />
+                            <SummaryPill label="Messages Sent" value={stats.sentCount} color="bg-blue-600" />
+                            <SummaryPill label="Total Replies" value={stats.totalReplies} color="bg-emerald-600" />
                         </div>
                     </CardContent>
                 </Card>
@@ -239,18 +312,6 @@ export default function WhatsappDashboardPage() {
                 </Card>
             </div>
 
-            {/* Replies Sheet */}
-            <Sheet open={isRepliesOpen} onOpenChange={setIsRepliesOpen}>
-                <SheetContent side="right" className="sm:max-w-[800px] w-[90vw] overflow-y-auto">
-                    <SheetHeader className="mb-6">
-                        <SheetTitle className="text-2xl font-bold">Recent WhatsApp Replies</SheetTitle>
-                        <SheetDescription>
-                            A detailed breakdown of all leads who have engaged with your campaigns.
-                        </SheetDescription>
-                    </SheetHeader>
-                    <TotalRepliesView leads={repliedLeads} />
-                </SheetContent>
-            </Sheet>
         </div>
     );
 }

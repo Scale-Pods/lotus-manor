@@ -525,89 +525,83 @@ export default function WhatsappChatPage() {
         });
     }, [waOwners, searchQuery, activeFilters]);
 
-    // --- Stats derived directly from filteredLeads/filteredOwners so metric card = sum of table rows ---
+    // --- Stats ---
+    // Chat list = all leads with any WA activity in range (RPC handles this).
+    // Unique Msg Sent = leads whose W.P_1 was sent in the selected range (wp1_parsed_date).
+    // Messages Sent  = WP slots whose TS date falls in range (not all-time slots).
+    // Total Replies  = all leads in the result with a reply tracked.
     const stats = useMemo(() => {
         let sentCount = 0;
         let repliedCount = 0;
         let failedCount = 0;
         let uniqueSentCount = 0;
 
-        const from = dateRange?.from ? startOfDay(new Date(dateRange.from)) : null;
-        const to = endOfDay(new Date(dateRange?.to || dateRange?.from || new Date()));
+        const from = dateRange?.from ? startOfDay(new Date(dateRange.from)).getTime() : null;
+        const to = endOfDay(new Date(dateRange?.to || dateRange?.from || new Date())).getTime();
 
-        const isWithin = (d: Date | null) => {
-            if (!from || !to) return true;
-            if (!d) return false;
-            return d >= from && d <= to;
-        };
+        const inRange = (t: number) => !from || (t >= from && t <= to);
 
         if (activeTab === "leads") {
             filteredLeads.forEach(l => {
                 const lead = l as any;
-                let leadHadSentInRange = false;
 
-                for (let i = 1; i <= 12; i++) {
-                    const tsValue = lead[`W.P_${i} TS`];
-                    if (tsValue && String(tsValue).toLowerCase().includes("failed")) {
-                        const d = getMsgDateWithFallback(lead, `W.P_${i}`);
-                        if (isWithin(d)) failedCount++;
-                    }
+                // Unique Msg Sent: W.P_1 sent within the selected date range
+                if (lead["W.P_1"] && lead.wp1_parsed_date) {
+                    if (inRange(new Date(lead.wp1_parsed_date).getTime())) uniqueSentCount++;
+                } else if (lead["W.P_1"] && !lead.wp1_parsed_date) {
+                    uniqueSentCount++; // no date info — include it
                 }
 
-                // Count bot outgoing messages within range
+                // Messages Sent: count WP slots whose TS date falls in range
                 for (let i = 1; i <= 12; i++) {
-                    const d = getMsgDateWithFallback(lead, `W.P_${i}`);
-                    if (d && isWithin(d)) {
-                        sentCount++;
-                        leadHadSentInRange = true;
+                    const ts = lead[`W.P_${i} TS`];
+                    if (lead[`W.P_${i}`] && ts) {
+                        const d = parseTSDate(String(ts));
+                        if (d && inRange(d.getTime())) {
+                            sentCount++;
+                            if (String(ts).toLowerCase().includes("failed")) failedCount++;
+                        }
+                    } else if (lead[`W.P_${i}`] && !ts) {
+                        // No TS — fall back to wp1_parsed_date for W.P_1, else include
+                        if (i === 1 && lead.wp1_parsed_date) {
+                            if (inRange(new Date(lead.wp1_parsed_date).getTime())) sentCount++;
+                        } else if (i === 1 && !lead.wp1_parsed_date) {
+                            sentCount++;
+                        }
+                        // W.P_2+ without TS: skip (can't confirm they're in range)
                     }
                 }
-                const fup = getMsgDateWithFallback(lead, "W.P_FollowUp", "W.P_FollowUp TS");
-                if (fup && isWithin(fup)) {
-                    sentCount++;
-                    leadHadSentInRange = true;
+                // FollowUp slots — use FollowUp TS
+                if (lead["W.P_FollowUp"]) {
+                    const fts = lead["W.P_FollowUp TS"];
+                    if (!fts || (parseTSDate(String(fts)) && inRange(parseTSDate(String(fts))!.getTime()))) sentCount++;
                 }
                 for (let i = 1; i <= 10; i++) {
-                    const df = getMsgDateWithFallback(lead, `W.P_FollowUp_${i}`);
-                    if (df && isWithin(df)) {
-                        sentCount++;
-                        leadHadSentInRange = true;
+                    const fSlot = lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`];
+                    if (fSlot) {
+                        const fts = lead[`W.P_FollowUp_TS${i}`];
+                        if (!fts || (parseTSDate(String(fts)) && inRange(parseTSDate(String(fts))!.getTime()))) sentCount++;
                     }
                 }
 
-                if (leadHadSentInRange) uniqueSentCount++;
-
-                // Replied check: lead is already in filteredLeads (had activity in date range),
-                // so if it has a reply tracked, count it.
-                const rt = lead.WP_Replied_track;
-                if (rt && String(rt).trim() !== "" && String(rt).trim().toLowerCase() !== "no" && String(rt).trim().toLowerCase() !== "none") {
+                // Replied — count all replies in result regardless of when W.P_1 was sent
+                const rt = lead.WP_Replied_track || lead["WP_Replied_track"];
+                if (rt && String(rt).trim() && String(rt).trim().toLowerCase() !== "no" && String(rt).trim().toLowerCase() !== "none") {
                     repliedCount++;
                 }
             });
         } else {
-            // Owner Stats
+            // Owner Stats — owners are already filtered by Whatsapp_1_Date in range
             filteredOwners.forEach(o => {
-                const wpDate = extractOwnerWADate(o);
-                if (!isWithin(wpDate)) return;
-
-                if (o["Whatsapp_1"]) {
-                    sentCount++;
-                    uniqueSentCount++;
-                }
+                if (o["Whatsapp_1"]) { sentCount++; uniqueSentCount++; }
                 if (o["retry_1"]) sentCount++;
-                for (let i = 1; i <= 5; i++) {
-                    if (o[`Bot_Replied_${i}`]) sentCount++;
-                }
+                for (let i = 1; i <= 5; i++) { if (o[`Bot_Replied_${i}`]) sentCount++; }
                 if (o["Whatsapp_1_status"]?.toLowerCase().includes("failed")) failedCount++;
-
                 const wtsReply = o["WTS_Reply_Track"];
-                if (wtsReply && wtsReply !== "" && String(wtsReply).toLowerCase() !== "no") {
-                    repliedCount++;
-                }
+                if (wtsReply && wtsReply !== "" && String(wtsReply).toLowerCase() !== "no") repliedCount++;
             });
         }
 
-        // Response rate = replies / unique leads contacted (not total filtered leads)
         const responseRate = uniqueSentCount > 0 ? ((repliedCount / uniqueSentCount) * 100).toFixed(1) : "0.0";
 
         return {
