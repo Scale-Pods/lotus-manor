@@ -399,8 +399,21 @@ export default function WhatsappChatPage() {
     });
 
 
+    // leadsInRange = only leads where W.P_1 was sent within the selected date range.
+    // This is what the chat table shows and what Unique Msg Sent counts.
+    const leadsInRange = useMemo(() => {
+        const from = dateRange?.from ? startOfDay(new Date(dateRange.from)).getTime() : null;
+        const to = endOfDay(new Date(dateRange?.to || dateRange?.from || new Date())).getTime();
+        return leads.filter(lead => {
+            if (!lead["W.P_1"]) return false;
+            if (!lead.wp1_parsed_date) return true; // no date info — include
+            const t = new Date(lead.wp1_parsed_date).getTime();
+            return !from || (t >= from && t <= to);
+        });
+    }, [leads, dateRange]);
+
     const filteredLeads = useMemo(() => {
-        return leads.filter(l => {
+        return leadsInRange.filter(l => {
             const lead = l as any;
             // WA endpoint returns "Name" / "Phone" (uppercase keys from DB columns)
             const name = String(lead["Name"] || lead.name || "").toLowerCase();
@@ -526,65 +539,36 @@ export default function WhatsappChatPage() {
     }, [waOwners, searchQuery, activeFilters]);
 
     // --- Stats ---
-    // Chat list = all leads with any WA activity in range (RPC handles this).
-    // Unique Msg Sent = leads whose W.P_1 was sent in the selected range (wp1_parsed_date).
-    // Messages Sent  = WP slots whose TS date falls in range (not all-time slots).
-    // Total Replies  = all leads in the result with a reply tracked.
+    // Chat list + Unique Msg Sent = leadsInRange (W.P_1 sent in selected date range).
+    // Messages Sent = total filled WP message slots across all in-range leads.
+    // Total Replies = leads in filteredLeads (after search/filter) with a reply tracked.
     const stats = useMemo(() => {
         let sentCount = 0;
         let repliedCount = 0;
         let failedCount = 0;
         let uniqueSentCount = 0;
 
-        const from = dateRange?.from ? startOfDay(new Date(dateRange.from)).getTime() : null;
-        const to = endOfDay(new Date(dateRange?.to || dateRange?.from || new Date())).getTime();
-
-        const inRange = (t: number) => !from || (t >= from && t <= to);
-
         if (activeTab === "leads") {
+            // uniqueSentCount = filteredLeads length (already filtered to in-range W.P_1 leads)
+            uniqueSentCount = filteredLeads.length;
+
             filteredLeads.forEach(l => {
                 const lead = l as any;
 
-                // Unique Msg Sent: W.P_1 sent within the selected date range
-                if (lead["W.P_1"] && lead.wp1_parsed_date) {
-                    if (inRange(new Date(lead.wp1_parsed_date).getTime())) uniqueSentCount++;
-                } else if (lead["W.P_1"] && !lead.wp1_parsed_date) {
-                    uniqueSentCount++; // no date info — include it
-                }
-
-                // Messages Sent: count WP slots whose TS date falls in range
+                // Messages Sent: all filled WP slots on this lead
                 for (let i = 1; i <= 12; i++) {
-                    const ts = lead[`W.P_${i} TS`];
-                    if (lead[`W.P_${i}`] && ts) {
-                        const d = parseTSDate(String(ts));
-                        if (d && inRange(d.getTime())) {
-                            sentCount++;
-                            if (String(ts).toLowerCase().includes("failed")) failedCount++;
-                        }
-                    } else if (lead[`W.P_${i}`] && !ts) {
-                        // No TS — fall back to wp1_parsed_date for W.P_1, else include
-                        if (i === 1 && lead.wp1_parsed_date) {
-                            if (inRange(new Date(lead.wp1_parsed_date).getTime())) sentCount++;
-                        } else if (i === 1 && !lead.wp1_parsed_date) {
-                            sentCount++;
-                        }
-                        // W.P_2+ without TS: skip (can't confirm they're in range)
+                    if (lead[`W.P_${i}`]) {
+                        sentCount++;
+                        const ts = lead[`W.P_${i} TS`];
+                        if (ts && String(ts).toLowerCase().includes("failed")) failedCount++;
                     }
                 }
-                // FollowUp slots — use FollowUp TS
-                if (lead["W.P_FollowUp"]) {
-                    const fts = lead["W.P_FollowUp TS"];
-                    if (!fts || (parseTSDate(String(fts)) && inRange(parseTSDate(String(fts))!.getTime()))) sentCount++;
-                }
+                if (lead["W.P_FollowUp"]) sentCount++;
                 for (let i = 1; i <= 10; i++) {
-                    const fSlot = lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`];
-                    if (fSlot) {
-                        const fts = lead[`W.P_FollowUp_TS${i}`];
-                        if (!fts || (parseTSDate(String(fts)) && inRange(parseTSDate(String(fts))!.getTime()))) sentCount++;
-                    }
+                    if (lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`]) sentCount++;
                 }
 
-                // Replied — count all replies in result regardless of when W.P_1 was sent
+                // Replied
                 const rt = lead.WP_Replied_track || lead["WP_Replied_track"];
                 if (rt && String(rt).trim() && String(rt).trim().toLowerCase() !== "no" && String(rt).trim().toLowerCase() !== "none") {
                     repliedCount++;

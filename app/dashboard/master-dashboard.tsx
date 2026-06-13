@@ -38,12 +38,11 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { TotalRepliesView } from "@/components/dashboard/total-replies-view";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { subDays } from "date-fns";
+import { subDays, startOfDay, endOfDay, format } from "date-fns";
 import { LMLoader } from "@/components/lm-loader";
 import { useData } from "@/context/DataContext";
-import { format } from "date-fns";
 
 export default function MasterDashboard() {
     const [isRepliesModalOpen, setIsRepliesModalOpen] = useState(false);
@@ -69,6 +68,39 @@ export default function MasterDashboard() {
         });
     }, [dateRange, refreshMasterMetrics]);
 
+    // Fetch WA leads to compute accurate unique reachout count (same as chat/dashboard pages)
+    const [waUniqueSent, setWaUniqueSent] = useState<number | null>(null);
+    const [waReplies, setWaReplies] = useState<number | null>(null);
+    const fetchWaStats = useCallback(async (from: Date, to: Date) => {
+        const fromISO = startOfDay(from).toISOString();
+        const toISO = endOfDay(to).toISOString();
+        const res = await fetch(`/api/whatsapp-leads?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const allLeadsWA = [...(data.nr_wf || []), ...(data.followup || []), ...(data.nurture || [])];
+        const rangeFrom = startOfDay(from).getTime();
+        const rangeTo = endOfDay(to).getTime();
+        let unique = 0;
+        let replies = 0;
+        allLeadsWA.forEach((lead: any) => {
+            if (!lead["W.P_1"]) return;
+            const inRange = !lead.wp1_parsed_date || (() => {
+                const t = new Date(lead.wp1_parsed_date).getTime();
+                return t >= rangeFrom && t <= rangeTo;
+            })();
+            if (inRange) unique++;
+            const wp = lead.WP_Replied_track || lead["WP_Replied_track"];
+            if (wp && String(wp).trim() && String(wp).trim().toLowerCase() !== "no" && String(wp).trim().toLowerCase() !== "none") replies++;
+        });
+        setWaUniqueSent(unique);
+        setWaReplies(replies);
+    }, []);
+
+    useEffect(() => {
+        if (!dateRange?.from) return;
+        fetchWaStats(dateRange.from, dateRange.to || dateRange.from);
+    }, [dateRange, fetchWaStats]);
+
     const loading = loadingMasterMetrics;
 
     // Replies modal — still needs raw leads for the detail view
@@ -90,8 +122,8 @@ export default function MasterDashboard() {
     }, [masterMetrics]);
 
     const m = masterMetrics;
-    const totalWaReplies = m?.totalWaReplies ?? 0;
-    const totalWaReachouts = m?.totalWaReachouts ?? 0;
+    const totalWaReplies = waReplies ?? m?.totalWaReplies ?? 0;
+    const totalWaReachouts = waUniqueSent ?? m?.totalWaReachouts ?? 0;
     const replyRate = totalWaReachouts > 0 ? ((totalWaReplies / totalWaReachouts) * 100).toFixed(1) : '0';
 
     const realServiceDistribution = [
