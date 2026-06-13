@@ -66,10 +66,9 @@ export default function WhatsappDashboardPage() {
     }, [dateRange, fetchData]);
 
     // Compute metrics:
-    // Chat list = all leads with any WA activity in range (RPC handles this).
     // Unique Msg Sent = leads whose W.P_1 was sent in range (wp1_parsed_date).
-    // Messages Sent  = WP slots whose TS date falls in range.
-    // Total Replies  = all leads with a reply tracked (regardless of when W.P_1 was sent).
+    // Messages Sent   = total filled WP slots on those in-range leads.
+    // Total Replies   = all leads with a reply tracked.
     const stats = useMemo(() => {
         if (!waData) return { totalLeads: 0, sentCount: 0, uniqueSentCount: 0, totalReplies: 0, ownerReachouts: 0, ownerReplies: 0, ownerSent: 0, dailyTrend: [] as any[] };
 
@@ -83,59 +82,34 @@ export default function WhatsappDashboardPage() {
         const to = endOfDay(new Date(dateRange?.to || dateRange?.from || new Date())).getTime();
         const inRange = (t: number) => !from || (t >= from && t <= to);
 
-        // Parse TS string like "read - 12/3/2026, 9:53 am" → Date
-        const parseTsStr = (ts: string): Date | null => {
-            if (!ts) return null;
-            const lastDash = ts.lastIndexOf(' - ');
-            const datePart = lastDash !== -1 ? ts.slice(lastDash + 3).trim() : ts.trim();
-            const d = new Date(datePart.replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s*/, '$3-$2-$1 ').trim());
-            return isNaN(d.getTime()) ? null : d;
-        };
+        // Only leads where W.P_1 was sent within the selected date range
+        const inRangeLeads = allLeads.filter(lead => {
+            if (!lead["W.P_1"]) return false;
+            if (!lead.wp1_parsed_date) return true;
+            return inRange(new Date(lead.wp1_parsed_date).getTime());
+        });
 
         let sentCount = 0;
-        let uniqueSentCount = 0;
+        let uniqueSentCount = inRangeLeads.length;
         let totalReplies = 0;
         const dailyMap: Record<string, { reachouts: number; replies: number }> = {};
 
-        allLeads.forEach(lead => {
-            // Unique Msg Sent: W.P_1 sent within the selected date range
-            if (lead["W.P_1"] && lead.wp1_parsed_date) {
-                if (inRange(new Date(lead.wp1_parsed_date).getTime())) uniqueSentCount++;
-            } else if (lead["W.P_1"] && !lead.wp1_parsed_date) {
-                uniqueSentCount++;
-            }
-
-            // Messages Sent: WP slots whose TS date is in range
+        inRangeLeads.forEach(lead => {
+            // Messages Sent: all filled WP slots on this in-range lead
             for (let i = 1; i <= 12; i++) {
-                if (!lead[`W.P_${i}`]) continue;
-                const ts = lead[`W.P_${i} TS`];
-                if (ts) {
-                    const d = parseTsStr(String(ts));
-                    if (d && inRange(d.getTime())) sentCount++;
-                } else if (i === 1 && lead.wp1_parsed_date && inRange(new Date(lead.wp1_parsed_date).getTime())) {
-                    sentCount++;
-                } else if (i === 1 && !lead.wp1_parsed_date) {
-                    sentCount++;
-                }
+                if (lead[`W.P_${i}`]) sentCount++;
             }
-            if (lead["W.P_FollowUp"]) {
-                const fts = lead["W.P_FollowUp TS"];
-                if (!fts || (parseTsStr(String(fts)) && inRange(parseTsStr(String(fts))!.getTime()))) sentCount++;
-            }
+            if (lead["W.P_FollowUp"]) sentCount++;
             for (let i = 1; i <= 10; i++) {
-                const fSlot = lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`];
-                if (fSlot) {
-                    const fts = lead[`W.P_FollowUp_TS${i}`];
-                    if (!fts || (parseTsStr(String(fts)) && inRange(parseTsStr(String(fts))!.getTime()))) sentCount++;
-                }
+                if (lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`]) sentCount++;
             }
 
             const wp = lead.WP_Replied_track || lead["WP_Replied_track"];
             const hasReplied = !!(wp && String(wp).trim() && String(wp).trim().toLowerCase() !== "no" && String(wp).trim().toLowerCase() !== "none");
             if (hasReplied) totalReplies++;
 
-            // Daily trend bucketed by wp1_parsed_date (only leads with W.P_1 in range)
-            if (lead["W.P_1"] && lead.wp1_parsed_date && inRange(new Date(lead.wp1_parsed_date).getTime())) {
+            // Daily trend bucketed by wp1_parsed_date
+            if (lead.wp1_parsed_date) {
                 const dayKey = new Date(lead.wp1_parsed_date).toISOString().slice(0, 10);
                 if (!dailyMap[dayKey]) dailyMap[dayKey] = { reachouts: 0, replies: 0 };
                 dailyMap[dayKey].reachouts++;

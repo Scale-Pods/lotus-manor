@@ -53,7 +53,6 @@ export default function MasterDashboard() {
     });
 
     const {
-        leads: allLeads,
         masterMetrics,
         loadingMasterMetrics,
         refreshMasterMetrics,
@@ -68,32 +67,51 @@ export default function MasterDashboard() {
         });
     }, [dateRange, refreshMasterMetrics]);
 
-    // Fetch WA leads to compute accurate unique reachout count (same as chat/dashboard pages)
+    // Fetch WA leads — used for accurate unique reachout count AND the replies modal
     const [waUniqueSent, setWaUniqueSent] = useState<number | null>(null);
     const [waReplies, setWaReplies] = useState<number | null>(null);
+    const [waReplyLeads, setWaReplyLeads] = useState<any[]>([]);
+
     const fetchWaStats = useCallback(async (from: Date, to: Date) => {
         const fromISO = startOfDay(from).toISOString();
         const toISO = endOfDay(to).toISOString();
         const res = await fetch(`/api/whatsapp-leads?from=${encodeURIComponent(fromISO)}&to=${encodeURIComponent(toISO)}`);
         if (!res.ok) return;
         const data = await res.json();
-        const allLeadsWA = [...(data.nr_wf || []), ...(data.followup || []), ...(data.nurture || [])];
+        const allLeadsWA: any[] = [
+            ...(data.nr_wf || []),
+            ...(data.followup || []),
+            ...(data.nurture || []),
+        ];
         const rangeFrom = startOfDay(from).getTime();
         const rangeTo = endOfDay(to).getTime();
         let unique = 0;
-        let replies = 0;
+        const replied: any[] = [];
+
         allLeadsWA.forEach((lead: any) => {
             if (!lead["W.P_1"]) return;
-            const inRange = !lead.wp1_parsed_date || (() => {
-                const t = new Date(lead.wp1_parsed_date).getTime();
-                return t >= rangeFrom && t <= rangeTo;
-            })();
+            const t = lead.wp1_parsed_date ? new Date(lead.wp1_parsed_date).getTime() : null;
+            const inRange = !t || (t >= rangeFrom && t <= rangeTo);
             if (inRange) unique++;
+
             const wp = lead.WP_Replied_track || lead["WP_Replied_track"];
-            if (wp && String(wp).trim() && String(wp).trim().toLowerCase() !== "no" && String(wp).trim().toLowerCase() !== "none") replies++;
+            const hasReply = wp && String(wp).trim() && String(wp).trim().toLowerCase() !== "no" && String(wp).trim().toLowerCase() !== "none";
+            if (hasReply) {
+                // Normalize to lowercase keys for TotalRepliesView
+                replied.push({
+                    ...lead,
+                    id: lead["Lead ID"] || lead.id,
+                    name: lead["Name"] || lead.name || "Unknown",
+                    phone: lead["Phone"] || lead.phone || "",
+                    email: lead["Email"] || lead.email || "",
+                    WP_Replied_track: wp,
+                });
+            }
         });
+
         setWaUniqueSent(unique);
-        setWaReplies(replies);
+        setWaReplies(replied.length);
+        setWaReplyLeads(replied);
     }, []);
 
     useEffect(() => {
@@ -102,15 +120,6 @@ export default function MasterDashboard() {
     }, [dateRange, fetchWaStats]);
 
     const loading = loadingMasterMetrics;
-
-    // Replies modal — still needs raw leads for the detail view
-    const replyLeads = useMemo(() => {
-        if (!allLeads?.length) return [];
-        return allLeads.filter((lead: any) => {
-            const replyVal = lead["WP_Replied_track"];
-            return replyVal && replyVal !== "" && String(replyVal).toLowerCase() !== "no";
-        });
-    }, [allLeads]);
 
     // Acquisition chart from server-computed daily buckets
     const acquisitionChartData = useMemo(() => {
@@ -144,7 +153,7 @@ export default function MasterDashboard() {
                     <h1 className="text-2xl font-bold text-slate-900">Master Overview</h1>
                     <p className="text-slate-500">Holistic view of all your marketing channels performance.</p>
                 </div>
-                <DateRangePicker onUpdate={({ range, label }) => setDateRange(range)} />
+                <DateRangePicker onUpdate={({ range }) => setDateRange(range)} />
             </div>
 
             {/* Top Metric Cards */}
@@ -285,7 +294,7 @@ export default function MasterDashboard() {
                             Close
                         </Button>
                     </div>
-                    <TotalRepliesView leads={replyLeads} dateRange={dateRange} />
+                    <TotalRepliesView leads={waReplyLeads} dateRange={dateRange} />
                 </div>
             )}
 
@@ -296,7 +305,7 @@ export default function MasterDashboard() {
                         <DialogTitle>Total Replies - Detailed View</DialogTitle>
                     </DialogHeader>
                     <div className="py-4">
-                        <TotalRepliesView leads={replyLeads} dateRange={dateRange} />
+                        <TotalRepliesView leads={waReplyLeads} dateRange={dateRange} />
                     </div>
                 </DialogContent>
             </Dialog>

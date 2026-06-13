@@ -27,14 +27,6 @@ import { subDays, startOfDay, endOfDay, format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { LMLoader } from "@/components/lm-loader";
 
-// Parse TS string like "read - 12/3/2026, 9:53 am" → Date
-function parseTsStr(ts: string): Date | null {
-    if (!ts) return null;
-    const lastDash = ts.lastIndexOf(' - ');
-    const datePart = lastDash !== -1 ? ts.slice(lastDash + 3).trim() : ts.trim();
-    const d = new Date(datePart.replace(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),?\s*/, '$3-$2-$1 ').trim());
-    return isNaN(d.getTime()) ? null : d;
-}
 
 export default function WhatsappAnalyticsPage() {
     const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
@@ -80,42 +72,30 @@ export default function WhatsappAnalyticsPage() {
         let totalReplies = 0;
         const dailyMap: Record<string, { reachouts: number; replies: number }> = {};
 
-        allLeads.forEach(lead => {
-            if (lead["W.P_1"] && lead.wp1_parsed_date) {
-                if (inRange(new Date(lead.wp1_parsed_date).getTime())) uniqueSentCount++;
-            } else if (lead["W.P_1"] && !lead.wp1_parsed_date) {
-                uniqueSentCount++;
-            }
+        // Only leads where W.P_1 was sent within the selected date range
+        const inRangeLeads = allLeads.filter(lead => {
+            if (!lead["W.P_1"]) return false;
+            if (!lead.wp1_parsed_date) return true;
+            return inRange(new Date(lead.wp1_parsed_date).getTime());
+        });
 
+        uniqueSentCount = inRangeLeads.length;
+
+        inRangeLeads.forEach(lead => {
+            // Messages Sent: all filled WP slots on this in-range lead
             for (let i = 1; i <= 12; i++) {
-                if (!lead[`W.P_${i}`]) continue;
-                const ts = lead[`W.P_${i} TS`];
-                if (ts) {
-                    const d = parseTsStr(String(ts));
-                    if (d && inRange(d.getTime())) sentCount++;
-                } else if (i === 1 && lead.wp1_parsed_date && inRange(new Date(lead.wp1_parsed_date).getTime())) {
-                    sentCount++;
-                } else if (i === 1 && !lead.wp1_parsed_date) {
-                    sentCount++;
-                }
+                if (lead[`W.P_${i}`]) sentCount++;
             }
-            if (lead["W.P_FollowUp"]) {
-                const fts = lead["W.P_FollowUp TS"];
-                if (!fts || (parseTsStr(String(fts)) && inRange(parseTsStr(String(fts))!.getTime()))) sentCount++;
-            }
+            if (lead["W.P_FollowUp"]) sentCount++;
             for (let i = 1; i <= 10; i++) {
-                const fSlot = lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`];
-                if (fSlot) {
-                    const fts = lead[`W.P_FollowUp_TS${i}`];
-                    if (!fts || (parseTsStr(String(fts)) && inRange(parseTsStr(String(fts))!.getTime()))) sentCount++;
-                }
+                if (lead[`W.P_FollowUp_${i}`] || lead[`W.P_FollowUp ${i}`]) sentCount++;
             }
 
             const wp = lead.WP_Replied_track || lead["WP_Replied_track"];
             const hasReplied = !!(wp && String(wp).trim() && String(wp).trim().toLowerCase() !== "no" && String(wp).trim().toLowerCase() !== "none");
             if (hasReplied) totalReplies++;
 
-            if (lead["W.P_1"] && lead.wp1_parsed_date && inRange(new Date(lead.wp1_parsed_date).getTime())) {
+            if (lead.wp1_parsed_date) {
                 const dayKey = new Date(lead.wp1_parsed_date).toISOString().slice(0, 10);
                 if (!dailyMap[dayKey]) dailyMap[dayKey] = { reachouts: 0, replies: 0 };
                 dailyMap[dayKey].reachouts++;
